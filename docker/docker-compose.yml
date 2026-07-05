@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: callpilot
+      POSTGRES_USER: callpilot
+      POSTGRES_PASSWORD: callpilot_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U callpilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  callpilot-server:
+    build:
+      context: ../src
+      dockerfile: ../src/CallPilot.Server.Api/Dockerfile
+    ports:
+      - "5000:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Default: "Host=postgres;Database=callpilot;Username=callpilot;Password=callpilot_dev"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  callpilot-ai-engine:
+    build:
+      context: ../callpilot-ai-engine
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      PYTHONUNBUFFERED: 1
+    depends_on:
+      - callpilot-server
+
+  callpilot-dashboard:
+    build:
+      context: ../callpilot-dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:5000
+    depends_on:
+      - callpilot-server
+
+volumes:
+  pgdata:

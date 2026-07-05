@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>NU1903</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CallPilot.Server.Application\CallPilot.Server.Application.csproj" />
+    <ProjectReference Include="..\CallPilot.Server.Infrastructure\CallPilot.Server.Infrastructure.csproj" />
+    <ProjectReference Include="..\CallPilot.Server.Shared\CallPilot.Server.Shared.csproj" />
+  </ItemGroup>
+
+</Project>
