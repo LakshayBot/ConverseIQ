@@ -1,11 +1,13 @@
 using System.Text;
 using CallPilot.Server.Api.Endpoints;
 using CallPilot.Server.Api.Hubs;
+using CallPilot.Server.Api.Middleware;
+using CallPilot.Server.Api.Services;
 using CallPilot.Server.Application;
 using CallPilot.Server.Application.Features.Auth.Commands;
-using CallPilot.Server.Application.Features.Providers.Commands;
 using CallPilot.Server.Application.Features.Knowledge.Commands;
 using CallPilot.Server.Application.Features.Knowledge.Queries;
+using CallPilot.Server.Application.Features.Providers.Commands;
 using CallPilot.Server.Application.Features.Providers.Queries;
 using CallPilot.Server.Infrastructure.Data;
 using CallPilot.Server.Infrastructure.Services;
@@ -15,6 +17,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole(options =>
+{
+    options.IncludeScopes = true;
+    options.TimestampFormat = "yyyy-MM-ddTHH:mm:ssZ";
+});
 
 builder.Services.AddDbContext<CallPilotDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
@@ -49,10 +58,15 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 builder.Services.AddSignalR();
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+});
 
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IEncryptionService, EncryptionService>();
+builder.Services.AddScoped<HealthService>();
 
 builder.Services.AddScoped<RegisterHandler>();
 builder.Services.AddScoped<LoginHandler>();
@@ -64,6 +78,9 @@ builder.Services.AddScoped<GetKnowledgeHandler>();
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
+
+app.UseResponseCompression();
+app.UseDiagnostics();
 
 if (app.Environment.IsDevelopment())
 {
@@ -77,6 +94,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 app.MapAuthEndpoints();
 app.MapProviderEndpoints();
 app.MapKnowledgeEndpoints();
+app.MapDiagnosticsEndpoints();
 app.MapHub<MeetingHub>("/hubs/meeting");
 
 using (var scope = app.Services.CreateScope())
