@@ -1,9 +1,11 @@
 <Solution>
-  <Project Path="../callpilot-desktop/CallPilot.Desktop.csproj" />
-  <Project Path="CallPilot.Server.Api/CallPilot.Server.Api.csproj" />
-  <Project Path="CallPilot.Server.Application/CallPilot.Server.Application.csproj" />
-  <Project Path="CallPilot.Server.Domain/CallPilot.Server.Domain.csproj" />
-  <Project Path="CallPilot.Server.Infrastructure/CallPilot.Server.Infrastructure.csproj" />
-  <Project Path="CallPilot.Server.Shared/CallPilot.Server.Shared.csproj" />
-  <Project Path="CallPilot.Server.Tests/CallPilot.Server.Tests.csproj" />
+  <Folder Name="/Server/" />
+  <Folder Name="/Infrastructure/" />
+  <Project Path="CallPilot.Desktop/CallPilot.Desktop.csproj" />
+  <Project Path="CallPilot.Server/CallPilot.Server.Api/CallPilot.Server.Api.csproj" Folder="/Server/" />
+  <Project Path="CallPilot.Server/CallPilot.Server.Application/CallPilot.Server.Application.csproj" Folder="/Server/" />
+  <Project Path="CallPilot.Server/CallPilot.Server.Domain/CallPilot.Server.Domain.csproj" Folder="/Server/" />
+  <Project Path="CallPilot.Server/CallPilot.Server.Infrastructure/CallPilot.Server.Infrastructure.csproj" Folder="/Infrastructure/" />
+  <Project Path="CallPilot.Server/CallPilot.Server.Shared/CallPilot.Server.Shared.csproj" Folder="/Infrastructure/" />
+  <Project Path="CallPilot.Server/CallPilot.Server.Tests/CallPilot.Server.Tests.csproj" Folder="/Server/" />
 </Solution>

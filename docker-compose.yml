@@ -1,6 +1,7 @@
 services:
   postgres:
     image: pgvector/pgvector:pg17
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-callpilot}
       POSTGRES_USER: ${POSTGRES_USER:-callpilot}
@@ -8,68 +9,81 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-callpilot}"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
 
-  callpilot-server:
+  ai-engine:
     build:
-      context: ../src
-      dockerfile: CallPilot.Server.Api/Dockerfile
+      context: .
+      dockerfile: src/docker/Dockerfile.ai-engine
+    restart: unless-stopped
     ports:
-      - "${SERVER_PORT:-5000}:8080"
+      - "8001:8001"
     environment:
-      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
-      ConnectionStrings__Default: "Host=postgres;Database=${POSTGRES_DB:-callpilot};Username=${POSTGRES_USER:-callpilot};Password=${POSTGRES_PASSWORD:-callpilot_dev}"
-      Jwt__Secret: ${JWT_SECRET:-ThisIsADevelopmentSecretKeyThatShouldBeReplacedInProduction!}
-      Jwt__Issuer: ${JWT_ISSUER:-CallPilot}
-      Jwt__Audience: ${JWT_AUDIENCE:-CallPilot}
-      Encryption__Key: ${ENCRYPTION_KEY:-a3vFvaHHBcX1kIB0A1HstGpOXGX4wm88cZNR4vurtiY=}
+      WHISPER_MODEL_SIZE: ${WHISPER_MODEL_SIZE:-tiny}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+      PYTHONUNBUFFERED: "1"
     depends_on:
       postgres:
         condition: service_healthy
-    restart: unless-stopped
 
-  callpilot-ai-engine:
+  server:
     build:
-      context: ../callpilot-ai-engine
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: src/docker/Dockerfile.server
+    restart: unless-stopped
     ports:
-      - "${AI_ENGINE_PORT:-8000}:8000"
+      - "5000:5000"
     environment:
-      PYTHONUNBUFFERED: 1
-      AI_ENGINE_WHISPER_MODEL: ${AI_ENGINE_WHISPER_MODEL:-base}
-      AI_ENGINE_DEVICE: ${AI_ENGINE_DEVICE:-cpu}
+      ConnectionStrings__DefaultConnection: >-
+        Host=postgres;Database=${POSTGRES_DB:-callpilot};
+        Username=${POSTGRES_USER:-callpilot};
+        Password=${POSTGRES_PASSWORD:-callpilot_dev}
+      Jwt__Secret: ${JWT_SECRET:-Change-This-To-A-Random-Secret-Of-At-Least-32-Characters}
+      Jwt__Issuer: ${JWT_ISSUER:-CallPilot}
+      Jwt__Audience: ${JWT_AUDIENCE:-CallPilot}
+      Jwt__AccessTokenExpiryMinutes: "${JWT_ACCESS_TOKEN_EXPIRY_MINUTES:-60}"
+      Jwt__RefreshTokenExpiryDays: "${JWT_REFRESH_TOKEN_EXPIRY_DAYS:-7}"
+      Encryption__Key: ${ENCRYPTION_KEY:-YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY=}
+      AiEngine__BaseUrl: http://ai-engine:8001
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+    volumes:
+      - server_uploads:/app/uploads
     depends_on:
-      - callpilot-server
-    restart: unless-stopped
+      postgres:
+        condition: service_healthy
+      ai-engine:
+        condition: service_started
 
-  callpilot-dashboard:
+  dashboard:
     build:
-      context: ../callpilot-dashboard
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: src/docker/Dockerfile.dashboard
+    restart: unless-stopped
     ports:
-      - "${DASHBOARD_PORT:-3000}:3000"
+      - "3000:3000"
     environment:
+      NODE_ENV: production
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5000}
     depends_on:
-      - callpilot-server
-    restart: unless-stopped
+      - server
 
   ollama:
     image: ollama/ollama:latest
-    profiles:
-      - local-ai
+    restart: unless-stopped
     ports:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    restart: unless-stopped
+    profiles:
+      - ollama
 
 volumes:
-  pgdata:
+  postgres_data:
+  server_uploads:
   ollama_data:

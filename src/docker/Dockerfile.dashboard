@@ -1,0 +1,29 @@
+# Stage 1: Build
+FROM node:22-alpine AS build
+WORKDIR /app
+
+COPY src/callpilot-dashboard/package.json src/callpilot-dashboard/package-lock.json* ./
+RUN npm ci
+
+COPY src/callpilot-dashboard/ ./
+RUN npm run build
+
+# Stage 2: Runtime
+FROM node:22-alpine AS runtime
+WORKDIR /app
+
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+COPY --from=build /app/.next/standalone ./
+COPY --from=build /app/.next/static ./.next/static
+
+USER appuser
+EXPOSE 3000
+
+ENV NODE_ENV=production
+ENV PORT=3000
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD wget -qO- http://localhost:3000 || exit 1
+
+CMD ["node", "server.js"]

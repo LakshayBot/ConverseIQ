@@ -1,0 +1,35 @@
+# Stage 1: Build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+
+COPY src/CallPilot.slnx ./
+COPY src/CallPilot.Server/CallPilot.Server.Api/CallPilot.Server.Api.csproj ./CallPilot.Server/CallPilot.Server.Api/
+COPY src/CallPilot.Server/CallPilot.Server.Application/CallPilot.Server.Application.csproj ./CallPilot.Server/CallPilot.Server.Application/
+COPY src/CallPilot.Server/CallPilot.Server.Domain/CallPilot.Server.Domain.csproj ./CallPilot.Server/CallPilot.Server.Domain/
+COPY src/CallPilot.Server/CallPilot.Server.Infrastructure/CallPilot.Server.Infrastructure.csproj ./CallPilot.Server/CallPilot.Server.Infrastructure/
+COPY src/CallPilot.Server/CallPilot.Server.Shared/CallPilot.Server.Shared.csproj ./CallPilot.Server/CallPilot.Server.Shared/
+
+RUN dotnet restore CallPilot.Server/CallPilot.Server.Api/CallPilot.Server.Api.csproj
+
+COPY src/CallPilot.Server/ ./CallPilot.Server/
+
+RUN dotnet publish CallPilot.Server/CallPilot.Server.Api/CallPilot.Server.Api.csproj \
+    -c Release -o /app --no-restore
+
+# Stage 2: Runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
+WORKDIR /app
+
+RUN mkdir -p /app/uploads
+
+COPY --from=build /app ./
+
+EXPOSE 5000
+
+ENV ASPNETCORE_URLS=http://+:5000
+ENV ASPNETCORE_ENVIRONMENT=Production
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
+    CMD curl -f http://localhost:5000/health || exit 1
+
+ENTRYPOINT ["dotnet", "CallPilot.Server.Api.dll"]

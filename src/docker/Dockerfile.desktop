@@ -1,0 +1,15 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+
+WORKDIR /src
+COPY src/CallPilot.slnx ./
+COPY src/CallPilot.Desktop/ ./CallPilot.Desktop/
+
+RUN dotnet restore CallPilot.Desktop/CallPilot.Desktop.csproj
+RUN dotnet publish CallPilot.Desktop/CallPilot.Desktop.csproj -c Release -o /app --self-contained false
+
+FROM mcr.microsoft.com/dotnet/runtime:10.0
+
+WORKDIR /app
+COPY --from=build /app .
+
+ENTRYPOINT ["dotnet", "callpilot-desktop.dll"]
