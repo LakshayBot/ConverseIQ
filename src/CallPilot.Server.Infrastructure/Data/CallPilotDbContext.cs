@@ -12,9 +12,13 @@ public class CallPilotDbContext : DbContext, IApplicationDbContext
     public DbSet<ProviderConfiguration> ProviderConfigurations => Set<ProviderConfiguration>();
     public DbSet<Meeting> Meetings => Set<Meeting>();
     public DbSet<TranscriptSegment> TranscriptSegments => Set<TranscriptSegment>();
+    public DbSet<KnowledgeDocument> KnowledgeDocuments => Set<KnowledgeDocument>();
+    public DbSet<KnowledgeChunk> KnowledgeChunks => Set<KnowledgeChunk>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.HasPostgresExtension("vector");
+
         modelBuilder.Entity<User>(e =>
         {
             e.HasKey(u => u.Id);
@@ -56,6 +60,28 @@ public class CallPilotDbContext : DbContext, IApplicationDbContext
             e.HasOne(t => t.Meeting)
                 .WithMany(m => m.TranscriptSegments)
                 .HasForeignKey(t => t.MeetingId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<KnowledgeDocument>(e =>
+        {
+            e.HasKey(d => d.Id);
+            e.Property(d => d.FileName).HasMaxLength(512).IsRequired();
+            e.Property(d => d.ContentType).HasMaxLength(128).IsRequired();
+            e.Property(d => d.ProcessingStatus).HasMaxLength(32).IsRequired();
+            e.HasOne(d => d.User)
+                .WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasQueryFilter(d => d.DeletedAt == null);
+        });
+
+        modelBuilder.Entity<KnowledgeChunk>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.HasOne(c => c.Document)
+                .WithMany(d => d.Chunks)
+                .HasForeignKey(c => c.DocumentId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

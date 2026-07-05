@@ -9,5 +9,7 @@ public interface IApplicationDbContext
     DbSet<ProviderConfiguration> ProviderConfigurations { get; }
     DbSet<Meeting> Meetings { get; }
     DbSet<TranscriptSegment> TranscriptSegments { get; }
+    DbSet<KnowledgeDocument> KnowledgeDocuments { get; }
+    DbSet<KnowledgeChunk> KnowledgeChunks { get; }
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

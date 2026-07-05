@@ -4,6 +4,7 @@ import time
 from fastapi import FastAPI, HTTPException
 
 from app.models.models import AiTask, AiResponse
+from app.workers.embedding_worker import EmbeddingWorker
 from app.workers.speech_worker import SpeechWorker
 from app.workers.speaker_worker import SpeakerWorker
 
@@ -17,6 +18,7 @@ app = FastAPI(title="CallPilot AI Engine")
 _workers = {
     "TranscribeAudio": SpeechWorker(),
     "DetectSpeakers": SpeakerWorker(),
+    "GenerateEmbeddings": EmbeddingWorker(),
 }
 
 

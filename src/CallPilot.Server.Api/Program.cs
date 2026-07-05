@@ -4,6 +4,8 @@ using CallPilot.Server.Api.Hubs;
 using CallPilot.Server.Application;
 using CallPilot.Server.Application.Features.Auth.Commands;
 using CallPilot.Server.Application.Features.Providers.Commands;
+using CallPilot.Server.Application.Features.Knowledge.Commands;
+using CallPilot.Server.Application.Features.Knowledge.Queries;
 using CallPilot.Server.Application.Features.Providers.Queries;
 using CallPilot.Server.Infrastructure.Data;
 using CallPilot.Server.Infrastructure.Services;
@@ -56,6 +58,8 @@ builder.Services.AddScoped<RegisterHandler>();
 builder.Services.AddScoped<LoginHandler>();
 builder.Services.AddScoped<SaveProviderHandler>();
 builder.Services.AddScoped<GetProvidersHandler>();
+builder.Services.AddScoped<UploadKnowledgeHandler>();
+builder.Services.AddScoped<GetKnowledgeHandler>();
 
 builder.Services.AddOpenApi();
 
@@ -72,6 +76,7 @@ app.UseAuthorization();
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 app.MapAuthEndpoints();
 app.MapProviderEndpoints();
+app.MapKnowledgeEndpoints();
 app.MapHub<MeetingHub>("/hubs/meeting");
 
 using (var scope = app.Services.CreateScope())
