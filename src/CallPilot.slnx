@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="../callpilot-desktop/CallPilot.Desktop.csproj" />
   <Project Path="CallPilot.Server.Api/CallPilot.Server.Api.csproj" />
   <Project Path="CallPilot.Server.Application/CallPilot.Server.Application.csproj" />
   <Project Path="CallPilot.Server.Domain/CallPilot.Server.Domain.csproj" />

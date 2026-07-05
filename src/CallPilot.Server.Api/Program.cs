@@ -1,5 +1,6 @@
 using System.Text;
 using CallPilot.Server.Api.Endpoints;
+using CallPilot.Server.Api.Hubs;
 using CallPilot.Server.Application;
 using CallPilot.Server.Application.Features.Auth.Commands;
 using CallPilot.Server.Application.Features.Providers.Commands;
@@ -45,6 +46,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization();
+builder.Services.AddSignalR();
 
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<IJwtService, JwtService>();
@@ -70,6 +72,7 @@ app.UseAuthorization();
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 app.MapAuthEndpoints();
 app.MapProviderEndpoints();
+app.MapHub<MeetingHub>("/hubs/meeting");
 
 using (var scope = app.Services.CreateScope())
 {

@@ -10,6 +10,8 @@ public class CallPilotDbContext : DbContext, IApplicationDbContext
 
     public DbSet<User> Users => Set<User>();
     public DbSet<ProviderConfiguration> ProviderConfigurations => Set<ProviderConfiguration>();
+    public DbSet<Meeting> Meetings => Set<Meeting>();
+    public DbSet<TranscriptSegment> TranscriptSegments => Set<TranscriptSegment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -34,6 +36,27 @@ public class CallPilotDbContext : DbContext, IApplicationDbContext
                 .HasForeignKey(p => p.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
             e.HasQueryFilter(p => p.DeletedAt == null);
+        });
+
+        modelBuilder.Entity<Meeting>(e =>
+        {
+            e.HasKey(m => m.Id);
+            e.Property(m => m.State).HasMaxLength(64).IsRequired();
+            e.HasOne(m => m.User)
+                .WithMany()
+                .HasForeignKey(m => m.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasQueryFilter(m => m.DeletedAt == null);
+        });
+
+        modelBuilder.Entity<TranscriptSegment>(e =>
+        {
+            e.HasKey(t => t.Id);
+            e.HasIndex(t => new { t.MeetingId, t.Sequence });
+            e.HasOne(t => t.Meeting)
+                .WithMany(m => m.TranscriptSegments)
+                .HasForeignKey(t => t.MeetingId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }
