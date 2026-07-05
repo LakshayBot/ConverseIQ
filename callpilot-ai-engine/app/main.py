@@ -7,6 +7,7 @@ from app.models.models import AiTask, AiResponse
 from app.workers.embedding_worker import EmbeddingWorker
 from app.workers.entity_worker import EntityWorker
 from app.workers.intent_worker import IntentWorker
+from app.workers.recommendation_worker import RecommendationWorker
 from app.workers.speech_worker import SpeechWorker
 from app.workers.speaker_worker import SpeakerWorker
 
@@ -22,6 +23,7 @@ _workers = {
     "DetectSpeakers": SpeakerWorker(),
     "ExtractEntities": EntityWorker(),
     "DetectEvents": IntentWorker(),
+    "GenerateRecommendations": RecommendationWorker(),
     "GenerateEmbeddings": EmbeddingWorker(),
 }
 

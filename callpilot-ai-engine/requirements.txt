@@ -6,3 +6,4 @@ faster-whisper==1.1.0
 numpy==2.1.0
 soundfile>=0.12.0
 sentence-transformers>=3.0.0
+httpx>=0.27.0

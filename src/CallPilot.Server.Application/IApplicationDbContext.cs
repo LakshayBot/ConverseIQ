@@ -12,5 +12,6 @@ public interface IApplicationDbContext
     DbSet<KnowledgeDocument> KnowledgeDocuments { get; }
     DbSet<KnowledgeChunk> KnowledgeChunks { get; }
     DbSet<ConversationEvent> ConversationEvents { get; }
+    DbSet<Recommendation> Recommendations { get; }
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

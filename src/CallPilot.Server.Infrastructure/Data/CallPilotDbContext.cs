@@ -15,6 +15,7 @@ public class CallPilotDbContext : DbContext, IApplicationDbContext
     public DbSet<KnowledgeDocument> KnowledgeDocuments => Set<KnowledgeDocument>();
     public DbSet<KnowledgeChunk> KnowledgeChunks => Set<KnowledgeChunk>();
     public DbSet<ConversationEvent> ConversationEvents => Set<ConversationEvent>();
+    public DbSet<Recommendation> Recommendations => Set<Recommendation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -94,6 +95,17 @@ public class CallPilotDbContext : DbContext, IApplicationDbContext
             e.HasOne(ce => ce.Meeting)
                 .WithMany()
                 .HasForeignKey(ce => ce.MeetingId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Recommendation>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.RecommendationType).HasMaxLength(64).IsRequired();
+            e.Property(r => r.Title).HasMaxLength(256).IsRequired();
+            e.HasOne(r => r.Meeting)
+                .WithMany()
+                .HasForeignKey(r => r.MeetingId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }
