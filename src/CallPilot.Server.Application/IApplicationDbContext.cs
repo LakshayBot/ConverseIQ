@@ -11,5 +11,6 @@ public interface IApplicationDbContext
     DbSet<TranscriptSegment> TranscriptSegments { get; }
     DbSet<KnowledgeDocument> KnowledgeDocuments { get; }
     DbSet<KnowledgeChunk> KnowledgeChunks { get; }
+    DbSet<ConversationEvent> ConversationEvents { get; }
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

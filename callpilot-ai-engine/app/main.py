@@ -5,6 +5,8 @@ from fastapi import FastAPI, HTTPException
 
 from app.models.models import AiTask, AiResponse
 from app.workers.embedding_worker import EmbeddingWorker
+from app.workers.entity_worker import EntityWorker
+from app.workers.intent_worker import IntentWorker
 from app.workers.speech_worker import SpeechWorker
 from app.workers.speaker_worker import SpeakerWorker
 
@@ -18,6 +20,8 @@ app = FastAPI(title="CallPilot AI Engine")
 _workers = {
     "TranscribeAudio": SpeechWorker(),
     "DetectSpeakers": SpeakerWorker(),
+    "ExtractEntities": EntityWorker(),
+    "DetectEvents": IntentWorker(),
     "GenerateEmbeddings": EmbeddingWorker(),
 }
 

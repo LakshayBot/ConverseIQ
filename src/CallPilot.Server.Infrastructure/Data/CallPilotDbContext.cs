@@ -14,6 +14,7 @@ public class CallPilotDbContext : DbContext, IApplicationDbContext
     public DbSet<TranscriptSegment> TranscriptSegments => Set<TranscriptSegment>();
     public DbSet<KnowledgeDocument> KnowledgeDocuments => Set<KnowledgeDocument>();
     public DbSet<KnowledgeChunk> KnowledgeChunks => Set<KnowledgeChunk>();
+    public DbSet<ConversationEvent> ConversationEvents => Set<ConversationEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -82,6 +83,17 @@ public class CallPilotDbContext : DbContext, IApplicationDbContext
             e.HasOne(c => c.Document)
                 .WithMany(d => d.Chunks)
                 .HasForeignKey(c => c.DocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ConversationEvent>(e =>
+        {
+            e.HasKey(ce => ce.Id);
+            e.Property(ce => ce.EventType).HasMaxLength(128).IsRequired();
+            e.HasIndex(ce => new { ce.MeetingId, ce.EventType });
+            e.HasOne(ce => ce.Meeting)
+                .WithMany()
+                .HasForeignKey(ce => ce.MeetingId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }
