@@ -163,6 +163,20 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<CallPilotDbContext>();
+    try
+    {
+        await db.Database.MigrateAsync();
+        Log.Information("Database migrations applied successfully");
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "Failed to apply database migrations");
+    }
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
