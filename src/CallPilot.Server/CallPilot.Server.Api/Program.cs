@@ -168,12 +168,13 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<CallPilotDbContext>();
     try
     {
-        await db.Database.MigrateAsync();
-        Log.Information("Database migrations applied successfully");
+        await db.Database.EnsureCreatedAsync();
+        Log.Information("Database schema ensured");
     }
     catch (Exception ex)
     {
-        Log.Error(ex, "Failed to apply database migrations");
+        Log.Error(ex, "Failed to ensure database schema");
+        throw;
     }
 }
 
