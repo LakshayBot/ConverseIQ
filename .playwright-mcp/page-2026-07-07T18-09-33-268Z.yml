@@ -1,0 +1,17 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - heading "CallPilot AI" [level=1] [ref=e5]
+      - paragraph [ref=e6]: Real-Time Sales Intelligence
+    - generic [ref=e7]:
+      - heading "Sign In" [level=2] [ref=e8]
+      - generic [ref=e9]:
+        - generic [ref=e10]:
+          - generic [ref=e11]: Email
+          - textbox "you@company.com" [ref=e12]
+        - generic [ref=e13]:
+          - generic [ref=e14]: Password
+          - textbox "Min 8 characters" [ref=e15]
+        - button "Sign In" [ref=e16]
+      - button "Don't have an account? Register" [ref=e18]
+  - alert [ref=e19]
