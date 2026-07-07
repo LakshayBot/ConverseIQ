@@ -22,8 +22,8 @@ public class AuthenticationServiceTests
                 refreshTokenExpiresAt = DateTime.UtcNow.AddDays(7)
             }));
 
-        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:5000") };
-        var config = new AgentConfiguration { ServerUrl = "http://localhost:5000" };
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:5001") };
+        var config = new AgentConfiguration { ServerUrl = "http://localhost:5001" };
         var logger = Mock.Of<ILogger<AuthenticationService>>();
         var service = new AuthenticationService(httpClient, config, logger);
 
@@ -40,7 +40,7 @@ public class AuthenticationServiceTests
         var handler = new MockHttpMessageHandler();
         handler.Setup(HttpMethod.Post, "/api/v1/auth/login", HttpStatusCode.Unauthorized);
 
-        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:5000") };
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:5001") };
         var config = new AgentConfiguration();
         var logger = Mock.Of<ILogger<AuthenticationService>>();
         var service = new AuthenticationService(httpClient, config, logger);
@@ -63,7 +63,7 @@ public class AuthenticationServiceTests
                 refreshTokenExpiresAt = DateTime.UtcNow.AddDays(7)
             }));
 
-        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:5000") };
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:5001") };
         var config = new AgentConfiguration
         {
             AccessToken = "old-access-token",
@@ -82,7 +82,7 @@ public class AuthenticationServiceTests
     [Fact]
     public async Task RefreshToken_NoToken_ReturnsFalse()
     {
-        var httpClient = new HttpClient { BaseAddress = new Uri("http://localhost:5000") };
+        var httpClient = new HttpClient { BaseAddress = new Uri("http://localhost:5001") };
         var config = new AgentConfiguration();
         var logger = Mock.Of<ILogger<AuthenticationService>>();
         var service = new AuthenticationService(httpClient, config, logger);

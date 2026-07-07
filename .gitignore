@@ -61,3 +61,4 @@ logs/
 secrets/
 uploads/
 .opencode/
+.next/

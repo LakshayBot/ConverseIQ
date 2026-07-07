@@ -11,7 +11,7 @@ if command -v docker >/dev/null 2>&1; then
 fi
 
 # Start server
-echo "Starting CallPilot Server on http://localhost:5000..."
+echo "Starting CallPilot Server on http://localhost:5001..."
 dotnet run --project src/CallPilot.Server/CallPilot.Server.Api &
 SERVER_PID=$!
 
@@ -35,7 +35,7 @@ cd ../..
 echo ""
 echo "================================================"
 echo " Services Started:"
-echo "  Server:    http://localhost:5000"
+echo "  Server:    http://localhost:5001"
 echo "  AI Engine: http://localhost:8001"
 echo "  Dashboard: http://localhost:3000"
 echo "================================================"

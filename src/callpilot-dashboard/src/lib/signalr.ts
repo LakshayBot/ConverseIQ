@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { HubConnectionBuilder, HubConnection, LogLevel } from '@microsoft/signalr';
 import { getAccessToken } from './api';
 
-const HUB_URL = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/hubs/desktop-agent`;
+const HUB_URL = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001'}/hubs/desktop-agent`;
 
 interface TranscriptEvent {
   speaker: string;

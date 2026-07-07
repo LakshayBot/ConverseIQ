@@ -2,7 +2,7 @@ namespace CallPilot.Desktop.Models;
 
 public class AgentConfiguration
 {
-    public string ServerUrl { get; set; } = "http://localhost:5000";
+    public string ServerUrl { get; set; } = "http://localhost:5001";
     public string? AccessToken { get; set; }
     public string? RefreshToken { get; set; }
     public string? MeetingId { get; set; }

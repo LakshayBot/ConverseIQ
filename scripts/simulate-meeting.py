@@ -9,7 +9,7 @@ Usage:
     python3 scripts/simulate-meeting.py
 
 Requirements:
-    - CallPilot Server running on http://localhost:5000
+    - CallPilot Server running on http://localhost:5001
     - AI Engine running on http://localhost:8001
     - PostgreSQL running (for persistence)
 """
@@ -21,7 +21,7 @@ import time
 import urllib.request
 import urllib.error
 
-SERVER = os.environ.get("CALLPILOT_SERVER", "http://localhost:5000")
+SERVER = os.environ.get("CALLPILOT_SERVER", "http://localhost:5001")
 AI_ENGINE = os.environ.get("CALLPILOT_AI", "http://localhost:8001")
 EMAIL = "demo@callpilot.dev"
 PASSWORD = "TestPass123!"
@@ -307,7 +307,7 @@ def main():
     print(f"  Sentences:       {len(CONVERSATION)}")
     print(f"  Events:          {total_events}")
     print(f"  Recommendations: {len(recs_list) if recs_list else 0}")
-    print(f"  Dashboard URL:   {color(SERVER.replace('5000', '3000'), 'cyan')}/meeting/{meeting_id}")
+    print(f"  Dashboard URL:   {color(SERVER.replace('5001', '3000'), 'cyan')}/meeting/{meeting_id}")
     print(color("══════════════════════════════════════════════════════════════════════", "bold"))
     print()
 

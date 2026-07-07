@@ -11,7 +11,7 @@ public class DesktopModelTests
     {
         var config = new AgentConfiguration();
 
-        Assert.Equal("http://localhost:5000", config.ServerUrl);
+        Assert.Equal("http://localhost:5001", config.ServerUrl);
         Assert.True(config.EnableMicrophone);
         Assert.True(config.EnableDesktopAudio);
         Assert.Equal(16000, config.SampleRate);

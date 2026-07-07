@@ -68,12 +68,12 @@ dotnet ef database update \
 # Start the server
 dotnet run --project src/CallPilot.Server/CallPilot.Server.Api
 
-# Verify: server should log "Now listening on: http://[::]:5000"
+# Verify: server should log "Now listening on: http://[::]:5001"
 ```
 
 **Verify the server is running** (in another terminal):
 ```bash
-curl http://localhost:5000/health
+curl http://localhost:5001/health
 # Expected: {"status":"Healthy","timestamp":"2026-..."}
 ```
 
@@ -131,7 +131,7 @@ Or open **http://localhost:3000** in your browser.
 
 **Register a user:**
 ```bash
-curl -X POST http://localhost:5000/api/v1/auth/register \
+curl -X POST http://localhost:5001/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{"email":"demo@callpilot.dev","password":"TestPass123!","confirmPassword":"TestPass123!"}'
 # Expected: {"id":"...","email":"demo@callpilot.dev","createdAt":"..."}
@@ -139,7 +139,7 @@ curl -X POST http://localhost:5000/api/v1/auth/register \
 
 **Login:**
 ```bash
-curl -X POST http://localhost:5000/api/v1/auth/login \
+curl -X POST http://localhost:5001/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"demo@callpilot.dev","password":"TestPass123!"}'
 # Expected: {"accessToken":"eyJ...","refreshToken":"...","accessTokenExpiresAt":"..."}
@@ -148,7 +148,7 @@ curl -X POST http://localhost:5000/api/v1/auth/login \
 **Create a meeting:**
 ```bash
 # Replace YOUR_TOKEN with the accessToken from login
-curl -X POST http://localhost:5000/api/v1/meetings \
+curl -X POST http://localhost:5001/api/v1/meetings \
   -H "Authorization: Bearer YOUR_TOKEN"
 # Expected: {"meetingId":"...","status":"Streaming"}
 ```
@@ -157,7 +157,7 @@ curl -X POST http://localhost:5000/api/v1/meetings \
 ```bash
 echo "# Product Features\n\nFeature 1, Feature 2, Feature 3" > /tmp/test.md
 
-curl -X POST http://localhost:5000/api/v1/knowledge/upload \
+curl -X POST http://localhost:5001/api/v1/knowledge/upload \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -F "file=@/tmp/test.md;type=text/markdown"
 # Expected: {"id":"...","fileName":"test.md","processingStatus":"Indexed",...}
@@ -165,7 +165,7 @@ curl -X POST http://localhost:5000/api/v1/knowledge/upload \
 
 **Configure an AI Provider (optional for LLM recommendations):**
 ```bash
-curl -X POST http://localhost:5000/api/v1/providers \
+curl -X POST http://localhost:5001/api/v1/providers \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"providerType":"Ollama","model":"llama3.2","endpoint":"http://localhost:11434","apiKey":"none","temperature":0.7,"maxTokens":4096,"timeoutSeconds":60}'
@@ -192,7 +192,7 @@ cd ConverseIQ
 dotnet run --project src/CallPilot.Desktop -- start \
   --email demo@callpilot.dev \
   --password TestPass123! \
-  --server-url http://localhost:5000
+  --server-url http://localhost:5001
 ```
 
 **Requirements:**
@@ -255,7 +255,7 @@ docker compose ps
 |---------|------|-------------|
 | PostgreSQL + pgvector | 5432 | pg_isready |
 | AI Engine | 8001 | GET /health |
-| CallPilot Server | 5000 | GET /health |
+| CallPilot Server | 5001 | GET /health |
 | Dashboard | 3000 | GET / |
 
 **Stop everything:**

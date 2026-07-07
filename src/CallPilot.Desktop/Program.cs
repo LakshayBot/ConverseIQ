@@ -8,7 +8,7 @@ using Serilog;
 
 var agentConfig = new AgentConfiguration();
 
-var serverUrlOption = new Option<string>("--server-url", () => "http://localhost:5000", "CallPilot Server URL");
+var serverUrlOption = new Option<string>("--server-url", () => "http://localhost:5001", "CallPilot Server URL");
 var emailOption = new Option<string>("--email", "Account email address");
 var passwordOption = new Option<string>("--password", "Account password");
 var micOption = new Option<bool>("--enable-mic", () => true, "Enable microphone capture");

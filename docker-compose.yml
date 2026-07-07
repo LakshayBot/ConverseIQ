@@ -38,7 +38,7 @@ services:
       dockerfile: src/docker/Dockerfile.server
     restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "5001:5001"
     environment:
       ConnectionStrings__DefaultConnection: >-
         Host=postgres;Database=${POSTGRES_DB:-callpilot};
@@ -69,7 +69,7 @@ services:
       - "3000:3000"
     environment:
       NODE_ENV: production
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5000}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5001}
     depends_on:
       - server
 
