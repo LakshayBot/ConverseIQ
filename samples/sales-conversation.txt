@@ -1,0 +1,39 @@
+# Sample Sales Meeting Conversation
+
+## Participants
+- **Alex (Salesperson)** — Account Executive at CallPilot AI
+- **Sarah (Customer)** — VP of Sales at TechFlow Inc, a 200-person SaaS company
+
+---
+
+**Sarah:** Hi Alex, thanks for taking the time today. We've been using Salesforce for about 3 years now, but I'll be honest — the pricing has started to become a real concern for us.
+
+**Alex:** Thanks for sharing that, Sarah. Pricing is actually one of the top reasons companies reach out to us. Can you tell me more about what's changed?
+
+**Sarah:** Well, we just crossed 50 users and our annual bill jumped to nearly $90,000. For a company our size, that's starting to feel really expensive. We're evaluating alternatives right now — we've also been looking at HubSpot.
+
+**Alex:** That makes total sense. Many of our customers were in the exact same position. Let me ask — besides pricing, what are the key things you need from a CRM solution?
+
+**Sarah:** We need solid pipeline management, good reporting, and something our reps will actually use. Our team finds Salesforce really complex. Also, I need something that integrates with our existing tools — we use Slack heavily and we have Jira for our engineering team.
+
+**Alex:** Those are all areas where we can help. On the complexity point — our customers typically see 40% higher adoption rates because the interface is much simpler. And we have native Slack and Jira integrations.
+
+**Sarah:** That's interesting. What about security? We're SOC 2 and our security team will need to review anything we bring in. Do you support SAML for SSO?
+
+**Alex:** Great question. Yes, we're SOC 2 Type II certified and we fully support SAML, OAuth, and RBAC. We can set up a call with our security team to walk through the details.
+
+**Sarah:** Okay, that's reassuring. What would migration look like? I'm a bit worried about switching costs and data migration from Salesforce. We have a lot of historical data in there.
+
+**Alex:** Migration typically takes about a week. We have a dedicated migration team that handles the entire process, including data mapping and validation. Most customers are fully transitioned within 5 business days with zero data loss.
+
+**Sarah:** That sounds promising. Can you send me pricing for a team of around 55 users? And what would the timeline look like if we wanted to move forward?
+
+**Alex:** Absolutely, I'll send you a detailed proposal today. For 55 users, our Professional plan would be $79 per user per month, which comes out to about $52,000 annually — that's roughly 40% less than what you're paying now. And we can typically have you up and running within 2 weeks.
+
+**Sarah:** Wow, that's a significant savings. We need this soon — our Salesforce renewal is coming up in about 6 weeks. Can we schedule a demo for my team next week?
+
+**Alex:** I'd love to. How about Tuesday at 2pm? I'll bring our solutions engineer so we can walk through the technical questions as well.
+
+**Sarah:** Tuesday works. Send me the invite and the pricing proposal. I'm excited to see what you can do.
+
+**Alex:** Will do, Sarah. Looking forward to it!

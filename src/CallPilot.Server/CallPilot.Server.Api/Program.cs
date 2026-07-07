@@ -121,9 +121,12 @@ builder.Services.AddHttpClient("LlmClient", client =>
     policy.WaitAndRetryAsync(2, retryAttempt =>
         TimeSpan.FromMilliseconds(Math.Pow(2, retryAttempt) * 1000)));
 
-builder.Services.AddScoped<AiCoordinatorService>();
-builder.Services.AddScoped<EmbeddingService>();
-builder.Services.AddScoped<EventDetectionService>();
+builder.Services.AddScoped<RecommendationEngine>();
+
+// Note: AiCoordinatorService, EmbeddingService, EventDetectionService, and LlmService
+// are registered via AddHttpClient<T> which auto-registers them as transient.
+// No separate AddScoped call needed for those.
+
 builder.Services.AddScoped<VectorSearchService>();
 builder.Services.AddScoped<PromptBuilder>();
 builder.Services.AddScoped<LlmService>();
@@ -283,6 +286,51 @@ app.MapGet("/api/v1/meetings/{id:guid}/recommendations", async (Guid id, CallPil
     return Results.Ok(recommendations);
 });
 
+app.MapPost("/api/v1/meetings/{id:guid}/process", async (
+    Guid id,
+    ClaimsPrincipal user,
+    CallPilotDbContext db,
+    EventDetectionService eventDetector,
+    RecommendationEngine recommendationEngine,
+    MeetingDiagnosticsService diagnostics,
+    ProcessTextRequest body) =>
+{
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null) return Results.Unauthorized();
+
+    var text = body.text;
+    if (string.IsNullOrWhiteSpace(text))
+        return Results.BadRequest(new { error = "No text provided" });
+
+    var events = await eventDetector.DetectEventsAsync(text);
+    var persistedEvents = new List<object>();
+    var recommendations = new List<object>();
+
+    foreach (var evt in events)
+    {
+        diagnostics.TrackEvent(id.ToString(), evt.EventType);
+
+        var conversationEvent = new ConversationEvent(
+            id, evt.EventType, evt.EntityName, evt.Confidence, text);
+        db.ConversationEvents.Add(conversationEvent);
+        persistedEvents.Add(new { conversationEvent.Id, conversationEvent.EventType, conversationEvent.EntityName, conversationEvent.Confidence });
+
+        var rec = await recommendationEngine.GenerateRecommendationAsync(
+            id, Guid.Parse(userIdClaim), conversationEvent);
+        if (rec is not null)
+        {
+            diagnostics.TrackRecommendation(id.ToString(), 0, "rule-based");
+            db.Recommendations.Add(rec);
+            recommendations.Add(new { rec.Id, rec.Type, rec.Title, rec.Summary, rec.Confidence, rec.References });
+        }
+    }
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new { events = persistedEvents, recommendations });
+}).RequireAuthorization();
+
 Log.Information("CallPilot Server starting...");
 
 app.Run();
+
+public record ProcessTextRequest(string text);
