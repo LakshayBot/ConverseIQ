@@ -117,6 +117,37 @@ public class AuthenticationService
         }
     }
 
+    public async Task<string?> CreateMeetingAsync()
+    {
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{_config.ServerUrl}/api/v1/meetings");
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _config.AccessToken);
+
+            var response = await _httpClient.SendAsync(request);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Create meeting failed: {StatusCode}", response.StatusCode);
+                return null;
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<CreateMeetingResponse>();
+            return result?.MeetingId;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Create meeting error");
+            return null;
+        }
+    }
+
+    private class CreateMeetingResponse
+    {
+        [JsonPropertyName("meetingId")]
+        public string MeetingId { get; set; } = string.Empty;
+    }
+
     private class LoginApiResponse
     {
         [JsonPropertyName("accessToken")]

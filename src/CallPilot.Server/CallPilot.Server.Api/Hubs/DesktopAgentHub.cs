@@ -165,6 +165,17 @@ public class DesktopAgentHub : Hub
     {
         _logger.LogDebug("Heartbeat received: MeetingId={MeetingId}", heartbeat.MeetingId);
     }
+
+    public async Task JoinMeeting(string meetingId)
+    {
+        await Groups.AddToGroupAsync(Context.ConnectionId, $"meeting_{meetingId}");
+        _logger.LogInformation("Client {ConnectionId} joined meeting {MeetingId}", Context.ConnectionId, meetingId);
+    }
+
+    public async Task LeaveMeeting(string meetingId)
+    {
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"meeting_{meetingId}");
+    }
 }
 
 public record AgentRegistration(

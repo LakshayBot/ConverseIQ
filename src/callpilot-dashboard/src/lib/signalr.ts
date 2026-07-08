@@ -45,6 +45,7 @@ export function useSignalR(meetingId: string | null) {
 
     try {
       await connection.start();
+      await connection.invoke('JoinMeeting', meetingId);
       setIsConnected(true);
       connectionRef.current = connection;
     } catch (err) {

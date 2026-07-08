@@ -33,8 +33,12 @@ public class SessionManager : IAsyncDisposable
         if (!loggedIn)
             throw new InvalidOperationException("Authentication failed. Check credentials and server availability.");
 
-        _config.MeetingId = Guid.NewGuid().ToString();
-        _logger.LogInformation("Meeting created: {MeetingId}", _config.MeetingId);
+        var meetingId = await _authService.CreateMeetingAsync();
+        if (meetingId is null)
+            throw new InvalidOperationException("Failed to create meeting.");
+
+        _config.MeetingId = meetingId;
+        _logger.LogInformation("Meeting created: {MeetingId}", meetingId);
 
         await _signalRService.ConnectAsync(cancellationToken);
 
