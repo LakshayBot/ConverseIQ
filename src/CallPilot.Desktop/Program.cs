@@ -11,6 +11,7 @@ var agentConfig = new AgentConfiguration();
 var serverUrlOption = new Option<string>("--server-url", () => "http://localhost:5001", "CallPilot Server URL");
 var emailOption = new Option<string>("--email", "Account email address");
 var passwordOption = new Option<string>("--password", "Account password");
+var meetingIdOption = new Option<string?>("--meeting-id", "Existing meeting ID (creates new if not provided)");
 var micOption = new Option<bool>("--enable-mic", () => true, "Enable microphone capture");
 var desktopAudioOption = new Option<bool>("--enable-desktop-audio", () => true, "Enable desktop audio capture");
 
@@ -25,7 +26,7 @@ var startCommand = new Command("start", "Start audio streaming session")
     desktopAudioOption
 };
 
-startCommand.SetHandler(async (serverUrl, email, password, enableMic, enableDesktopAudio) =>
+startCommand.SetHandler(async (serverUrl, email, password, meetingId, enableMic, enableDesktopAudio) =>
 {
     Log.Logger = new LoggerConfiguration()
         .MinimumLevel.Information()
@@ -35,9 +36,10 @@ startCommand.SetHandler(async (serverUrl, email, password, enableMic, enableDesk
 
     try
     {
-        agentConfig.ServerUrl = serverUrl;
-        agentConfig.EnableMicrophone = enableMic;
-        agentConfig.EnableDesktopAudio = enableDesktopAudio;
+    agentConfig.ServerUrl = serverUrl;
+    agentConfig.EnableMicrophone = enableMic;
+    agentConfig.EnableDesktopAudio = enableDesktopAudio;
+    if (!string.IsNullOrEmpty(meetingId)) agentConfig.MeetingId = meetingId;
 
         var services = new ServiceCollection();
 
@@ -80,7 +82,7 @@ startCommand.SetHandler(async (serverUrl, email, password, enableMic, enableDesk
     {
         Log.CloseAndFlush();
     }
-}, serverUrlOption, emailOption, passwordOption, micOption, desktopAudioOption);
+}, serverUrlOption, emailOption, passwordOption, meetingIdOption, micOption, desktopAudioOption);
 
 rootCommand.AddCommand(startCommand);
 

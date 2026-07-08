@@ -39,6 +39,8 @@ public class SessionManager : IAsyncDisposable
 
         _config.MeetingId = meetingId;
         _logger.LogInformation("Meeting created: {MeetingId}", meetingId);
+        _logger.LogInformation("Dashboard: {ServerUrl}/meeting/{MeetingId}",
+            _config.ServerUrl.Replace(":5001", ":3000"), meetingId);
 
         await _signalRService.ConnectAsync(cancellationToken);
 
