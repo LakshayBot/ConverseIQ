@@ -22,8 +22,15 @@ class AudioProcessor:
                 dtype="int16",
                 always_2d=False,
             )
-        except Exception as e:
-            logger.warning(f"Failed to decode audio for meeting {meeting_id}: {e}")
+        except Exception:
+            try:
+                audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
+                input_sr = sample_rate
+            except Exception as e:
+                logger.warning(f"Failed to decode audio for meeting {meeting_id}: {e}")
+                return None
+
+        if len(audio_array) == 0:
             return None
 
         if audio_array.ndim > 1 and audio_array.shape[1] > 1:
