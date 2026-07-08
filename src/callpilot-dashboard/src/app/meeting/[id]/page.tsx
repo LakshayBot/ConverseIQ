@@ -11,7 +11,9 @@ export default function MeetingPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const [initialTranscripts, setInitialTranscripts] = useState<TranscriptEntry[]>([]);
-  const { transcripts: liveTranscripts, events, recommendations, isConnected, error: signalRError } = useSignalR(meetingId ?? null);
+  const { transcripts: liveTranscripts, events, recommendations, isConnected, error: signalRError } = useSignalR(
+    isLoading ? null : (meetingId ?? null)
+  );
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

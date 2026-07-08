@@ -12,6 +12,7 @@ public class SignalRConnectionService : IAsyncDisposable
     private readonly ILogger<SignalRConnectionService> _logger;
     private HubConnection? _connection;
     private Timer? _heartbeatTimer;
+    private DateTime _lastTranscriptTime;
 
     public event EventHandler<string>? ConnectionStateChanged;
     public bool IsConnected => _connection?.State == HubConnectionState.Connected;
@@ -41,6 +42,7 @@ public class SignalRConnectionService : IAsyncDisposable
 
         _connection.On<TranscriptEvent>("TranscriptReceived", (transcript) =>
         {
+            _lastTranscriptTime = DateTime.UtcNow;
             var status = transcript.IsFinal ? "FINAL" : "PARTIAL";
             _logger.LogInformation("[{Status}] {Speaker}: {Text}",
                 status, transcript.Speaker, transcript.Text);
@@ -54,6 +56,16 @@ public class SignalRConnectionService : IAsyncDisposable
         _heartbeatTimer = new Timer(async _ => await SendHeartbeatAsync(), null,
             TimeSpan.FromSeconds(_config.HeartbeatIntervalSeconds),
             TimeSpan.FromSeconds(_config.HeartbeatIntervalSeconds));
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(15));
+            if (_connection?.State == HubConnectionState.Connected
+                && _lastTranscriptTime == default)
+            {
+                _logger.LogWarning("No transcripts received after 15s — check if AI Engine is running");
+            }
+        });
 
         _logger.LogInformation("SignalR connected and agent registered");
     }
