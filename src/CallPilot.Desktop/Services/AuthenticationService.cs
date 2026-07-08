@@ -28,6 +28,19 @@ public class AuthenticationService
                 password
             });
 
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                _logger.LogInformation("Login failed — trying to register first...");
+                var registered = await RegisterAsync(email, password);
+                if (!registered) return false;
+
+                response = await _httpClient.PostAsJsonAsync($"{_config.ServerUrl}/api/v1/auth/login", new
+                {
+                    email,
+                    password
+                });
+            }
+
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogError("Login failed: {StatusCode}", response.StatusCode);
@@ -45,6 +58,33 @@ public class AuthenticationService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Login error");
+            return false;
+        }
+    }
+
+    private async Task<bool> RegisterAsync(string email, string password)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync($"{_config.ServerUrl}/api/v1/auth/register", new
+            {
+                email,
+                password,
+                confirmPassword = password
+            });
+
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("User registered successfully");
+                return true;
+            }
+
+            _logger.LogError("Registration failed: {StatusCode}", response.StatusCode);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Registration error");
             return false;
         }
     }
