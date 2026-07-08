@@ -53,8 +53,9 @@ class SpeechRecognizer:
                 accumulated,
                 beam_size=self.beam_size,
                 language=self.language,
-                vad_filter=True,
+                vad_filter=False,
                 condition_on_previous_text=False,
+                no_speech_threshold=0.9,
             )
 
             segments_list = list(segments)
@@ -63,7 +64,7 @@ class SpeechRecognizer:
 
             last_segment = segments_list[-1]
 
-            if last_segment.no_speech_prob > 0.7 or last_segment.avg_logprob < -1.5:
+            if last_segment.no_speech_prob > 0.95:
                 return None
 
             text = last_segment.text.strip()
@@ -75,7 +76,7 @@ class SpeechRecognizer:
 
             self._segment_counter[meeting_id] = self._segment_counter.get(meeting_id, 0) + 1
 
-            is_final = last_segment.no_speech_prob < 0.3
+            is_final = True
 
             return TranscriptSegment(
                 speaker=self._get_speaker(source),
