@@ -71,8 +71,7 @@ class SpeechRecognizer:
             if not text:
                 return None
 
-            confidence = min(max(last_segment.avg_logprob / 0.0 + 0.5, 0.0), 1.0)
-            confidence = 0.85 if confidence < 0.5 else min(confidence, 0.99)
+            confidence = max(0.0, min(1.0, 1.0 - last_segment.no_speech_prob))
 
             self._segment_counter[meeting_id] = self._segment_counter.get(meeting_id, 0) + 1
 
