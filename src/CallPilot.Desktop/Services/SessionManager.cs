@@ -57,11 +57,19 @@ public class SessionManager : IAsyncDisposable
         _logger.LogInformation("Stopping session...");
 
         _cts?.Cancel();
-
         _audioCaptureService.AudioFrameCaptured -= OnAudioFrameCaptured;
-        await _audioCaptureService.StopCaptureAsync();
 
-        await _signalRService.DisconnectAsync();
+        try { await _audioCaptureService.StopCaptureAsync(); } catch { }
+
+        using var disconnectCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try
+        {
+            await _signalRService.DisconnectAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Disconnect error (ignored)");
+        }
 
         _logger.LogInformation("Session stopped");
     }

@@ -80,8 +80,25 @@ public class SignalRConnectionService : IAsyncDisposable
 
         if (_connection is not null)
         {
-            await _connection.StopAsync();
-            await _connection.DisposeAsync();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            try
+            {
+                await _connection.StopAsync(cts.Token);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "SignalR stop error (ignored)");
+            }
+
+            try
+            {
+                await _connection.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "SignalR dispose error (ignored)");
+            }
+
             _connection = null;
         }
 

@@ -22,6 +22,7 @@ var startCommand = new Command("start", "Start audio streaming session")
     serverUrlOption,
     emailOption,
     passwordOption,
+    meetingIdOption,
     micOption,
     desktopAudioOption
 };
@@ -34,17 +35,17 @@ startCommand.SetHandler(async (serverUrl, email, password, meetingId, enableMic,
         .WriteTo.File("logs/callpilot-desktop-.log", rollingInterval: RollingInterval.Day)
         .CreateLogger();
 
+    SessionManager? sessionManager = null;
+
     try
     {
-    agentConfig.ServerUrl = serverUrl;
-    agentConfig.EnableMicrophone = enableMic;
-    agentConfig.EnableDesktopAudio = enableDesktopAudio;
-    if (!string.IsNullOrEmpty(meetingId)) agentConfig.MeetingId = meetingId;
+        agentConfig.ServerUrl = serverUrl;
+        agentConfig.EnableMicrophone = enableMic;
+        agentConfig.EnableDesktopAudio = enableDesktopAudio;
+        if (!string.IsNullOrEmpty(meetingId)) agentConfig.MeetingId = meetingId;
 
         var services = new ServiceCollection();
-
         ConfigureServices(services, agentConfig);
-
         var provider = services.BuildServiceProvider();
         var logger = provider.GetRequiredService<ILogger<Program>>();
 
@@ -52,34 +53,40 @@ startCommand.SetHandler(async (serverUrl, email, password, meetingId, enableMic,
         logger.LogInformation("Server: {ServerUrl}", serverUrl);
         logger.LogInformation("Microphone: {Mic}, Desktop Audio: {DesktopAudio}", enableMic, enableDesktopAudio);
 
-        var sessionManager = provider.GetRequiredService<SessionManager>();
+        sessionManager = provider.GetRequiredService<SessionManager>();
 
-        Console.CancelKeyPress += async (_, args) =>
+        using var shutdownCts = new CancellationTokenSource();
+
+        Console.CancelKeyPress += (_, args) =>
         {
             args.Cancel = true;
             logger.LogInformation("Shutdown requested...");
-            await sessionManager.StopAsync();
+            shutdownCts.Cancel();
         };
 
-        var cts = new CancellationTokenSource();
-
         logger.LogInformation("Logging in as {Email}...", email);
-        await sessionManager.StartAsync(email, password, cts.Token);
+        await sessionManager.StartAsync(email, password, shutdownCts.Token);
 
         logger.LogInformation("Press Ctrl+C to stop streaming.");
 
-        await Task.Delay(Timeout.Infinite, cts.Token);
+        try
+        {
+            await Task.Delay(Timeout.Infinite, shutdownCts.Token);
+        }
+        catch (OperationCanceledException) { }
     }
-    catch (OperationCanceledException)
-    {
-        Log.Information("Shutdown complete");
-    }
+    catch (OperationCanceledException) { }
     catch (Exception ex)
     {
         Log.Fatal(ex, "Fatal error");
     }
     finally
     {
+        if (sessionManager is not null)
+        {
+            try { await sessionManager.StopAsync(); } catch { }
+        }
+        Log.Information("Shutdown complete");
         Log.CloseAndFlush();
     }
 }, serverUrlOption, emailOption, passwordOption, meetingIdOption, micOption, desktopAudioOption);
