@@ -39,6 +39,13 @@ public class SignalRConnectionService : IAsyncDisposable
         _connection.Reconnected += OnReconnected;
         _connection.Closed += OnClosed;
 
+        _connection.On<TranscriptEvent>("TranscriptReceived", (transcript) =>
+        {
+            var status = transcript.IsFinal ? "FINAL" : "PARTIAL";
+            _logger.LogInformation("[{Status}] {Speaker}: {Text}",
+                status, transcript.Speaker, transcript.Text);
+        });
+
         await _connection.StartAsync(cancellationToken);
         ConnectionStateChanged?.Invoke(this, "Connected");
 
@@ -188,3 +195,5 @@ internal class RetryPolicy : IRetryPolicy
         return delay;
     }
 }
+
+internal record TranscriptEvent(string Speaker, string Text, double Confidence, bool IsFinal, int Sequence);

@@ -38,9 +38,11 @@ public class SessionManager : IAsyncDisposable
             throw new InvalidOperationException("Failed to create meeting.");
 
         _config.MeetingId = meetingId;
-        _logger.LogInformation("Meeting created: {MeetingId}", meetingId);
-        _logger.LogInformation("Dashboard: {ServerUrl}/meeting/{MeetingId}",
-            _config.ServerUrl.Replace(":5001", ":3000"), meetingId);
+        var dashUrl = _config.ServerUrl.Replace(":5001", ":3000") + "/meeting/" + meetingId;
+        _logger.LogInformation("========================================");
+        _logger.LogInformation(" Meeting ID: {MeetingId}", meetingId);
+        _logger.LogInformation(" Dashboard:  {Url}", dashUrl);
+        _logger.LogInformation("========================================");
 
         await _signalRService.ConnectAsync(cancellationToken);
 
