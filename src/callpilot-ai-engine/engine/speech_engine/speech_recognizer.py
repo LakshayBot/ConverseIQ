@@ -56,7 +56,7 @@ class SpeechRecognizer:
                 vad_filter=False,
                 condition_on_previous_text=False,
                 no_speech_threshold=0.9,
-                best_of=5,
+                best_of=2,
             )
 
             segments_list = list(segments)
