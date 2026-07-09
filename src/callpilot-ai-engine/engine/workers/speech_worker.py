@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class SpeechWorker:
     def __init__(
         self,
-        model_size: str = "tiny",
+        model_size: str = "small.en",
         device: str = "cpu",
         compute_type: str = "int8",
     ):

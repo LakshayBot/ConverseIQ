@@ -15,10 +15,10 @@ logger = logging.getLogger(__name__)
 class TranscriptPipeline:
     def __init__(
         self,
-        model_size: str = "tiny",
+        model_size: str = "small.en",
         device: str = "cpu",
         compute_type: str = "int8",
-        language: str | None = None,
+        language: str = "en",
     ):
         self.audio_processor = AudioProcessor(target_sample_rate=16000, target_channels=1)
         self.speech_recognizer = SpeechRecognizer(

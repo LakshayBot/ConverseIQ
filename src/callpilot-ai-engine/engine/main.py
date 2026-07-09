@@ -22,7 +22,7 @@ event_detector: EventDetector | None = None
 
 def get_model_config():
     return {
-        "model_size": os.getenv("WHISPER_MODEL_SIZE", "tiny"),
+        "model_size": os.getenv("WHISPER_MODEL_SIZE", "small.en"),
         "device": os.getenv("WHISPER_DEVICE", "cpu"),
         "compute_type": os.getenv("WHISPER_COMPUTE_TYPE", "int8"),
     }

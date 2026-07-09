@@ -12,11 +12,11 @@ logger = logging.getLogger(__name__)
 class SpeechRecognizer:
     def __init__(
         self,
-        model_size: str = "tiny",
+        model_size: str = "small.en",
         device: str = "cpu",
         compute_type: str = "int8",
         beam_size: int = 5,
-        language: str | None = None,
+        language: str = "en",
         confidence_threshold: float = 0.6,
     ):
         logger.info(f"Loading Faster Whisper model: {model_size} on {device}/{compute_type}")
@@ -56,6 +56,7 @@ class SpeechRecognizer:
                 vad_filter=False,
                 condition_on_previous_text=False,
                 no_speech_threshold=0.9,
+                best_of=5,
             )
 
             segments_list = list(segments)
@@ -74,6 +75,9 @@ class SpeechRecognizer:
             confidence = max(0.0, min(1.0, 1.0 - last_segment.no_speech_prob))
 
             self._segment_counter[meeting_id] = self._segment_counter.get(meeting_id, 0) + 1
+
+            overlap_samples = min(32000, len(accumulated))
+            self._accumulated_audio[meeting_id] = accumulated[-overlap_samples:]
 
             is_final = True
 
