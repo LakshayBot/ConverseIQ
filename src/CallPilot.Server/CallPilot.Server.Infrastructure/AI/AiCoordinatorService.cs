@@ -86,6 +86,7 @@ public class AiCoordinatorService
         public double Confidence { get; set; }
         public string Start { get; set; } = string.Empty;
         public string End { get; set; } = string.Empty;
+        [System.Text.Json.Serialization.JsonPropertyName("is_final")]
         public bool IsFinal { get; set; }
         public string MeetingId { get; set; } = string.Empty;
         public int Sequence { get; set; }

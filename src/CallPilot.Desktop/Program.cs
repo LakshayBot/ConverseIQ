@@ -17,6 +17,9 @@ var desktopAudioOption = new Option<bool>("--enable-desktop-audio", () => true, 
 
 var rootCommand = new RootCommand("CallPilot Desktop Agent - Real-time audio streaming client");
 
+var micDeviceOption = new Option<string?>("--mic-device", () => null, "avfoundation audio device index (e.g. ':1' for MacBook mic). Run with --list-devices to see options");
+var listDevicesOption = new Option<bool>("--list-devices", () => false, "List available audio capture devices and exit");
+
 var startCommand = new Command("start", "Start audio streaming session")
 {
     serverUrlOption,
@@ -25,8 +28,8 @@ var startCommand = new Command("start", "Start audio streaming session")
     meetingIdOption,
     micOption,
     desktopAudioOption,
-    new Option<string?>("--mic-device", () => null, "avfoundation audio device index (e.g. ':1' for MacBook mic). Run with --list-devices to see options"),
-    new Option<bool>("--list-devices", () => false, "List available audio capture devices and exit"),
+    micDeviceOption,
+    listDevicesOption,
 };
 
 startCommand.SetHandler(async (serverUrl, email, password, meetingId, enableMic, enableDesktopAudio, micDevice, listDevices) =>
@@ -101,9 +104,7 @@ startCommand.SetHandler(async (serverUrl, email, password, meetingId, enableMic,
         Log.Information("Shutdown complete");
         Log.CloseAndFlush();
     }
-}, serverUrlOption, emailOption, passwordOption, meetingIdOption, micOption, desktopAudioOption,
-    new Option<string?>("--mic-device", () => null, ""),
-    new Option<bool>("--list-devices", () => false, ""));
+}, serverUrlOption, emailOption, passwordOption, meetingIdOption, micOption, desktopAudioOption, micDeviceOption, listDevicesOption);
 
 rootCommand.AddCommand(startCommand);
 

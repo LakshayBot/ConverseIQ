@@ -74,7 +74,7 @@ class SpeechRecognizer:
 
             # Filter whisper silence hallucinations (single short words like "You", "I", "." etc.)
             word_alpha = sum(1 for c in text if c.isalpha())
-            if len(text.split()) <= 1 and word_alpha <= 2:
+            if len(text.split()) <= 1 and word_alpha <= 3:
                 return None
 
             # Filter very low confidence + short text (noise)
