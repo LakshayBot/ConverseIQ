@@ -35,6 +35,10 @@ class SpeechRecognizer:
     ) -> Optional[TranscriptSegment]:
         audio = audio.astype(np.float32)
 
+        rms = float(np.sqrt(np.mean(audio ** 2)))
+        if rms < 0.0001:
+            return None
+
         if meeting_id not in self._accumulated_audio:
             self._accumulated_audio[meeting_id] = audio.copy()
         else:
@@ -55,7 +59,7 @@ class SpeechRecognizer:
                 language=self.language,
                 vad_filter=False,
                 condition_on_previous_text=False,
-                no_speech_threshold=0.9,
+                no_speech_threshold=0.6,
                 best_of=2,
             )
 
@@ -65,7 +69,8 @@ class SpeechRecognizer:
 
             last_segment = segments_list[-1]
 
-            if last_segment.no_speech_prob > 0.95:
+            if last_segment.no_speech_prob > 0.99:
+                logger.debug(f"[{meeting_id}] Rejected: no_speech_prob={last_segment.no_speech_prob:.2f}, rms={rms:.4f}")
                 return None
 
             text = last_segment.text.strip()

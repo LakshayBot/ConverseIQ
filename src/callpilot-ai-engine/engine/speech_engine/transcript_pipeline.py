@@ -45,6 +45,9 @@ class TranscriptPipeline:
         if audio_array is None or len(audio_array) == 0:
             return None
 
+        audio_rms = float(np.sqrt(np.mean(audio_array ** 2)))
+        logger.debug(f"[{chunk.meeting_id}] Audio chunk: rms={audio_rms:.4f}, samples={len(audio_array)}")
+
         meeting_id = chunk.meeting_id
 
         last_time = self._last_transcript_time.get(meeting_id, 0.0)
