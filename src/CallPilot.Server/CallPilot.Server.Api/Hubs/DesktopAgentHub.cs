@@ -64,90 +64,98 @@ public class DesktopAgentHub : Hub
 
         _diagnostics.TrackAudioFrame(frame.MeetingId, frame.Audio.Length);
 
-        if (Guid.TryParse(frame.MeetingId, out var meetingId))
+        if (!Guid.TryParse(frame.MeetingId, out var meetingId))
         {
-            using var scope = _serviceProvider.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<CallPilotDbContext>();
+            _logger.LogWarning("Invalid MeetingId '{MeetingId}' — audio frame {Sequence} dropped", frame.MeetingId, frame.Sequence);
+            return;
+        }
 
-            var segment = await _aiCoordinator.ProcessAudioAsync(
-                meetingId,
-                frame.Audio,
-                frame.Sequence,
-                frame.SampleRate,
-                frame.Channels,
-                "microphone",
-                dbContext);
+        using var scope = _serviceProvider.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CallPilotDbContext>();
 
-            if (segment is not null)
+        var transcriptionStart = DateTime.UtcNow;
+
+        var segment = await _aiCoordinator.ProcessAudioAsync(
+            meetingId,
+            frame.Audio,
+            frame.Sequence,
+            frame.SampleRate,
+            frame.Channels,
+            "microphone",
+            dbContext);
+
+        if (segment is not null)
+        {
+            var latencyMs = (long)(DateTime.UtcNow - transcriptionStart).TotalMilliseconds;
+            _diagnostics.TrackTranscript(frame.MeetingId, latencyMs);
+            var transcriptEvent = new
             {
-                _diagnostics.TrackTranscript(frame.MeetingId, 0);
-                var transcriptEvent = new
-                {
-                    segment.Speaker,
-                    segment.Text,
-                    segment.Confidence,
-                    segment.IsFinal,
-                    segment.Sequence
-                };
+                segment.Speaker,
+                segment.Text,
+                segment.Confidence,
+                segment.IsFinal,
+                segment.Sequence
+            };
 
-                await Clients.Caller.SendAsync("TranscriptReceived", transcriptEvent);
-                await Clients.Group($"meeting_{frame.MeetingId}").SendAsync("TranscriptReceived", transcriptEvent);
+            await Clients.Caller.SendAsync("TranscriptReceived", transcriptEvent);
+            await Clients.Group($"meeting_{frame.MeetingId}").SendAsync("TranscriptReceived", transcriptEvent);
 
-                if (segment.IsFinal)
+            if (segment.IsFinal)
+            {
+                var events = await _eventDetector.DetectEventsAsync(segment.Text);
+                foreach (var evt in events)
                 {
-                    var events = await _eventDetector.DetectEventsAsync(segment.Text);
-                    foreach (var evt in events)
+                    _diagnostics.TrackEvent(frame.MeetingId, evt.EventType);
+                    var conversationEvent = new Domain.Meetings.ConversationEvent(
+                        meetingId,
+                        evt.EventType,
+                        evt.EntityName,
+                        evt.Confidence,
+                        segment.Text);
+
+                    dbContext.ConversationEvents.Add(conversationEvent);
+                    await dbContext.SaveChangesAsync();
+
+                    var eventPayload = new
                     {
-                        _diagnostics.TrackEvent(frame.MeetingId, evt.EventType);
-                        var conversationEvent = new Domain.Meetings.ConversationEvent(
-                            meetingId,
-                            evt.EventType,
-                            evt.EntityName,
-                            evt.Confidence,
-                            segment.Text);
+                        conversationEvent.Id,
+                        conversationEvent.EventType,
+                        conversationEvent.EntityName,
+                        conversationEvent.Confidence,
+                        conversationEvent.DetectedAt
+                    };
 
-                        dbContext.ConversationEvents.Add(conversationEvent);
-                        await dbContext.SaveChangesAsync();
+                    await Clients.Caller.SendAsync("EventDetected", eventPayload);
+                    await Clients.Group($"meeting_{frame.MeetingId}").SendAsync("EventDetected", eventPayload);
 
-                        var eventPayload = new
+                    var userIdClaim = Context.User?.FindFirst("userId")?.Value;
+                    if (userIdClaim is not null && Guid.TryParse(userIdClaim, out var userId))
+                    {
+                        var recommendationStart = DateTime.UtcNow;
+                        var recommendation = await _recommendationEngine.GenerateRecommendationAsync(
+                            meetingId, userId, conversationEvent);
+
+                        if (recommendation is not null)
                         {
-                            conversationEvent.Id,
-                            conversationEvent.EventType,
-                            conversationEvent.EntityName,
-                            conversationEvent.Confidence,
-                            conversationEvent.DetectedAt
-                        };
+                            var recLatencyMs = (long)(DateTime.UtcNow - recommendationStart).TotalMilliseconds;
+                            _diagnostics.TrackRecommendation(frame.MeetingId, recLatencyMs, "llm");
 
-                        await Clients.Caller.SendAsync("EventDetected", eventPayload);
-                        await Clients.Group($"meeting_{frame.MeetingId}").SendAsync("EventDetected", eventPayload);
+                            dbContext.Recommendations.Add(recommendation);
+                            await dbContext.SaveChangesAsync();
 
-                        var userIdClaim = Context.User?.FindFirst("userId")?.Value;
-                        if (userIdClaim is not null && Guid.TryParse(userIdClaim, out var userId))
-                        {
-                            var recommendation = await _recommendationEngine.GenerateRecommendationAsync(
-                                meetingId, userId, conversationEvent);
-
-                            if (recommendation is not null)
+                            var recPayload = new
                             {
-                                _diagnostics.TrackRecommendation(frame.MeetingId, 0, "llm");
+                                recommendation.Id,
+                                recommendation.Type,
+                                recommendation.Title,
+                                recommendation.Summary,
+                                recommendation.Confidence,
+                                recommendation.References,
+                                recommendation.GeneratedAt
+                            };
 
-                                dbContext.Recommendations.Add(recommendation);
-                                await dbContext.SaveChangesAsync();
-
-                                var recPayload = new
-                                {
-                                    recommendation.Id,
-                                    recommendation.Type,
-                                    recommendation.Title,
-                                    recommendation.Summary,
-                                    recommendation.Confidence,
-                                    recommendation.References,
-                                    recommendation.GeneratedAt
-                                };
-
-                                await Clients.Caller.SendAsync("RecommendationGenerated", recPayload);
-                                await Clients.Group($"meeting_{frame.MeetingId}").SendAsync("RecommendationGenerated", recPayload);
-                            }
+                            await Clients.Caller.SendAsync("RecommendationGenerated", recPayload);
+                            await Clients.Group($"meeting_{frame.MeetingId}").SendAsync("RecommendationGenerated", recPayload);
                         }
                     }
                 }

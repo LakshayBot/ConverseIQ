@@ -46,7 +46,10 @@ class TranscriptPipeline:
             return None
 
         audio_rms = float(np.sqrt(np.mean(audio_array ** 2)))
-        logger.debug(f"[{chunk.meeting_id}] Audio chunk: rms={audio_rms:.4f}, samples={len(audio_array)}")
+        if chunk.sequence <= 1 or chunk.sequence % 50 == 0:
+            logger.info(f"[{chunk.meeting_id}] Audio chunk #{chunk.sequence}: rms={audio_rms:.6f}, samples={len(audio_array)}")
+        else:
+            logger.debug(f"[{chunk.meeting_id}] Audio chunk: rms={audio_rms:.4f}, samples={len(audio_array)}")
 
         meeting_id = chunk.meeting_id
 

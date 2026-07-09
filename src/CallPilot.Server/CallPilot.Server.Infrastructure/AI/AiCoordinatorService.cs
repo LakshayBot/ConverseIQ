@@ -36,7 +36,10 @@ public class AiCoordinatorService
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("AI Engine returned {StatusCode} for meeting {MeetingId}", response.StatusCode, meetingId);
+                var errorBody = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning(
+                    "AI Engine returned {StatusCode} for meeting {MeetingId}: {ErrorBody}",
+                    (int)response.StatusCode, meetingId, errorBody);
                 return null;
             }
 

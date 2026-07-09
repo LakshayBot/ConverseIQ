@@ -1,8 +1,6 @@
-import io
 import logging
 
 import numpy as np
-import soundfile as sf
 
 logger = logging.getLogger(__name__)
 
@@ -17,18 +15,12 @@ class AudioProcessor:
         self, meeting_id: str, audio_bytes: bytes, sample_rate: int = 16000, channels: int = 1
     ) -> np.ndarray | None:
         try:
-            audio_array, input_sr = sf.read(
-                io.BytesIO(audio_bytes),
-                dtype="int16",
-                always_2d=False,
-            )
-        except Exception:
-            try:
-                audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
-                input_sr = sample_rate
-            except Exception as e:
-                logger.warning(f"Failed to decode audio for meeting {meeting_id}: {e}")
-                return None
+            # Audio arrives as raw int16 PCM (s16le) from FFmpeg — parse directly
+            audio_array = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float64)
+            input_sr = sample_rate
+        except Exception as e:
+            logger.warning(f"Failed to decode audio for meeting {meeting_id}: {e}")
+            return None
 
         if len(audio_array) == 0:
             return None

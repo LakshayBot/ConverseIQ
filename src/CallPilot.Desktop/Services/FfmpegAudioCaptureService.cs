@@ -83,7 +83,7 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
                 FileName = "ffmpeg",
                 Arguments = args,
                 RedirectStandardOutput = true,
-                RedirectStandardError = false,
+                RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             },
@@ -91,6 +91,24 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
         };
 
         _ffmpegProcess.Start();
+
+        // Read FFmpeg stderr asynchronously so device/permission errors are visible
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var stderr = await _ffmpegProcess.StandardError.ReadToEndAsync(cancellationToken);
+                if (!string.IsNullOrWhiteSpace(stderr))
+                {
+                    _logger.LogWarning("FFmpeg stderr output:\n{Stderr}", stderr);
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error reading FFmpeg stderr");
+            }
+        }, cancellationToken);
 
         _ = Task.Run(async () =>
         {
@@ -113,6 +131,19 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
                         frameData,
                         sampleRate,
                         channels));
+                }
+
+                if (!cancellationToken.IsCancellationRequested && _ffmpegProcess.HasExited)
+                {
+                    var exitCode = _ffmpegProcess.ExitCode;
+                    if (exitCode != 0)
+                    {
+                        _logger.LogError("FFmpeg exited with code {ExitCode} — device may be invalid or permissions denied", exitCode);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("FFmpeg process exited unexpectedly (exit code 0)");
+                    }
                 }
             }
             catch (OperationCanceledException)

@@ -26,6 +26,9 @@ class SpeechRecognizer:
         self.confidence_threshold = confidence_threshold
         self._accumulated_audio: dict[str, np.ndarray] = {}
         self._segment_counter: dict[str, int] = {}
+        self._silent_chunk_count: dict[str, int] = {}
+        self._empty_transcript_count: dict[str, int] = {}
+        self._silence_warned: dict[str, bool] = {}
 
     def transcribe(
         self,
@@ -37,7 +40,20 @@ class SpeechRecognizer:
 
         rms = float(np.sqrt(np.mean(audio ** 2)))
         if rms < 0.0001:
+            self._silent_chunk_count[meeting_id] = self._silent_chunk_count.get(meeting_id, 0) + 1
+            count = self._silent_chunk_count[meeting_id]
+            if count == 125 and not self._silence_warned.get(meeting_id, False):
+                logger.warning(
+                    f"[{meeting_id}] Audio has been silent (near-zero) for 5+ seconds "
+                    f"({count} chunks). Check: (1) microphone permissions are granted, "
+                    f"(2) correct device is selected — run 'dotnet run -- --list-devices', "
+                    f"(3) microphone is not muted."
+                )
+                self._silence_warned[meeting_id] = True
             return None
+        else:
+            self._silent_chunk_count[meeting_id] = 0
+            self._silence_warned[meeting_id] = False
 
         if meeting_id not in self._accumulated_audio:
             self._accumulated_audio[meeting_id] = audio.copy()
@@ -65,6 +81,17 @@ class SpeechRecognizer:
 
             segments_list = list(segments)
             if not segments_list:
+                self._empty_transcript_count[meeting_id] = self._empty_transcript_count.get(meeting_id, 0) + 1
+                empty_count = self._empty_transcript_count[meeting_id]
+                if empty_count >= 10 and not self._silence_warned.get(meeting_id, False):
+                    acc_rms = float(np.sqrt(np.mean(accumulated ** 2)))
+                    logger.warning(
+                        f"[{meeting_id}] Whisper returned no speech after {empty_count} attempts. "
+                        f"Accumulated audio: {duration_seconds:.1f}s, RMS: {acc_rms:.6f}. "
+                        f"The audio signal is present but contains no recognizable speech — "
+                        f"check that the correct microphone is selected and you are speaking."
+                    )
+                    self._silence_warned[meeting_id] = True
                 return None
 
             last_segment = segments_list[-1]
@@ -89,6 +116,8 @@ class SpeechRecognizer:
             confidence = max(0.0, min(1.0, 1.0 - last_segment.no_speech_prob))
 
             self._segment_counter[meeting_id] = self._segment_counter.get(meeting_id, 0) + 1
+            self._empty_transcript_count[meeting_id] = 0
+            self._silence_warned[meeting_id] = False
 
             overlap_samples = min(32000, len(accumulated))
             self._accumulated_audio[meeting_id] = accumulated[-overlap_samples:]
@@ -112,6 +141,9 @@ class SpeechRecognizer:
     def reset_meeting(self, meeting_id: str) -> None:
         self._accumulated_audio.pop(meeting_id, None)
         self._segment_counter.pop(meeting_id, None)
+        self._silent_chunk_count.pop(meeting_id, None)
+        self._empty_transcript_count.pop(meeting_id, None)
+        self._silence_warned.pop(meeting_id, None)
 
     @staticmethod
     def _get_speaker(source: str) -> str:

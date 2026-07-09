@@ -63,7 +63,12 @@ public class SignalRConnectionService : IAsyncDisposable
             if (_connection?.State == HubConnectionState.Connected
                 && _lastTranscriptTime == default)
             {
-                _logger.LogWarning("No transcripts received after 15s — check if AI Engine is running");
+                _logger.LogWarning(
+                    "No transcripts received after 15s. Possible causes:\n" +
+                    "  (1) Microphone permissions not granted to Terminal (System Settings > Privacy > Microphone)\n" +
+                    "  (2) Wrong audio device selected — run with --list-devices to see available devices\n" +
+                    "  (3) AI Engine is not running — check 'docker ps' for ai-engine container\n" +
+                    "  (4) Microphone is muted or input volume is zero");
             }
         });
 
@@ -72,7 +77,12 @@ public class SignalRConnectionService : IAsyncDisposable
 
     public async Task SendAudioFrameAsync(AudioFrame frame)
     {
-        if (_connection?.State != HubConnectionState.Connected) return;
+        if (_connection?.State != HubConnectionState.Connected)
+        {
+            _logger.LogWarning("Audio frame {Sequence} dropped: SignalR connection is {State}",
+                frame.Sequence, _connection?.State);
+            return;
+        }
 
         try
         {
@@ -164,7 +174,14 @@ public class SignalRConnectionService : IAsyncDisposable
 
     private Task OnClosed(Exception? exception)
     {
-        _logger.LogError(exception, "SignalR connection closed");
+        if (exception is not null)
+        {
+            _logger.LogError(exception, "SignalR connection closed with error");
+        }
+        else
+        {
+            _logger.LogInformation("SignalR connection closed");
+        }
         ConnectionStateChanged?.Invoke(this, "Disconnected");
         return Task.CompletedTask;
     }
