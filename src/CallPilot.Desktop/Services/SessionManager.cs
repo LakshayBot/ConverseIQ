@@ -78,7 +78,14 @@ public class SessionManager : IAsyncDisposable
 
     private async void OnAudioFrameCaptured(object? sender, AudioFrame frame)
     {
-        await _signalRService.SendAudioFrameAsync(frame);
+        try
+        {
+            await _signalRService.SendAudioFrameAsync(frame);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unhandled error sending audio frame {Sequence}", frame.Sequence);
+        }
     }
 
     public async ValueTask DisposeAsync()

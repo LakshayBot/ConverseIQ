@@ -19,6 +19,17 @@ var rootCommand = new RootCommand("CallPilot Desktop Agent - Real-time audio str
 
 var micDeviceOption = new Option<string?>("--mic-device", () => null, "avfoundation audio device index (e.g. ':1' for MacBook mic). Run with --list-devices to see options");
 var listDevicesOption = new Option<bool>("--list-devices", () => false, "List available audio capture devices and exit");
+var rootListDevicesOption = new Option<bool>("--list-devices", () => false, "List available audio capture devices and exit");
+
+rootCommand.AddOption(rootListDevicesOption);
+rootCommand.SetHandler((listDevices) =>
+{
+    if (listDevices)
+    {
+        FfmpegAudioCaptureService.ListDevices();
+        Environment.Exit(0);
+    }
+}, rootListDevicesOption);
 
 var startCommand = new Command("start", "Start audio streaming session")
 {
