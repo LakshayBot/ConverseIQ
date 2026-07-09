@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using CallPilot.Desktop.Audio;
+using CallPilot.Desktop.Models;
 using Microsoft.Extensions.Logging;
 
 namespace CallPilot.Desktop.Services;
@@ -8,14 +9,58 @@ namespace CallPilot.Desktop.Services;
 public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
 {
     private readonly ILogger<FfmpegAudioCaptureService> _logger;
+    private readonly string? _micDevice;
     private Process? _ffmpegProcess;
     private long _sequence;
 
     public event EventHandler<AudioFrame>? AudioFrameCaptured;
 
-    public FfmpegAudioCaptureService(ILogger<FfmpegAudioCaptureService> logger)
+    public FfmpegAudioCaptureService(ILogger<FfmpegAudioCaptureService> logger, AgentConfiguration config)
     {
         _logger = logger;
+        _micDevice = config.MicrophoneDevice;
+    }
+
+    public static void ListDevices()
+    {
+        Console.WriteLine("Available audio capture devices:");
+        try
+        {
+            var proc = Process.Start(new ProcessStartInfo
+            {
+                FileName = "ffmpeg",
+                Arguments = RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
+                    ? "-f avfoundation -list_devices true -i ''"
+                    : "-f dshow -list_devices true -i dummy",
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            })!;
+            var output = proc.StandardError.ReadToEnd();
+            proc.WaitForExit();
+
+            var lines = output.Split('\n');
+            bool inAudio = false;
+            foreach (var line in lines)
+            {
+                if (line.Contains("AVFoundation audio devices:"))
+                {
+                    inAudio = true;
+                    continue;
+                }
+                if (line.Contains("AVFoundation video devices:")) inAudio = false;
+                if (inAudio && line.Contains("] ["))
+                {
+                    var match = System.Text.RegularExpressions.Regex.Match(line, @"\[(\d+)\]\s+(.+)");
+                    if (match.Success)
+                        Console.WriteLine($"  :{match.Groups[1].Value} = {match.Groups[2].Value.Trim()}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  Failed to list devices: {ex.Message}");
+        }
     }
 
     public Task StartCaptureAsync(int sampleRate, int channels, CancellationToken cancellationToken)
@@ -25,7 +70,8 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
         var args = $"-f {device} -i default -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
-            args = $"-f avfoundation -i :0 -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
+            var input = string.IsNullOrEmpty(_micDevice) ? ":0" : _micDevice;
+            args = $"-f avfoundation -i {input} -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
         }
 
         _logger.LogInformation("Starting audio capture: args={Args}", args);

@@ -24,16 +24,24 @@ var startCommand = new Command("start", "Start audio streaming session")
     passwordOption,
     meetingIdOption,
     micOption,
-    desktopAudioOption
+    desktopAudioOption,
+    new Option<string?>("--mic-device", () => null, "avfoundation audio device index (e.g. ':1' for MacBook mic). Run with --list-devices to see options"),
+    new Option<bool>("--list-devices", () => false, "List available audio capture devices and exit"),
 };
 
-startCommand.SetHandler(async (serverUrl, email, password, meetingId, enableMic, enableDesktopAudio) =>
+startCommand.SetHandler(async (serverUrl, email, password, meetingId, enableMic, enableDesktopAudio, micDevice, listDevices) =>
 {
     Log.Logger = new LoggerConfiguration()
         .MinimumLevel.Information()
         .WriteTo.Console()
         .WriteTo.File("logs/callpilot-desktop-.log", rollingInterval: RollingInterval.Day)
         .CreateLogger();
+
+    if (listDevices)
+    {
+        FfmpegAudioCaptureService.ListDevices();
+        return;
+    }
 
     SessionManager? sessionManager = null;
 
@@ -43,6 +51,10 @@ startCommand.SetHandler(async (serverUrl, email, password, meetingId, enableMic,
         agentConfig.EnableMicrophone = enableMic;
         agentConfig.EnableDesktopAudio = enableDesktopAudio;
         if (!string.IsNullOrEmpty(meetingId)) agentConfig.MeetingId = meetingId;
+        if (!string.IsNullOrEmpty(micDevice))
+        {
+            agentConfig.MicrophoneDevice = micDevice;
+        }
 
         var services = new ServiceCollection();
         ConfigureServices(services, agentConfig);
@@ -89,7 +101,9 @@ startCommand.SetHandler(async (serverUrl, email, password, meetingId, enableMic,
         Log.Information("Shutdown complete");
         Log.CloseAndFlush();
     }
-}, serverUrlOption, emailOption, passwordOption, meetingIdOption, micOption, desktopAudioOption);
+}, serverUrlOption, emailOption, passwordOption, meetingIdOption, micOption, desktopAudioOption,
+    new Option<string?>("--mic-device", () => null, ""),
+    new Option<bool>("--list-devices", () => false, ""));
 
 rootCommand.AddCommand(startCommand);
 

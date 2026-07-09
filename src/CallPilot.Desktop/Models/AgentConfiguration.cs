@@ -8,6 +8,7 @@ public class AgentConfiguration
     public string? MeetingId { get; set; }
     public bool EnableMicrophone { get; set; } = true;
     public bool EnableDesktopAudio { get; set; } = true;
+    public string? MicrophoneDevice { get; set; }
     public int SampleRate { get; set; } = 16000;
     public int Channels { get; set; } = 1;
     public int BitDepth { get; set; } = 16;

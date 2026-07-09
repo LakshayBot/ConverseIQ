@@ -72,6 +72,15 @@ class SpeechRecognizer:
             if not text:
                 return None
 
+            # Filter whisper silence hallucinations (single short words like "You", "I", "." etc.)
+            word_alpha = sum(1 for c in text if c.isalpha())
+            if len(text.split()) <= 1 and word_alpha <= 2:
+                return None
+
+            # Filter very low confidence + short text (noise)
+            if last_segment.avg_logprob < -2.0 and len(text) < 10:
+                return None
+
             confidence = max(0.0, min(1.0, 1.0 - last_segment.no_speech_prob))
 
             self._segment_counter[meeting_id] = self._segment_counter.get(meeting_id, 0) + 1
