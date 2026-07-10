@@ -29,3 +29,4 @@ class SpeechTaskResult(BaseModel):
     transcript: Optional[TranscriptSegment] = None
     error: Optional[str] = None
     duration_ms: float = 0.0
+    silence_detected: bool = False

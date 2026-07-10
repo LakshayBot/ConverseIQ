@@ -75,7 +75,7 @@ public class DesktopAgentHub : Hub
 
         var transcriptionStart = DateTime.UtcNow;
 
-        var segment = await _aiCoordinator.ProcessAudioAsync(
+        var (segment, silenceDetected) = await _aiCoordinator.ProcessAudioAsync(
             meetingId,
             frame.Audio,
             frame.Sequence,
@@ -83,6 +83,16 @@ public class DesktopAgentHub : Hub
             frame.Channels,
             "microphone",
             dbContext);
+
+        if (silenceDetected)
+        {
+            await Clients.Caller.SendAsync("SilenceDetected", new
+            {
+                MeetingId = frame.MeetingId,
+                Message = "The selected microphone is producing silent audio. Check: (1) microphone permissions in System Settings > Privacy > Microphone, (2) correct device with --list-devices, (3) microphone is not muted.",
+                Timestamp = DateTime.UtcNow
+            });
+        }
 
         if (segment is not null)
         {
