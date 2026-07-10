@@ -115,12 +115,52 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
             var buffer = new byte[sampleRate * channels * 2 * 40 / 1000]; // 40ms chunk
             var stream = _ffmpegProcess.StandardOutput.BaseStream;
 
+            // Pre-flight: collect first ~1 second of audio to check for silence
+            var preflightBuffer = new byte[sampleRate * channels * 2]; // 1 second
+            var preflightOffset = 0;
+            var preflightComplete = false;
+
             try
             {
                 while (!cancellationToken.IsCancellationRequested && !_ffmpegProcess.HasExited)
                 {
                     var bytesRead = await stream.ReadAsync(buffer, cancellationToken);
                     if (bytesRead == 0) break;
+
+                    // Pre-flight silence check: accumulate first 1s of audio
+                    if (!preflightComplete)
+                    {
+                        var remaining = preflightBuffer.Length - preflightOffset;
+                        var toCopy = Math.Min(bytesRead, remaining);
+                        Array.Copy(buffer, 0, preflightBuffer, preflightOffset, toCopy);
+                        preflightOffset += toCopy;
+
+                        if (preflightOffset >= preflightBuffer.Length)
+                        {
+                            preflightComplete = true;
+                            var allZero = true;
+                            for (var i = 0; i < preflightBuffer.Length; i++)
+                            {
+                                if (preflightBuffer[i] != 0)
+                                {
+                                    allZero = false;
+                                    break;
+                                }
+                            }
+                            if (allZero)
+                            {
+                                _logger.LogWarning(
+                                    "⚠️  Pre-flight check FAILED: First 1 second of audio is all zeros!\n" +
+                                    "    The selected microphone device is producing silent audio.\n" +
+                                    "    Possible causes:\n" +
+                                    "      (1) Microphone permissions not granted to Terminal (System Settings > Privacy > Microphone)\n" +
+                                    "      (2) Wrong device index — run 'dotnet run -- --list-devices' to see current devices\n" +
+                                    "      (3) Device indices may have changed if peripherals were plugged/unplugged\n" +
+                                    "      (4) Microphone is muted or input volume is zero\n" +
+                                    "    Try different --mic-device values: :0, :1, or :2");
+                            }
+                        }
+                    }
 
                     var frameData = new byte[bytesRead];
                     Array.Copy(buffer, frameData, bytesRead);

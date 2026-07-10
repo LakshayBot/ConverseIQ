@@ -46,6 +46,7 @@ class SpeechWorker:
             )
 
             transcript = await self.pipeline.process_audio_chunk(chunk)
+            silence = self.pipeline.is_silence_detected(str(meeting_id))
 
             duration = (time.time() - start) * 1000
 
@@ -54,6 +55,7 @@ class SpeechWorker:
                 success=True,
                 transcript=transcript,
                 duration_ms=duration,
+                silence_detected=silence,
             )
         except Exception as e:
             logger.error(f"SpeechWorker error for meeting {meeting_id}: {e}")

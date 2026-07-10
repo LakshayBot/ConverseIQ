@@ -83,6 +83,9 @@ class TranscriptPipeline:
 
         return transcript
 
+    def is_silence_detected(self, meeting_id: str) -> bool:
+        return self.speech_recognizer._silence_warned.get(meeting_id, False)
+
     def reset_meeting(self, meeting_id: str) -> None:
         self.speech_recognizer.reset_meeting(meeting_id)
         self.diarizer.reset_meeting(meeting_id)

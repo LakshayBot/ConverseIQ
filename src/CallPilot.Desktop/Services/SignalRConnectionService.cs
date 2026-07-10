@@ -48,6 +48,16 @@ public class SignalRConnectionService : IAsyncDisposable
                 status, transcript.Speaker, transcript.Text);
         });
 
+        _connection.On<SilenceEvent>("SilenceDetected", (silence) =>
+        {
+            _logger.LogWarning(
+                "⚠️  SILENCE DETECTED — {Message}\n" +
+                "    Quick fix: The audio device may have changed since last run.\n" +
+                "    Run 'dotnet run -- --list-devices' to see current devices and try --mic-device :0, :1, or :2.\n" +
+                "    Also check System Settings > Privacy & Security > Microphone.",
+                silence.Message);
+        });
+
         await _connection.StartAsync(cancellationToken);
         ConnectionStateChanged?.Invoke(this, "Connected");
 
@@ -226,3 +236,4 @@ internal class RetryPolicy : IRetryPolicy
 }
 
 internal record TranscriptEvent(string Speaker, string Text, double Confidence, bool IsFinal, int Sequence);
+internal record SilenceEvent(string MeetingId, string Message, DateTime Timestamp);

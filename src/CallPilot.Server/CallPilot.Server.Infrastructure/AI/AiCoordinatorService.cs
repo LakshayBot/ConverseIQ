@@ -16,7 +16,7 @@ public class AiCoordinatorService
         _logger = logger;
     }
 
-    public async Task<TranscriptSegment?> ProcessAudioAsync(
+    public async Task<(TranscriptSegment? segment, bool silenceDetected)> ProcessAudioAsync(
         Guid meetingId,
         byte[] audio,
         long sequence,
@@ -40,12 +40,15 @@ public class AiCoordinatorService
                 _logger.LogWarning(
                     "AI Engine returned {StatusCode} for meeting {MeetingId}: {ErrorBody}",
                     (int)response.StatusCode, meetingId, errorBody);
-                return null;
+                return (null, false);
             }
 
             var result = await response.Content.ReadFromJsonAsync<AiTranscribeResponse>();
-            if (result is not { Success: true, Transcript: not null })
-                return null;
+            if (result is not { Success: true })
+                return (null, result?.SilenceDetected ?? false);
+
+            if (result.Transcript is null)
+                return (null, result.SilenceDetected);
 
             var segment = new TranscriptSegment(
                 meetingId,
@@ -64,12 +67,12 @@ public class AiCoordinatorService
                 "Transcript stored: Meeting={MeetingId}, Speaker={Speaker}, Text={Text}",
                 meetingId, segment.Speaker, segment.Text[..Math.Min(segment.Text.Length, 50)]);
 
-            return segment;
+            return (segment, false);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "AI Engine request failed for meeting {MeetingId}", meetingId);
-            return null;
+            return (null, false);
         }
     }
 
@@ -80,6 +83,7 @@ public class AiCoordinatorService
         public AiTranscript? Transcript { get; set; }
         public string? Error { get; set; }
         public double DurationMs { get; set; }
+        public bool SilenceDetected { get; set; }
     }
 
     private class AiTranscript
