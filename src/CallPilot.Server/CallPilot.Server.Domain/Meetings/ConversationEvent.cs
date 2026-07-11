@@ -10,7 +10,10 @@ public class ConversationEvent
     public string SupportingTranscript { get; private set; }
     public DateTime DetectedAt { get; private set; }
 
-    private ConversationEvent() { }
+    private ConversationEvent()
+    {
+        SupportingTranscript = string.Empty;
+    }
 
     public ConversationEvent(
         Guid meetingId,

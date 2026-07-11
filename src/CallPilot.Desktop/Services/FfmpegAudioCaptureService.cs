@@ -142,7 +142,8 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
                     var bytesRead = await stream.ReadAsync(buffer, cancellationToken);
                     if (bytesRead == 0) break;
 
-                    // Pre-flight silence check: accumulate first 1s of audio
+                    // Pre-flight silence check: only for microphone sources, not desktop audio.
+                    // Desktop loopback (BlackHole/VB-Cable) is silent until system audio plays — that's normal.
                     if (!preflightComplete)
                     {
                         var remaining = preflightBuffer.Length - preflightOffset;
@@ -153,26 +154,29 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
                         if (preflightOffset >= preflightBuffer.Length)
                         {
                             preflightComplete = true;
-                            var allZero = true;
-                            for (var i = 0; i < preflightBuffer.Length; i++)
+                            if (!string.Equals(_source, "desktop", StringComparison.OrdinalIgnoreCase))
                             {
-                                if (preflightBuffer[i] != 0)
+                                var allZero = true;
+                                for (var i = 0; i < preflightBuffer.Length; i++)
                                 {
-                                    allZero = false;
-                                    break;
+                                    if (preflightBuffer[i] != 0)
+                                    {
+                                        allZero = false;
+                                        break;
+                                    }
                                 }
-                            }
-                            if (allZero)
-                            {
-                                _logger.LogWarning(
-                                    "⚠️  Pre-flight check FAILED: First 1 second of audio is all zeros!\n" +
-                                    "    The selected microphone device is producing silent audio.\n" +
-                                    "    Possible causes:\n" +
-                                    "      (1) Microphone permissions not granted to Terminal (System Settings > Privacy > Microphone)\n" +
-                                    "      (2) Wrong device index — run 'dotnet run -- --list-devices' to see current devices\n" +
-                                    "      (3) Device indices may have changed if peripherals were plugged/unplugged\n" +
-                                    "      (4) Microphone is muted or input volume is zero\n" +
-                                    "    Try different --mic-device values: :0, :1, or :2");
+                                if (allZero)
+                                {
+                                    _logger.LogWarning(
+                                        "⚠️  Pre-flight check FAILED: First 1 second of audio is all zeros!\n" +
+                                        "    The selected microphone device is producing silent audio.\n" +
+                                        "    Possible causes:\n" +
+                                        "      (1) Microphone permissions not granted to Terminal (System Settings > Privacy > Microphone)\n" +
+                                        "      (2) Wrong device index — run 'dotnet run -- --list-devices' to see current devices\n" +
+                                        "      (3) Device indices may have changed if peripherals were plugged/unplugged\n" +
+                                        "      (4) Microphone is muted or input volume is zero\n" +
+                                        "    Try different --mic-device values: :0, :1, or :2");
+                                }
                             }
                         }
                     }
