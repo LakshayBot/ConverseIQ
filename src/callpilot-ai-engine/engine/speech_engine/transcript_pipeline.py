@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class TranscriptPipeline:
     def __init__(
         self,
-        model_size: str = "small.en",
+        model_size: str = "medium.en",
         device: str = "cpu",
         compute_type: str = "int8",
         language: str = "en",
