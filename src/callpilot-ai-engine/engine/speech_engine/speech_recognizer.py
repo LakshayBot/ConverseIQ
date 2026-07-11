@@ -32,6 +32,8 @@ class SpeechRecognizer:
         self._silence_warned: dict[str, bool] = {}
         self._last_transcribe_length: dict[str, int] = {}
         self._min_new_samples: int = 8000  # 0.5s of audio at 16kHz
+        self._overlap_samples: int = 4800  # 300ms — enough context for Whisper, minimal duplication
+        self._last_raw_text: dict[str, str] = {}  # For deduplicating sequential transcripts
 
     def transcribe(
         self,
@@ -105,7 +107,7 @@ class SpeechRecognizer:
                 empty_count = self._empty_transcript_count[meeting_id]
                 # Trim buffer to overlap window — without this, the buffer grows
                 # unbounded on silence, making each successive Whisper call slower.
-                overlap = min(32000, len(accumulated))
+                overlap = min(self._overlap_samples, len(accumulated))
                 self._accumulated_audio[meeting_id] = accumulated[-overlap:] if overlap > 0 else accumulated[-16000:]
                 self._last_transcribe_length[meeting_id] = overlap if overlap > 0 else 16000
                 if empty_count >= 10 and not self._silence_warned.get(meeting_id, False):
@@ -138,24 +140,33 @@ class SpeechRecognizer:
             if last_segment.avg_logprob < -2.0 and len(text) < 10:
                 return None
 
+            # Deduplicate: strip prefix that overlaps with previous transcript.
+            # Without this, the 300ms context window causes ~30% word repetition
+            # because each Whisper run re-transcribes the same trailing audio.
+            prev_text = self._last_raw_text.get(meeting_id, "")
+            deduped = self._deduplicate_text(prev_text, text)
+            self._last_raw_text[meeting_id] = text  # store full text for next comparison
+
+            if not deduped:
+                return None
+
             confidence = max(0.0, min(1.0, 1.0 - last_segment.no_speech_prob))
 
             self._segment_counter[meeting_id] = self._segment_counter.get(meeting_id, 0) + 1
             self._empty_transcript_count[meeting_id] = 0
             self._silence_warned[meeting_id] = False
 
-            # Trim to overlap window
-            overlap_samples = min(32000, len(accumulated))
+            # Trim buffer to small overlap window for context continuity
+            overlap_samples = min(self._overlap_samples, len(accumulated))
             self._accumulated_audio[meeting_id] = accumulated[-overlap_samples:]
-            # Mark entire remaining buffer as transcribed — next Whisper run
-            # only triggers after _min_new_samples of NEW audio arrives
+            # Mark remaining buffer as transcribed — next run needs _min_new_samples of NEW audio
             self._last_transcribe_length[meeting_id] = overlap_samples
 
             is_final = True
 
             return TranscriptSegment(
                 speaker=self._get_speaker(source),
-                text=text,
+                text=deduped,
                 confidence=confidence,
                 start=f"{max(0, last_segment.start):.2f}",
                 end=f"{last_segment.end:.2f}",
@@ -174,6 +185,36 @@ class SpeechRecognizer:
         self._empty_transcript_count.pop(meeting_id, None)
         self._silence_warned.pop(meeting_id, None)
         self._last_transcribe_length.pop(meeting_id, None)
+        self._last_raw_text.pop(meeting_id, None)
+
+    @staticmethod
+    def _deduplicate_text(prev: str, current: str) -> str:
+        """Strip word-level prefix from current that overlaps with prev.
+        
+        Returns only the new words, or empty string if current is fully
+        contained in prev. Handles partial word overlaps by matching
+        at word boundaries.
+        """
+        if not prev or not current:
+            return current
+        
+        prev_words = prev.lower().split()
+        curr_words = current.lower().split()
+        
+        # Find longest common prefix at word level
+        common = 0
+        for pw, cw in zip(prev_words, curr_words):
+            if pw == cw:
+                common += 1
+            else:
+                break
+        
+        if common == len(curr_words):
+            return ""  # fully duplicate
+        
+        # Return only the new words, preserving original casing
+        original_words = current.split()
+        return " ".join(original_words[common:])
 
     @staticmethod
     def _get_speaker(source: str) -> str:
