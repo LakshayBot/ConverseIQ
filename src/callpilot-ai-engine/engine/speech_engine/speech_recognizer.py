@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Optional
 
 import numpy as np
@@ -78,7 +79,15 @@ class SpeechRecognizer:
         if new_samples < self._min_new_samples:
             return None
 
+        # Safety cap: prevent buffer from growing unbounded (e.g. during prolonged silence).
+        # Whisper runs in O(n log n), so processing 30s of audio costs ~10x more than 3s.
+        MAX_BUFFER_SAMPLES = 240000  # 15 seconds
+        if len(accumulated) > MAX_BUFFER_SAMPLES:
+            accumulated = accumulated[-MAX_BUFFER_SAMPLES:]
+            self._accumulated_audio[meeting_id] = accumulated
+
         try:
+            whisper_start = time.time()
             segments, info = self.model.transcribe(
                 accumulated,
                 beam_size=self.beam_size,
@@ -88,13 +97,17 @@ class SpeechRecognizer:
                 no_speech_threshold=0.6,
                 best_of=2,
             )
+            whisper_ms = (time.time() - whisper_start) * 1000
 
             segments_list = list(segments)
             if not segments_list:
                 self._empty_transcript_count[meeting_id] = self._empty_transcript_count.get(meeting_id, 0) + 1
                 empty_count = self._empty_transcript_count[meeting_id]
-                # Don't retry immediately — mark current position so we wait for new audio
-                self._last_transcribe_length[meeting_id] = len(accumulated)
+                # Trim buffer to overlap window — without this, the buffer grows
+                # unbounded on silence, making each successive Whisper call slower.
+                overlap = min(32000, len(accumulated))
+                self._accumulated_audio[meeting_id] = accumulated[-overlap:] if overlap > 0 else accumulated[-16000:]
+                self._last_transcribe_length[meeting_id] = overlap if overlap > 0 else 16000
                 if empty_count >= 10 and not self._silence_warned.get(meeting_id, False):
                     acc_rms = float(np.sqrt(np.mean(accumulated ** 2)))
                     logger.warning(
@@ -109,7 +122,7 @@ class SpeechRecognizer:
             last_segment = segments_list[-1]
 
             if last_segment.no_speech_prob > 0.99:
-                logger.debug(f"[{meeting_id}] Rejected: no_speech_prob={last_segment.no_speech_prob:.2f}, rms={rms:.4f}")
+                logger.debug(f"[{meeting_id}] Rejected: no_speech_prob={last_segment.no_speech_prob:.2f}, rms={rms:.4f}, whisper={whisper_ms:.0f}ms")
                 return None
 
             text = last_segment.text.strip()

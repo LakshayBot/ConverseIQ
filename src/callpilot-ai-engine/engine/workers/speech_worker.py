@@ -50,6 +50,13 @@ class SpeechWorker:
 
             duration = (time.time() - start) * 1000
 
+            # Periodic latency summary (every 100th chunk ≈ every ~4s)
+            if transcript is not None or sequence % 100 == 0:
+                logger.info(
+                    f"[{meeting_id}] Chunk #{sequence}: duration={duration:.0f}ms, "
+                    f"has_transcript={transcript is not None}, silence={silence}"
+                )
+
             return SpeechTaskResult(
                 task_id=task_id,
                 success=True,

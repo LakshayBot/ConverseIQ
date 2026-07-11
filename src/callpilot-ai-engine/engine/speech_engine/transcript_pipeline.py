@@ -75,10 +75,12 @@ class TranscriptPipeline:
         self._last_transcript_time[meeting_id] = last_time + duration
 
         elapsed = (time.time() - start_time) * 1000
-        logger.debug(
+        # Log at INFO level for latency monitoring; includes buffer size for diagnostics
+        buf_duration = len(audio_array) / 16000.0
+        logger.info(
             f"[{meeting_id}] Transcript: speaker={transcript.speaker}, "
-            f"text={transcript.text[:50]}..., confidence={transcript.confidence:.2f}, "
-            f"latency={elapsed:.0f}ms"
+            f"text={transcript.text[:80]}, confidence={transcript.confidence:.2f}, "
+            f"latency={elapsed:.0f}ms, buf={buf_duration:.1f}s, source={chunk.source}"
         )
 
         return transcript
