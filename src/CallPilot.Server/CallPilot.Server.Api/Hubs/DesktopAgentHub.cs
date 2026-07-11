@@ -75,13 +75,14 @@ public class DesktopAgentHub : Hub
 
         var transcriptionStart = DateTime.UtcNow;
 
+        var source = string.IsNullOrEmpty(frame.Source) ? "microphone" : frame.Source;
         var (segment, silenceDetected) = await _aiCoordinator.ProcessAudioAsync(
             meetingId,
             frame.Audio,
             frame.Sequence,
             frame.SampleRate,
             frame.Channels,
-            "microphone",
+            source,
             dbContext);
 
         if (silenceDetected)
@@ -207,6 +208,7 @@ public record AudioFrameMessage(
     DateTime Timestamp,
     int SampleRate,
     int Channels,
+    string Source,
     byte[] Audio);
 
 public record HeartbeatMessage(

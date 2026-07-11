@@ -10,6 +10,7 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
 {
     private readonly ILogger<FfmpegAudioCaptureService> _logger;
     private readonly string? _micDevice;
+    private readonly string _source;
     private Process? _ffmpegProcess;
     private long _sequence;
 
@@ -19,6 +20,7 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
     {
         _logger = logger;
         _micDevice = config.MicrophoneDevice;
+        _source = config.AudioSource;
     }
 
     public static void ListDevices()
@@ -170,7 +172,8 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
                         DateTime.UtcNow,
                         frameData,
                         sampleRate,
-                        channels));
+                        channels,
+                        _source));
                 }
 
                 if (!cancellationToken.IsCancellationRequested && _ffmpegProcess.HasExited)

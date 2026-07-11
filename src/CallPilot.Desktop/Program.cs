@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.CommandLine.Invocation;
 using CallPilot.Desktop.Audio;
 using CallPilot.Desktop.Models;
 using CallPilot.Desktop.Services;
@@ -18,6 +19,7 @@ var desktopAudioOption = new Option<bool>("--enable-desktop-audio", () => true, 
 var rootCommand = new RootCommand("CallPilot Desktop Agent - Real-time audio streaming client");
 
 var micDeviceOption = new Option<string?>("--mic-device", () => null, "avfoundation audio device index (e.g. ':1' for MacBook mic). Run with --list-devices to see options");
+var sourceOption = new Option<string>("--source", () => "microphone", "Audio source type: 'microphone' (your voice → 'Salesperson') or 'desktop' (speaker audio → 'Customer-1')");
 var listDevicesOption = new Option<bool>("--list-devices", () => false, "List available audio capture devices and exit");
 var rootListDevicesOption = new Option<bool>("--list-devices", () => false, "List available audio capture devices and exit");
 
@@ -40,11 +42,22 @@ var startCommand = new Command("start", "Start audio streaming session")
     micOption,
     desktopAudioOption,
     micDeviceOption,
+    sourceOption,
     listDevicesOption,
 };
 
-startCommand.SetHandler(async (serverUrl, email, password, meetingId, enableMic, enableDesktopAudio, micDevice, listDevices) =>
+startCommand.SetHandler(async (context) =>
 {
+    var serverUrl = context.ParseResult.GetValueForOption(serverUrlOption);
+    var email = context.ParseResult.GetValueForOption(emailOption);
+    var password = context.ParseResult.GetValueForOption(passwordOption);
+    var meetingId = context.ParseResult.GetValueForOption(meetingIdOption);
+    var enableMic = context.ParseResult.GetValueForOption(micOption);
+    var enableDesktopAudio = context.ParseResult.GetValueForOption(desktopAudioOption);
+    var micDevice = context.ParseResult.GetValueForOption(micDeviceOption);
+    var source = context.ParseResult.GetValueForOption(sourceOption);
+    var listDevices = context.ParseResult.GetValueForOption(listDevicesOption);
+
     Log.Logger = new LoggerConfiguration()
         .MinimumLevel.Information()
         .WriteTo.Console()
@@ -64,6 +77,7 @@ startCommand.SetHandler(async (serverUrl, email, password, meetingId, enableMic,
         agentConfig.ServerUrl = serverUrl;
         agentConfig.EnableMicrophone = enableMic;
         agentConfig.EnableDesktopAudio = enableDesktopAudio;
+        agentConfig.AudioSource = source;
         if (!string.IsNullOrEmpty(meetingId)) agentConfig.MeetingId = meetingId;
         if (!string.IsNullOrEmpty(micDevice))
         {
@@ -77,7 +91,7 @@ startCommand.SetHandler(async (serverUrl, email, password, meetingId, enableMic,
 
         logger.LogInformation("CallPilot Desktop Agent v0.1.0");
         logger.LogInformation("Server: {ServerUrl}", serverUrl);
-        logger.LogInformation("Microphone: {Mic}, Desktop Audio: {DesktopAudio}", enableMic, enableDesktopAudio);
+        logger.LogInformation("Microphone: {Mic}, Desktop Audio: {DesktopAudio}, Source: {Source}", enableMic, enableDesktopAudio, source);
 
         sessionManager = provider.GetRequiredService<SessionManager>();
 
@@ -115,7 +129,7 @@ startCommand.SetHandler(async (serverUrl, email, password, meetingId, enableMic,
         Log.Information("Shutdown complete");
         Log.CloseAndFlush();
     }
-}, serverUrlOption, emailOption, passwordOption, meetingIdOption, micOption, desktopAudioOption, micDeviceOption, listDevicesOption);
+});
 
 rootCommand.AddCommand(startCommand);
 
