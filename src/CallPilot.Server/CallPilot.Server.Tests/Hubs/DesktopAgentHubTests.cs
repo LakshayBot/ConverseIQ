@@ -21,7 +21,7 @@ public class DesktopAgentHubTests
     public void AudioFrameMessage_HasCorrectStructure()
     {
         var audio = new byte[] { 0, 1, 2, 3 };
-        var frame = new AudioFrameMessage("meeting-123", 1, DateTime.UtcNow, 16000, 1, audio);
+        var frame = new AudioFrameMessage("meeting-123", 1, DateTime.UtcNow, 16000, 1, "microphone", audio);
 
         Assert.Equal("meeting-123", frame.MeetingId);
         Assert.Equal(1, frame.Sequence);
@@ -44,7 +44,7 @@ public class DesktopAgentHubTests
     public void HubMessageTypes_HaveCorrectStructure()
     {
         var registration = new AgentRegistration("1.0.0", "Windows", ["MicrophoneAudio"]);
-        var frame = new AudioFrameMessage("mid", 1, DateTime.UtcNow, 16000, 1, [1, 2, 3]);
+        var frame = new AudioFrameMessage("mid", 1, DateTime.UtcNow, 16000, 1, "microphone", [1, 2, 3]);
         var heartbeat = new HeartbeatMessage("mid", DateTime.UtcNow);
 
         Assert.Equal("1.0.0", registration.AgentVersion);
