@@ -30,6 +30,26 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
         Console.WriteLine("Available audio capture devices:");
         try
         {
+            var devices = GetAudioDevices();
+            if (devices.Count == 0)
+            {
+                Console.WriteLine("  (no devices found)");
+                return;
+            }
+            foreach (var (index, name) in devices)
+                Console.WriteLine($"  :{index} = {name}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  Failed to list devices: {ex.Message}");
+        }
+    }
+
+    private static List<(int Index, string Name)> GetAudioDevices()
+    {
+        var devices = new List<(int, string)>();
+        try
+        {
             var proc = Process.Start(new ProcessStartInfo
             {
                 FileName = "ffmpeg",
@@ -57,14 +77,41 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
                 {
                     var match = System.Text.RegularExpressions.Regex.Match(line, @"\[(\d+)\]\s+(.+)");
                     if (match.Success)
-                        Console.WriteLine($"  :{match.Groups[1].Value} = {match.Groups[2].Value.Trim()}");
+                        devices.Add((int.Parse(match.Groups[1].Value), match.Groups[2].Value.Trim()));
                 }
             }
         }
-        catch (Exception ex)
+        catch { /* ignored */ }
+        return devices;
+    }
+
+    /// <summary>
+    /// Resolves a --mic-device argument to a device index.
+    /// Supports numeric indices (:0, :1), index-only (0, 1), or device name substring matching.
+    /// </summary>
+    private static string ResolveDevice(string micDevice)
+    {
+        if (string.IsNullOrEmpty(micDevice))
+            return ":0";
+
+        // Already in :N format
+        if (micDevice.StartsWith(':') && int.TryParse(micDevice[1..], out _))
+            return micDevice;
+
+        // Raw numeric index
+        if (int.TryParse(micDevice, out _))
+            return $":{micDevice}";
+
+        // Name-based lookup
+        var devices = GetAudioDevices();
+        foreach (var (index, name) in devices)
         {
-            Console.WriteLine($"  Failed to list devices: {ex.Message}");
+            if (name.Contains(micDevice, StringComparison.OrdinalIgnoreCase))
+                return $":{index}";
         }
+
+        // Fallback: return as-is (it might be a valid format we don't recognize)
+        return micDevice;
     }
 
     public Task StartCaptureAsync(int sampleRate, int channels, CancellationToken cancellationToken)
@@ -84,8 +131,8 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
             args = $"-f {device} -i default -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
             if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             {
-                var input = string.IsNullOrEmpty(_micDevice) ? ":0" : _micDevice;
-                args = $"-f avfoundation -i {input} -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
+            var input = ResolveDevice(_micDevice);
+            args = $"-f avfoundation -i {input} -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
             }
 
             _logger.LogInformation("Starting audio capture: args={Args}", args);

@@ -20,6 +20,9 @@ RUN dotnet publish CallPilot.Server/CallPilot.Server.Api/CallPilot.Server.Api.cs
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 
+# aspnet:10.0 is Ubuntu Chiseled - need to install curl for HEALTHCHECK
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
 RUN mkdir -p /app/uploads
 
 COPY --from=build /app ./
@@ -30,6 +33,6 @@ ENV ASPNETCORE_URLS=http://+:5001
 ENV ASPNETCORE_ENVIRONMENT=Production
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
-    CMD curl -f http://localhost:5001/health || exit 1
+    CMD curl -f http://127.0.0.1:5001/health || exit 1
 
 ENTRYPOINT ["dotnet", "CallPilot.Server.Api.dll"]
