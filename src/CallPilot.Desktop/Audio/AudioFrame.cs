@@ -5,4 +5,5 @@ public record AudioFrame(
     DateTime Timestamp,
     byte[] Data,
     int SampleRate,
-    int Channels);
+    int Channels,
+    string Source = "microphone");

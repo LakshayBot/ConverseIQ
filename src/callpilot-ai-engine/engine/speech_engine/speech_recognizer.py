@@ -29,6 +29,8 @@ class SpeechRecognizer:
         self._silent_chunk_count: dict[str, int] = {}
         self._empty_transcript_count: dict[str, int] = {}
         self._silence_warned: dict[str, bool] = {}
+        self._last_transcribe_length: dict[str, int] = {}
+        self._min_new_samples: int = 8000  # 0.5s of audio at 16kHz
 
     def transcribe(
         self,
@@ -68,6 +70,14 @@ class SpeechRecognizer:
         if duration_seconds < 0.5:
             return None
 
+        # Only run Whisper if enough NEW audio has accumulated since last transcription.
+        # Without this, after the first successful transcription the 2s overlap window
+        # keeps the buffer > 0.5s, triggering Whisper on every 40ms chunk (1.5s CPU each).
+        last_len = self._last_transcribe_length.get(meeting_id, 0)
+        new_samples = len(accumulated) - last_len
+        if new_samples < self._min_new_samples:
+            return None
+
         try:
             segments, info = self.model.transcribe(
                 accumulated,
@@ -83,6 +93,8 @@ class SpeechRecognizer:
             if not segments_list:
                 self._empty_transcript_count[meeting_id] = self._empty_transcript_count.get(meeting_id, 0) + 1
                 empty_count = self._empty_transcript_count[meeting_id]
+                # Don't retry immediately — mark current position so we wait for new audio
+                self._last_transcribe_length[meeting_id] = len(accumulated)
                 if empty_count >= 10 and not self._silence_warned.get(meeting_id, False):
                     acc_rms = float(np.sqrt(np.mean(accumulated ** 2)))
                     logger.warning(
@@ -119,8 +131,12 @@ class SpeechRecognizer:
             self._empty_transcript_count[meeting_id] = 0
             self._silence_warned[meeting_id] = False
 
+            # Trim to overlap window
             overlap_samples = min(32000, len(accumulated))
             self._accumulated_audio[meeting_id] = accumulated[-overlap_samples:]
+            # Mark entire remaining buffer as transcribed — next Whisper run
+            # only triggers after _min_new_samples of NEW audio arrives
+            self._last_transcribe_length[meeting_id] = overlap_samples
 
             is_final = True
 
@@ -144,6 +160,7 @@ class SpeechRecognizer:
         self._silent_chunk_count.pop(meeting_id, None)
         self._empty_transcript_count.pop(meeting_id, None)
         self._silence_warned.pop(meeting_id, None)
+        self._last_transcribe_length.pop(meeting_id, None)
 
     @staticmethod
     def _get_speaker(source: str) -> str:

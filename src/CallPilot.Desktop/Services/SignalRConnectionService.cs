@@ -103,6 +103,7 @@ public class SignalRConnectionService : IAsyncDisposable
                 timestamp = frame.Timestamp,
                 sampleRate = frame.SampleRate,
                 channels = frame.Channels,
+                source = frame.Source,
                 audio = frame.Data
             });
         }
