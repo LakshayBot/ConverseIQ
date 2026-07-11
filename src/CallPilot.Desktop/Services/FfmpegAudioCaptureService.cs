@@ -10,6 +10,7 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
 {
     private readonly ILogger<FfmpegAudioCaptureService> _logger;
     private readonly string? _micDevice;
+    private readonly string? _fileInput;
     private readonly string _source;
     private Process? _ffmpegProcess;
     private long _sequence;
@@ -20,6 +21,7 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
     {
         _logger = logger;
         _micDevice = config.MicrophoneDevice;
+        _fileInput = config.FileInput;
         _source = config.AudioSource;
     }
 
@@ -67,16 +69,27 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
 
     public Task StartCaptureAsync(int sampleRate, int channels, CancellationToken cancellationToken)
     {
-        var device = GetAudioInputDevice();
+        string args;
 
-        var args = $"-f {device} -i default -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        if (!string.IsNullOrEmpty(_fileInput))
         {
-            var input = string.IsNullOrEmpty(_micDevice) ? ":0" : _micDevice;
-            args = $"-f avfoundation -i {input} -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
+            // File input mode: read audio file, resample to 16kHz mono, stream at real-time speed
+            args = $"-re -i \"{_fileInput}\" -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
+            _logger.LogInformation("Starting file playback: file={File}, args={Args}", _fileInput, args);
         }
+        else
+        {
+            var device = GetAudioInputDevice();
 
-        _logger.LogInformation("Starting audio capture: args={Args}", args);
+            args = $"-f {device} -i default -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                var input = string.IsNullOrEmpty(_micDevice) ? ":0" : _micDevice;
+                args = $"-f avfoundation -i {input} -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
+            }
+
+            _logger.LogInformation("Starting audio capture: args={Args}", args);
+        }
 
         _ffmpegProcess = new Process
         {

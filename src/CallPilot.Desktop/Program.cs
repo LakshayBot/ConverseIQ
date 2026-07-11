@@ -19,6 +19,7 @@ var desktopAudioOption = new Option<bool>("--enable-desktop-audio", () => true, 
 var rootCommand = new RootCommand("CallPilot Desktop Agent - Real-time audio streaming client");
 
 var micDeviceOption = new Option<string?>("--mic-device", () => null, "avfoundation audio device index (e.g. ':1' for MacBook mic). Run with --list-devices to see options");
+var fileInputOption = new Option<string?>("--file-input", () => null, "Play audio file through the pipeline (MP3/WAV/etc.) — no physical device needed");
 var sourceOption = new Option<string>("--source", () => "microphone", "Audio source type: 'microphone' (your voice → 'Salesperson') or 'desktop' (speaker audio → 'Customer-1')");
 var listDevicesOption = new Option<bool>("--list-devices", () => false, "List available audio capture devices and exit");
 var rootListDevicesOption = new Option<bool>("--list-devices", () => false, "List available audio capture devices and exit");
@@ -42,6 +43,7 @@ var startCommand = new Command("start", "Start audio streaming session")
     micOption,
     desktopAudioOption,
     micDeviceOption,
+    fileInputOption,
     sourceOption,
     listDevicesOption,
 };
@@ -55,6 +57,7 @@ startCommand.SetHandler(async (context) =>
     var enableMic = context.ParseResult.GetValueForOption(micOption);
     var enableDesktopAudio = context.ParseResult.GetValueForOption(desktopAudioOption);
     var micDevice = context.ParseResult.GetValueForOption(micDeviceOption);
+    var fileInput = context.ParseResult.GetValueForOption(fileInputOption);
     var source = context.ParseResult.GetValueForOption(sourceOption);
     var listDevices = context.ParseResult.GetValueForOption(listDevicesOption);
 
@@ -78,6 +81,7 @@ startCommand.SetHandler(async (context) =>
         agentConfig.EnableMicrophone = enableMic;
         agentConfig.EnableDesktopAudio = enableDesktopAudio;
         agentConfig.AudioSource = source;
+        if (!string.IsNullOrEmpty(fileInput)) agentConfig.FileInput = fileInput;
         if (!string.IsNullOrEmpty(meetingId)) agentConfig.MeetingId = meetingId;
         if (!string.IsNullOrEmpty(micDevice))
         {
