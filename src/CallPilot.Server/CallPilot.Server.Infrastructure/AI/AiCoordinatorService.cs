@@ -27,7 +27,13 @@ public class AiCoordinatorService
     {
         try
         {
-            var url = $"/api/v1/ai/transcribe?meeting_id={meetingId}&sequence={sequence}&sample_rate={sampleRate}&channels={channels}&source={source}";
+            // ── Nemotron vs Whisper toggle ──────────────────────────────
+            var useNemotron = Environment.GetEnvironmentVariable("NEMOTRON_ENABLED")?.ToLower() == "true";
+            var basePath = useNemotron
+                ? $"/api/v1/ai/transcribe/nemotron"
+                : $"/api/v1/ai/transcribe";
+
+            var url = $"{basePath}?meeting_id={meetingId}&sequence={sequence}&sample_rate={sampleRate}&channels={channels}&source={source}";
 
             var content = new ByteArrayContent(audio);
             content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");

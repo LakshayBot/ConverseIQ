@@ -105,7 +105,8 @@ public class DesktopAgentHub : Hub
                 segment.Text,
                 segment.Confidence,
                 segment.IsFinal,
-                segment.Sequence
+                segment.Sequence,
+                LatencyMs = latencyMs
             };
 
             await Clients.Caller.SendAsync("TranscriptReceived", transcriptEvent);

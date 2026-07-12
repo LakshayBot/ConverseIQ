@@ -1,0 +1,22 @@
+# ── Nemotron Speech Streaming ASR dependencies ──────────────────────────────
+# These are SEPARATE from the main requirements.txt to avoid breaking
+# the existing Faster-Whisper pipeline.
+#
+# Install with:  pip install -r requirements-nemotron.txt
+#
+# NOTE: nemo_toolkit[asr] pulls in PyTorch (~2GB). On CPU-only machines,
+# you may want to pre-install the CPU wheel before NeMo:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# Core
+numpy>=2.0.0
+soundfile>=0.14.0
+
+# NeMo ASR toolkit (includes PyTorch, torchaudio, and Conformer model support)
+nemo_toolkit[asr]>=2.2.0
+
+# WebSocket support (already in main deps, listed here for standalone install)
+websockets>=12.0
+
+# Audio preprocessing (same as main pipeline)
+scipy>=1.14.0

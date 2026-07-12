@@ -44,8 +44,8 @@ public class SignalRConnectionService : IAsyncDisposable
         {
             _lastTranscriptTime = DateTime.UtcNow;
             var status = transcript.IsFinal ? "FINAL" : "PARTIAL";
-            _logger.LogInformation("[{Status}] {Speaker}: {Text}",
-                status, transcript.Speaker, transcript.Text);
+            _logger.LogInformation("[{Status}] [Latency: {LatencyMs}ms] {Speaker}: {Text}",
+                status, transcript.LatencyMs, transcript.Speaker, transcript.Text);
         });
 
         _connection.On<SilenceEvent>("SilenceDetected", (silence) =>
@@ -236,5 +236,5 @@ internal class RetryPolicy : IRetryPolicy
     }
 }
 
-internal record TranscriptEvent(string Speaker, string Text, double Confidence, bool IsFinal, int Sequence);
+internal record TranscriptEvent(string Speaker, string Text, double Confidence, bool IsFinal, int Sequence, long LatencyMs = 0);
 internal record SilenceEvent(string MeetingId, string Message, DateTime Timestamp);

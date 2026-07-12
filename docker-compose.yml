@@ -23,10 +23,15 @@ services:
     restart: unless-stopped
     ports:
       - "8001:8001"
+    volumes:
+      - ai_engine_cache:/home/appuser/.cache
     environment:
       WHISPER_MODEL_SIZE: medium.en
       WHISPER_DEVICE: cpu
       WHISPER_COMPUTE_TYPE: int8
+      NEMOTRON_ENABLED: "${NEMOTRON_ENABLED:-true}"
+      NEMOTRON_DEVICE: cpu
+      NEMOTRON_RIGHT_CONTEXT: "1"
       PYTHONUNBUFFERED: "1"
     depends_on:
       postgres:
@@ -51,6 +56,7 @@ services:
       Jwt__RefreshTokenExpiryDays: "${JWT_REFRESH_TOKEN_EXPIRY_DAYS:-7}"
       Encryption__Key: ${ENCRYPTION_KEY:-YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY=}
       AiEngine__BaseUrl: http://ai-engine:8001
+      NEMOTRON_ENABLED: "${NEMOTRON_ENABLED:-true}"
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
     volumes:
       - server_uploads:/app/uploads
@@ -87,3 +93,4 @@ volumes:
   postgres_data:
   server_uploads:
   ollama_data:
+  ai_engine_cache:
