@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from typing import Optional
 
@@ -10,10 +11,15 @@ from ..models import TranscriptSegment
 logger = logging.getLogger(__name__)
 
 
+def _tokenize(text: str) -> list[str]:
+    """Lower-case word tokens with punctuation stripped."""
+    return [w.strip(".,!?;:()[]{}\"'") for w in text.lower().split() if w.strip(".,!?;:()[]{}\"'")]
+
+
 class SpeechRecognizer:
     def __init__(
         self,
-        model_size: str = "small.en",
+        model_size: str = "medium.en",
         device: str = "cpu",
         compute_type: str = "int8",
         beam_size: int = 5,
@@ -22,6 +28,7 @@ class SpeechRecognizer:
     ):
         logger.info(f"Loading Faster Whisper model: {model_size} on {device}/{compute_type}")
         self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
+        self.model_name = model_size
         self.beam_size = beam_size
         self.language = language
         self.confidence_threshold = confidence_threshold
@@ -31,9 +38,9 @@ class SpeechRecognizer:
         self._empty_transcript_count: dict[str, int] = {}
         self._silence_warned: dict[str, bool] = {}
         self._last_transcribe_length: dict[str, int] = {}
-        self._min_new_samples: int = 8000  # 0.5s of audio at 16kHz
-        self._overlap_samples: int = 4800  # 300ms — enough context for Whisper, minimal duplication
-        self._last_raw_text: dict[str, str] = {}  # For deduplicating sequential transcripts
+        self._last_transcript_text: dict[str, str] = {}
+        self._min_new_samples: int = 32000  # 2.0s of audio at 16kHz (was 8000=0.5s — too small for medium.en)
+        self._overlap_samples: int = 4800  # 300ms overlap (was 32000=2s — caused cascading repetition)
 
     def transcribe(
         self,
@@ -74,15 +81,12 @@ class SpeechRecognizer:
             return None
 
         # Only run Whisper if enough NEW audio has accumulated since last transcription.
-        # Without this, after the first successful transcription the 2s overlap window
-        # keeps the buffer > 0.5s, triggering Whisper on every 40ms chunk (1.5s CPU each).
         last_len = self._last_transcribe_length.get(meeting_id, 0)
         new_samples = len(accumulated) - last_len
         if new_samples < self._min_new_samples:
             return None
 
         # Safety cap: prevent buffer from growing unbounded (e.g. during prolonged silence).
-        # Whisper runs in O(n log n), so processing 30s of audio costs ~10x more than 3s.
         MAX_BUFFER_SAMPLES = 240000  # 15 seconds
         if len(accumulated) > MAX_BUFFER_SAMPLES:
             accumulated = accumulated[-MAX_BUFFER_SAMPLES:]
@@ -99,14 +103,12 @@ class SpeechRecognizer:
                 no_speech_threshold=0.6,
                 best_of=2,
             )
-            whisper_ms = (time.time() - whisper_start) * 1000
 
             segments_list = list(segments)
+            whisper_ms = (time.time() - whisper_start) * 1000
             if not segments_list:
                 self._empty_transcript_count[meeting_id] = self._empty_transcript_count.get(meeting_id, 0) + 1
                 empty_count = self._empty_transcript_count[meeting_id]
-                # Trim buffer to overlap window — without this, the buffer grows
-                # unbounded on silence, making each successive Whisper call slower.
                 overlap = min(self._overlap_samples, len(accumulated))
                 self._accumulated_audio[meeting_id] = accumulated[-overlap:] if overlap > 0 else accumulated[-16000:]
                 self._last_transcribe_length[meeting_id] = overlap if overlap > 0 else 16000
@@ -114,69 +116,133 @@ class SpeechRecognizer:
                     acc_rms = float(np.sqrt(np.mean(accumulated ** 2)))
                     logger.warning(
                         f"[{meeting_id}] Whisper returned no speech after {empty_count} attempts. "
-                        f"Accumulated audio: {duration_seconds:.1f}s, RMS: {acc_rms:.6f}. "
-                        f"The audio signal is present but contains no recognizable speech — "
-                        f"check that the correct microphone is selected and you are speaking."
+                        f"Accumulated audio: {duration_seconds:.1f}s, RMS: {acc_rms:.6f}."
                     )
                     self._silence_warned[meeting_id] = True
                 return None
 
-            last_segment = segments_list[-1]
+            # ── JOIN ALL VALID SEGMENTS (was BUG: only took last_segment) ──
+            valid_segments = []
+            for seg in segments_list:
+                if seg.no_speech_prob > 0.99:
+                    continue
+                text = seg.text.strip()
+                if not text:
+                    continue
+                word_alpha = sum(1 for c in text if c.isalpha())
+                if len(text.split()) <= 1 and word_alpha <= 3:
+                    continue
+                if seg.avg_logprob < -2.0 and len(text) < 10:
+                    continue
+                valid_segments.append(seg)
 
-            if last_segment.no_speech_prob > 0.99:
-                logger.debug(f"[{meeting_id}] Rejected: no_speech_prob={last_segment.no_speech_prob:.2f}, rms={rms:.4f}, whisper={whisper_ms:.0f}ms")
+            if not valid_segments:
                 return None
 
-            text = last_segment.text.strip()
-            if not text:
-                return None
+            # Join all valid segment texts
+            combined_text = " ".join(seg.text.strip() for seg in valid_segments)
 
-            # Filter whisper silence hallucinations (single short words like "You", "I", "." etc.)
-            word_alpha = sum(1 for c in text if c.isalpha())
-            if len(text.split()) <= 1 and word_alpha <= 3:
-                return None
+            # ── TEXT-BASED OVERLAP DEDUP ──
+            # Remove prefix that overlaps with the previous transcription.
+            # Much faster than word_timestamps (no cross-attention overhead).
+            last_text = self._last_transcript_text.get(meeting_id, "")
+            if last_text and combined_text != last_text:
+                deduped = self._deduplicate_overlap(last_text, combined_text)
+                if deduped is None:
+                    # Fully redundant — return None the first time,
+                    # but if it keeps happening, let through to avoid deadlock
+                    repeat_key = f"{meeting_id}_repeat"
+                    self._segment_counter[repeat_key] = self._segment_counter.get(repeat_key, 0) + 1
+                    if self._segment_counter[repeat_key] < 3:
+                        return None
+                    # After 3 consecutive redundant calls, let this through
+                    deduped = combined_text
+                elif deduped != combined_text:
+                    combined_text = deduped
 
-            # Filter very low confidence + short text (noise)
-            if last_segment.avg_logprob < -2.0 and len(text) < 10:
-                return None
+            self._last_transcript_text[meeting_id] = combined_text
 
-            # Deduplicate: strip prefix that overlaps with previous transcript.
-            # Without this, the 300ms context window causes ~30% word repetition
-            # because each Whisper run re-transcribes the same trailing audio.
-            prev_text = self._last_raw_text.get(meeting_id, "")
-            deduped = self._deduplicate_text(prev_text, text)
-            self._last_raw_text[meeting_id] = text  # store full text for next comparison
+            # Aggregate confidence across all kept segments
+            avg_confidence = sum(
+                max(0.0, min(1.0, 1.0 - seg.no_speech_prob))
+                for seg in valid_segments
+            ) / len(valid_segments)
 
-            if not deduped:
-                return None
-
-            confidence = max(0.0, min(1.0, 1.0 - last_segment.no_speech_prob))
+            first_start = valid_segments[0].start
+            last_end = valid_segments[-1].end
 
             self._segment_counter[meeting_id] = self._segment_counter.get(meeting_id, 0) + 1
             self._empty_transcript_count[meeting_id] = 0
             self._silence_warned[meeting_id] = False
 
-            # Trim buffer to small overlap window for context continuity
-            overlap_samples = min(self._overlap_samples, len(accumulated))
-            self._accumulated_audio[meeting_id] = accumulated[-overlap_samples:]
-            # Mark remaining buffer as transcribed — next run needs _min_new_samples of NEW audio
-            self._last_transcribe_length[meeting_id] = overlap_samples
+            # Trim to 300ms overlap window (was 2s — caused cascading repetition)
+            overlap = min(self._overlap_samples, len(accumulated))
+            self._accumulated_audio[meeting_id] = accumulated[-overlap:]
+            self._last_transcribe_length[meeting_id] = overlap
 
-            is_final = True
+            buf_dur = len(accumulated) / 16000.0
+            logger.info(
+                f"[{meeting_id}] Whisper: model={self.model_name}, "
+                f"buf={buf_dur:.1f}s, segs={len(valid_segments)}/{len(segments_list)}, "
+                f"whisper={whisper_ms:.0f}ms, text_len={len(combined_text)}"
+            )
 
             return TranscriptSegment(
                 speaker=self._get_speaker(source),
-                text=deduped,
-                confidence=confidence,
-                start=f"{max(0, last_segment.start):.2f}",
-                end=f"{last_segment.end:.2f}",
-                is_final=is_final,
+                text=combined_text,
+                confidence=avg_confidence,
+                start=f"{max(0, first_start):.2f}",
+                end=f"{last_end:.2f}",
+                is_final=True,
                 meeting_id=meeting_id,
                 sequence=self._segment_counter[meeting_id],
             )
         except Exception as e:
             logger.error(f"Transcription error for meeting {meeting_id}: {e}")
             return None
+
+    def _deduplicate_overlap(self, previous: str, current: str) -> Optional[str]:
+        """Remove overlapping prefix from `current` that appeared in `previous`.
+
+        Uses word-level suffix→prefix matching (punctuation-stripped) to strip
+        repeated content caused by the audio overlap window between successive
+        Whisper calls.  Returns None when the entire current is redundant.
+
+        Example:
+          previous = "we need more people to do this"
+          current  = "more people to do this and it was weird"
+          Returns:           "and it was weird"
+        """
+        prev_toks = _tokenize(previous)
+        curr_toks = _tokenize(current)
+
+        # ── exact / near-exact duplicate ──
+        if curr_toks == prev_toks:
+            return None  # pure duplicate — caller should suppress
+        if len(curr_toks) <= len(prev_toks) and all(
+            c == p for c, p in zip(curr_toks, prev_toks[-len(curr_toks):])
+        ):
+            return None  # current is a suffix of previous — pure overlap
+
+        if not prev_toks or not curr_toks:
+            return current
+
+        # Find longest suffix of previous that matches a prefix of current
+        best_match_len = 0
+        max_check = min(len(prev_toks), len(curr_toks), 15)
+
+        for match_len in range(max_check, 1, -1):
+            if prev_toks[-match_len:] == curr_toks[:match_len]:
+                best_match_len = match_len
+                break
+
+        if best_match_len > 0:
+            new_words = curr_toks[best_match_len:]
+            if new_words:
+                return " ".join(new_words)
+            return None  # fully redundant
+
+        return current
 
     def reset_meeting(self, meeting_id: str) -> None:
         self._accumulated_audio.pop(meeting_id, None)
@@ -185,36 +251,7 @@ class SpeechRecognizer:
         self._empty_transcript_count.pop(meeting_id, None)
         self._silence_warned.pop(meeting_id, None)
         self._last_transcribe_length.pop(meeting_id, None)
-        self._last_raw_text.pop(meeting_id, None)
-
-    @staticmethod
-    def _deduplicate_text(prev: str, current: str) -> str:
-        """Strip word-level prefix from current that overlaps with prev.
-        
-        Returns only the new words, or empty string if current is fully
-        contained in prev. Handles partial word overlaps by matching
-        at word boundaries.
-        """
-        if not prev or not current:
-            return current
-        
-        prev_words = prev.lower().split()
-        curr_words = current.lower().split()
-        
-        # Find longest common prefix at word level
-        common = 0
-        for pw, cw in zip(prev_words, curr_words):
-            if pw == cw:
-                common += 1
-            else:
-                break
-        
-        if common == len(curr_words):
-            return ""  # fully duplicate
-        
-        # Return only the new words, preserving original casing
-        original_words = current.split()
-        return " ".join(original_words[common:])
+        self._last_transcript_text.pop(meeting_id, None)
 
     @staticmethod
     def _get_speaker(source: str) -> str:
