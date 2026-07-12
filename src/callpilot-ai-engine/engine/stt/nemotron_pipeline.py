@@ -194,12 +194,24 @@ class NemotronPipeline:
 
     # How long to wait between consecutive batch transcribe calls (ms).
     # The desktop sends 40ms chunks, so an interval of ~200ms means every
-    # 5 chunks trigger a fresh transcript.  The batch engine runs at
-    # ~8.5x real-time, so processing 1-2s of audio takes 120-240ms.
-    # Lower = more frequent updates but more CPU usage.
+    # 5 chunks trigger a fresh transcript.
     _EMIT_INTERVAL_SAMPLES: int = int(
         os.getenv("NEMOTRON_EMIT_INTERVAL_MS", "200")
     ) * NEMOTRON_SAMPLE_RATE // 1000
+
+    # MAX sliding window for partial transcripts (seconds).
+    # Instead of re-transcribing the ENTIRE accumulated buffer (which grows
+    # without bound and causes latency to climb to 3+ seconds), we only
+    # transcribe the last N seconds of audio for each partial emission.
+    # This keeps inference time constant (~1 s on CPU) regardless of
+    # meeting length.  The FULL buffer is still used for finalize() so
+    # the completed segment has maximum accuracy.
+    _MAX_PARTIAL_WINDOW_SECONDS: float = float(
+        os.getenv("NEMOTRON_PARTIAL_WINDOW_SEC", "8")
+    )
+    _MAX_PARTIAL_WINDOW_SAMPLES: int = int(
+        _MAX_PARTIAL_WINDOW_SECONDS * NEMOTRON_SAMPLE_RATE
+    )
 
     def append_audio_and_transcribe(
         self, sess: NemotronSession, chunk: np.ndarray
@@ -243,9 +255,17 @@ class NemotronPipeline:
         return text or sess.current_text
 
     def _transcribe_accumulated(
-        self, sess: NemotronSession, return_duration: bool = False
+        self, sess: NemotronSession, return_duration: bool = False,
+        use_full_buffer: bool = False,
     ) -> Tuple[str, float]:
-        """Run batch transcribe() on the entire accumulated audio buffer.
+        """Run batch transcribe() on accumulated audio.
+
+        For streaming partials (use_full_buffer=False): only transcribes the
+        last _MAX_PARTIAL_WINDOW_SECONDS of audio — keeps latency flat
+        regardless of meeting length.
+
+        For finalize (use_full_buffer=True): transcribes the full buffer for
+        maximum accuracy on the completed segment.
 
         Serialised with _inference_lock to prevent multiple threads from
         competing for CPU cores during batch inference.
@@ -257,6 +277,15 @@ class NemotronPipeline:
         if audio.ndim > 1:
             audio = audio.mean(axis=1)
         audio = audio.astype(np.float32)
+
+        # ── Sliding window cap for streaming partials ─────────────────────
+        # Without this, the buffer grows forever and each inference takes
+        # longer than the last (96 s of audio → 11+ s processing → queue
+        # backup → 2.9 s measured latency).  Capping to the last N seconds
+        # gives constant ~1 s latency even in hour-long meetings.
+        if not use_full_buffer and len(audio) > self._MAX_PARTIAL_WINDOW_SAMPLES:
+            audio = audio[-self._MAX_PARTIAL_WINDOW_SAMPLES:]
+
         duration = len(audio) / NEMOTRON_SAMPLE_RATE
 
         import tempfile
@@ -287,9 +316,15 @@ class NemotronPipeline:
 
             text = text.replace("\u2581", " ").strip()
 
-            if len(audio) >= self._EMIT_INTERVAL_SAMPLES * 4:
+            total_dur = len(sess.accumulated_audio) / NEMOTRON_SAMPLE_RATE
+            if not use_full_buffer and total_dur > self._MAX_PARTIAL_WINDOW_SECONDS:
                 logger.debug(
-                    "Nemotron streaming: %.1f s audio → %.1f s (%.1fx real-time)",
+                    "Nemotron partial: windowed last %.1fs of %.1fs total → %.1fs (%.1fx RT)",
+                    duration, total_dur, elapsed, duration / max(elapsed, 0.001),
+                )
+            elif duration >= 2.0:
+                logger.debug(
+                    "Nemotron: %.1fs audio → %.1fs (%.1fx RT)",
                     duration, elapsed, duration / max(elapsed, 0.001),
                 )
 
@@ -315,7 +350,9 @@ class NemotronPipeline:
 
         try:
             with torch.no_grad():
-                final_text, _duration = self._transcribe_accumulated(sess, return_duration=True)
+                final_text, _duration = self._transcribe_accumulated(
+                    sess, return_duration=True, use_full_buffer=True,
+                )
         except Exception:
             logger.exception("Nemotron finalize batch inference failed")
             return sess.current_text
