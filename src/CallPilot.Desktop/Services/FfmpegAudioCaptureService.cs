@@ -124,17 +124,16 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
             args = $"-re -i \"{_fileInput}\" -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
             _logger.LogInformation("Starting file playback: file={File}, args={Args}", _fileInput, args);
         }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            var input = ResolveDevice(_micDevice);
+            args = $"-f avfoundation -i {input} -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
+            _logger.LogInformation("Starting macOS audio capture: args={Args}", args);
+        }
         else
         {
             var device = GetAudioInputDevice();
-
             args = $"-f {device} -i default -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            {
-            var input = ResolveDevice(_micDevice);
-            args = $"-f avfoundation -i {input} -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
-            }
-
             _logger.LogInformation("Starting audio capture: args={Args}", args);
         }
 

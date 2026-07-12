@@ -22,9 +22,8 @@ var micDeviceOption = new Option<string?>("--mic-device", () => null, "avfoundat
 var fileInputOption = new Option<string?>("--file-input", () => null, "Play audio file through the pipeline (MP3/WAV/etc.) — no physical device needed");
 var sourceOption = new Option<string>("--source", () => "microphone", "Audio source type: 'microphone' (your voice → 'Salesperson') or 'desktop' (speaker audio → 'Customer-1')");
 var listDevicesOption = new Option<bool>("--list-devices", () => false, "List available audio capture devices and exit");
-var rootListDevicesOption = new Option<bool>("--list-devices", () => false, "List available audio capture devices and exit");
 
-rootCommand.AddOption(rootListDevicesOption);
+rootCommand.AddOption(listDevicesOption);
 rootCommand.SetHandler((listDevices) =>
 {
     if (listDevices)
@@ -32,7 +31,7 @@ rootCommand.SetHandler((listDevices) =>
         FfmpegAudioCaptureService.ListDevices();
         Environment.Exit(0);
     }
-}, rootListDevicesOption);
+}, listDevicesOption);
 
 var startCommand = new Command("start", "Start audio streaming session")
 {
@@ -45,7 +44,6 @@ var startCommand = new Command("start", "Start audio streaming session")
     micDeviceOption,
     fileInputOption,
     sourceOption,
-    listDevicesOption,
 };
 
 startCommand.SetHandler(async (context) =>
@@ -59,19 +57,12 @@ startCommand.SetHandler(async (context) =>
     var micDevice = context.ParseResult.GetValueForOption(micDeviceOption);
     var fileInput = context.ParseResult.GetValueForOption(fileInputOption);
     var source = context.ParseResult.GetValueForOption(sourceOption);
-    var listDevices = context.ParseResult.GetValueForOption(listDevicesOption);
 
     Log.Logger = new LoggerConfiguration()
         .MinimumLevel.Information()
         .WriteTo.Console()
         .WriteTo.File("logs/callpilot-desktop-.log", rollingInterval: RollingInterval.Day)
         .CreateLogger();
-
-    if (listDevices)
-    {
-        FfmpegAudioCaptureService.ListDevices();
-        return;
-    }
 
     SessionManager? sessionManager = null;
 

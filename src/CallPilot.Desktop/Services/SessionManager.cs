@@ -38,7 +38,7 @@ public class SessionManager : IAsyncDisposable
             throw new InvalidOperationException("Failed to create meeting.");
 
         _config.MeetingId = meetingId;
-        var dashUrl = _config.ServerUrl.Replace(":5001", ":3000") + "/meeting/" + meetingId;
+        var dashUrl = BuildDashboardUrl(_config.ServerUrl) + "/meeting/" + meetingId;
         _logger.LogInformation("========================================");
         _logger.LogInformation(" Meeting ID: {MeetingId}", meetingId);
         _logger.LogInformation(" Dashboard:  {Url}", dashUrl);
@@ -92,5 +92,23 @@ public class SessionManager : IAsyncDisposable
     {
         await StopAsync();
         _cts?.Dispose();
+    }
+
+    /// <summary>
+    /// Map a server URL (port 5001 by default) to the dashboard URL
+    /// (port 3000 by default).  Leaves the URL alone if the server port
+    /// isn't the well-known API port — covers proxied deployments.
+    /// </summary>
+    internal static string BuildDashboardUrl(string serverUrl)
+    {
+        if (string.IsNullOrEmpty(serverUrl)) return serverUrl;
+        if (!Uri.TryCreate(serverUrl, UriKind.Absolute, out var uri)) return serverUrl;
+        if (uri.Port != 5001) return serverUrl;
+
+        var dashboard = new UriBuilder(uri)
+        {
+            Port = 3000,
+        };
+        return dashboard.Uri.ToString().TrimEnd('/');
     }
 }

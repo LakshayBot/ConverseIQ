@@ -19,25 +19,28 @@ def test_models_can_be_imported():
     assert segment.confidence == 0.95
 
 
-def test_worker_models():
-    from engine.workers.models import WorkerTask, WorkerResult
+def test_speech_task_result():
+    from engine.models import SpeechTaskResult, TranscriptSegment
 
-    task = WorkerTask(
-        task_id="t1",
-        task_type="TranscribeAudio",
+    segment = TranscriptSegment(
+        speaker="Test",
+        text="hello world",
+        confidence=0.95,
+        start="0.00",
+        end="1.00",
+        is_final=True,
         meeting_id="m1",
-        payload={"audio": [1, 2, 3]},
+        sequence=1,
     )
 
-    assert task.task_type == "TranscribeAudio"
-
-    result = WorkerResult(
-        task_id="t1",
+    result = SpeechTaskResult(
+        task_id="r1",
         success=True,
-        result={"transcript": "hello"},
+        transcript=segment,
         duration_ms=150.0,
-        confidence=0.92,
     )
 
+    assert result.task_id == "r1"
     assert result.success
-    assert result.confidence == 0.92
+    assert result.transcript is not None
+    assert result.transcript.text == "hello world"

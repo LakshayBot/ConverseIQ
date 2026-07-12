@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using CallPilot.Server.Domain.Meetings;
 using CallPilot.Server.Infrastructure.Data;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace CallPilot.Server.Infrastructure.AI;
@@ -9,11 +10,32 @@ public class AiCoordinatorService
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<AiCoordinatorService> _logger;
+    private readonly string _transcribePath;
 
-    public AiCoordinatorService(HttpClient httpClient, ILogger<AiCoordinatorService> logger)
+    public AiCoordinatorService(HttpClient httpClient, IConfiguration configuration, ILogger<AiCoordinatorService> logger)
     {
         _httpClient = httpClient;
         _logger = logger;
+
+        // Resolve once at construction. Reads the same NEMOTRON_ENABLED
+        // setting the Python engine uses (config key or env var) so flipping
+        // the flag in one place switches both sides. Defaults to Nemotron
+        // because the Whisper STT pipeline was removed — the legacy
+        // `/api/v1/ai/transcribe` path no longer exists, so falling back to
+        // it would silently produce 404s from the AI engine.
+        var useNemotron = configuration.GetValue<bool?>("NEMOTRON_ENABLED")
+            ?? !string.Equals(
+                Environment.GetEnvironmentVariable("NEMOTRON_ENABLED"),
+                "false",
+                StringComparison.OrdinalIgnoreCase);
+        _transcribePath = useNemotron
+            ? "/api/v1/ai/transcribe/nemotron"
+            : "/api/v1/ai/transcribe";
+        _logger.LogInformation(
+            "AiCoordinatorService initialised: transcribe path = {Path} (NEMOTRON_ENABLED config={Config}, env={Env})",
+            _transcribePath,
+            configuration.GetValue<bool?>("NEMOTRON_ENABLED"),
+            Environment.GetEnvironmentVariable("NEMOTRON_ENABLED"));
     }
 
     public async Task<(TranscriptSegment? segment, bool silenceDetected)> ProcessAudioAsync(
@@ -27,13 +49,7 @@ public class AiCoordinatorService
     {
         try
         {
-            // ── Nemotron vs Whisper toggle ──────────────────────────────
-            var useNemotron = Environment.GetEnvironmentVariable("NEMOTRON_ENABLED")?.ToLower() == "true";
-            var basePath = useNemotron
-                ? $"/api/v1/ai/transcribe/nemotron"
-                : $"/api/v1/ai/transcribe";
-
-            var url = $"{basePath}?meeting_id={meetingId}&sequence={sequence}&sample_rate={sampleRate}&channels={channels}&source={source}";
+            var url = $"{_transcribePath}?meeting_id={meetingId}&sequence={sequence}&sample_rate={sampleRate}&channels={channels}&source={source}";
 
             var content = new ByteArrayContent(audio);
             content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
@@ -77,7 +93,7 @@ public class AiCoordinatorService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "AI Engine request failed for meeting {MeetingId}", meetingId);
+            _logger.LogError(ex, "AI Engine request failed for meeting {MeetingId}");
             return (null, false);
         }
     }

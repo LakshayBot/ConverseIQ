@@ -130,7 +130,7 @@ class NemotronWebSocket:
                 await self._send_soft_final(ws)
 
             # ── Inference ───────────────────────────────────────────
-            async with self._pipe._inference_lock:
+            async with self._pipe.inference_lock:
                 text = await asyncio.get_event_loop().run_in_executor(
                     None,
                     self._pipe.append_audio_and_transcribe,
@@ -198,7 +198,7 @@ class NemotronWebSocket:
             return
 
         # Wait for any in-flight inference to finish
-        async with self._pipe._inference_lock:
+        async with self._pipe.inference_lock:
             delta = await asyncio.get_event_loop().run_in_executor(
                 None, self._pipe.finalize, self._sess
             )

@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using CallPilot.Desktop.Audio;
 using CallPilot.Desktop.Models;
+using CallPilot.Desktop.Services.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
 
@@ -210,31 +211,3 @@ public class SignalRConnectionService : IAsyncDisposable
         await DisconnectAsync();
     }
 }
-
-internal class RetryPolicy : IRetryPolicy
-{
-    private readonly AgentConfiguration _config;
-    private readonly ILogger _logger;
-
-    public RetryPolicy(AgentConfiguration config, ILogger logger)
-    {
-        _config = config;
-        _logger = logger;
-    }
-
-    public TimeSpan? NextRetryDelay(RetryContext retryContext)
-    {
-        if (retryContext.PreviousRetryCount >= _config.MaxReconnectAttempts)
-        {
-            _logger.LogError("Max reconnect attempts reached");
-            return null;
-        }
-
-        var delay = TimeSpan.FromSeconds(_config.ReconnectDelaySeconds * Math.Pow(2, retryContext.PreviousRetryCount));
-        _logger.LogInformation("Retry {Count} in {Delay}ms", retryContext.PreviousRetryCount + 1, delay.TotalMilliseconds);
-        return delay;
-    }
-}
-
-internal record TranscriptEvent(string Speaker, string Text, double Confidence, bool IsFinal, int Sequence, long LatencyMs = 0);
-internal record SilenceEvent(string MeetingId, string Message, DateTime Timestamp);

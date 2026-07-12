@@ -1,12 +1,19 @@
 """
 Nemotron Speech Streaming pipeline — cache-aware, energy-VAD gated.
 
-Implements the EXACT inference patterns from:
+Implements the inference patterns from:
   • modal-projects/modal-nvidia-asr  (cache-aware streaming, concurrent slots)
   • pipecat-ai/nemotron-january-2026 (soft/hard reset, delta dedup, 160ms chunks)
 
-Never touches the Faster-Whisper pipeline.  Lazy-loads the model on first use
-so server startup stays fast even when NeMo takes 30+ seconds to initialise.
+Lazy-loads the model on first use so server startup stays fast even when
+NeMo takes 30+ seconds to initialise. Uses two serialisation locks:
+  • `inference_lock`  (asyncio.Lock) — held by the WebSocket handler while
+                                the executor runs a batch transcribe
+  • `_inference_lock` (threading.Lock) — held by the sync streaming path
+                                inside `_transcribe_accumulated`
+The two locks together prevent concurrent CPU-bound NeMo inference on a
+single host, regardless of whether the caller is an asyncio task or a
+thread.
 """
 
 from __future__ import annotations
@@ -14,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
@@ -22,23 +30,22 @@ from typing import Optional, Tuple
 import numpy as np
 
 from engine.config.nemotron_config import (
-    NEMOTRON_MODEL_NAME,
     NEMOTRON_DEVICE,
-    NEMOTRON_SAMPLE_RATE,
     NEMOTRON_HOP_SAMPLES,
-    SHIFT_FRAMES,
-    FINAL_PADDING_FRAMES,
-    ATT_CONTEXT_SIZE,
-    NEMOTRON_PRE_ENCODE_CACHE_FRAMES,
-    NEMOTRON_VAD_SILENCE_FRAMES,
+    NEMOTRON_MODEL_NAME,
+    NEMOTRON_SAMPLE_RATE,
     NEMOTRON_VAD_RMS_THRESHOLD,
-    NEMOTRON_RIGHT_CONTEXT,
+    NEMOTRON_VAD_SILENCE_FRAMES,
 )
 
 logger = logging.getLogger(__name__)
 
+# torch is imported lazily inside methods that need it — keeps the import cost
+# off the critical path and lets the rest of the module load before NeMo
+# resolves its ~hundreds-of-MB dependency tree.
+
 # ═══════════════════════════════════════════════════════════════════════════
-# Per-stream session state  (mirrors ASRSession from pipecat server.py:39-71)
+# Per-stream session state
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -76,28 +83,7 @@ class NemotronSession:
 
 
 class NemotronPipeline:
-    """Streaming ASR via nvidia/nemotron-speech-streaming-en-0.6b.
-
-    Usage (streaming)::
-
-        pipe = NemotronPipeline.get_instance()
-        await pipe.ensure_loaded()
-        sess = pipe.init_session("call-42")
-
-        # feed 500 ms chunks from desktop capture
-        for chunk in audio_chunks:
-            text = pipe.append_audio_and_transcribe(sess, chunk)
-            if text is not None:
-                yield {"type": "partial", "text": text}
-            if pipe.detect_silence(chunk, sess):
-                final = pipe.finalize(sess)       # hard reset
-                yield {"type": "final", "text": final}
-                pipe.reset_session(sess)
-
-    Usage (batch / REST)::
-
-        transcript = pipe.transcribe_batch(audio_bytes)
-    """
+    """Streaming ASR via nvidia/nemotron-speech-streaming-en-0.6b."""
 
     _instance: Optional["NemotronPipeline"] = None
 
@@ -106,7 +92,8 @@ class NemotronPipeline:
         self._loaded: bool = False
         self._loading: bool = False
         self._load_lock: asyncio.Lock = asyncio.Lock()
-        self._inference_lock: threading.Lock = threading.Lock()  # serialise inference on CPU
+        self._inference_lock: threading.Lock = threading.Lock()  # sync path
+        self.inference_lock: asyncio.Lock = asyncio.Lock()       # async path (WebSocket)
 
     # ── singleton ────────────────────────────────────────────────────────
 
@@ -150,7 +137,7 @@ class NemotronPipeline:
 
     def _load_model(self) -> None:
         """Synchronous model load — runs in thread pool to avoid blocking the event loop."""
-        import nemo.collections.asr as nemo_asr
+        import nemo.collections.asr as nemo_asr  # noqa: F401
 
         logger.info(
             "Loading Nemotron model %s on %s (this may take 30-60 s on first run)…",
@@ -171,8 +158,6 @@ class NemotronPipeline:
     # ── session management ────────────────────────────────────────────────
 
     def init_session(self, session_id: str) -> NemotronSession:
-        """Create a fresh session.  No pre-allocation needed — batch transcribe()
-        writes temp WAVs so there are no encoder caches to manage."""
         return NemotronSession(session_id=session_id)
 
     def reset_session(self, sess: NemotronSession) -> None:
@@ -244,7 +229,7 @@ class NemotronPipeline:
             return None
 
         try:
-            import torch
+            import torch  # noqa: F401
             with torch.no_grad():
                 text, _duration = self._transcribe_accumulated(sess, return_duration=True)
         except Exception:
@@ -278,7 +263,7 @@ class NemotronPipeline:
         Serialised with _inference_lock to prevent multiple threads from
         competing for CPU cores during batch inference.
         """
-        import torch
+        import torch  # noqa: F401
 
         audio = sess.accumulated_audio.copy()  # snapshot to avoid races
 
@@ -295,8 +280,25 @@ class NemotronPipeline:
             audio = audio[-self._MAX_PARTIAL_WINDOW_SAMPLES:]
 
         duration = len(audio) / NEMOTRON_SAMPLE_RATE
+        text = self._run_batch_transcribe(audio)
+        total_dur = len(sess.accumulated_audio) / NEMOTRON_SAMPLE_RATE
 
-        import tempfile
+        if not use_full_buffer and total_dur > self._MAX_PARTIAL_WINDOW_SECONDS:
+            logger.debug(
+                "Nemotron partial: windowed last %.1fs of %.1fs total → %r",
+                duration, total_dur, text,
+            )
+        elif duration >= 2.0:
+            logger.debug("Nemotron: %.1fs audio → %r", duration, text)
+
+        return (text, duration) if return_duration else text
+
+    def _run_batch_transcribe(self, audio: np.ndarray) -> str:
+        """Write audio to a temp WAV, run `model.transcribe([tmp])`, decode
+        the hypothesis output, delete the temp file. Shared by
+        `_transcribe_accumulated` (partials + finalize) and `transcribe_batch`.
+        """
+        import torch  # noqa: F401
         import soundfile as sf
 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
@@ -312,36 +314,31 @@ class NemotronPipeline:
                         return_hypotheses=False,
                     )
             elapsed = time.time() - t0
-
-            if isinstance(output, list) and len(output) > 0:
-                text = output[0]
-                if hasattr(text, "text"):
-                    text = text.text
-            elif isinstance(output, str):
-                text = output
-            else:
-                text = str(output)
-
-            text = text.replace("\u2581", " ").strip()
-
-            total_dur = len(sess.accumulated_audio) / NEMOTRON_SAMPLE_RATE
-            if not use_full_buffer and total_dur > self._MAX_PARTIAL_WINDOW_SECONDS:
-                logger.debug(
-                    "Nemotron partial: windowed last %.1fs of %.1fs total → %.1fs (%.1fx RT)",
-                    duration, total_dur, elapsed, duration / max(elapsed, 0.001),
-                )
-            elif duration >= 2.0:
-                logger.debug(
-                    "Nemotron: %.1fs audio → %.1fs (%.1fx RT)",
-                    duration, elapsed, duration / max(elapsed, 0.001),
-                )
-
-            return (text, duration) if return_duration else text
+            text = self._decode_hypothesis_output(output)
+            logger.debug("Nemotron inference: %.2fs wall, %d chars", elapsed, len(text))
+            return text
         finally:
             try:
                 os.unlink(tmp.name)
             except OSError:
                 pass
+
+    @staticmethod
+    def _decode_hypothesis_output(output) -> str:
+        """Extract a plain-text transcript from the NeMo transcribe() return
+        value, which can be a list of Hypothesis objects, a list of strings,
+        or a bare string depending on the NeMo version and options."""
+        if isinstance(output, list) and len(output) > 0:
+            first = output[0]
+            if hasattr(first, "text"):
+                text = first.text
+            else:
+                text = str(first)
+        elif isinstance(output, str):
+            text = output
+        else:
+            text = str(output)
+        return text.replace("▁", " ").strip()
 
     # ── finalisation (hard reset) ────────────────────────────────────────
 
@@ -354,7 +351,7 @@ class NemotronPipeline:
         if not self._loaded or self.model is None:
             return sess.current_text
 
-        import torch
+        import torch  # noqa: F401
 
         try:
             with torch.no_grad():
@@ -388,55 +385,18 @@ class NemotronPipeline:
         if not self._loaded or self.model is None:
             raise RuntimeError("Nemotron model not loaded")
 
-        import tempfile
-        import torch
-
-        t0 = time.time()
-
-        # Ensure mono, 16 kHz
         if audio.ndim > 1:
             audio = audio.mean(axis=1)
         audio = audio.astype(np.float32)
         duration = len(audio) / NEMOTRON_SAMPLE_RATE
 
-        # Write to a temp WAV — the canonical NeMo transcribe() API works best
-        # with file paths, avoiding internal shape mismatches.
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            import soundfile as sf
-            sf.write(tmp.name, audio, NEMOTRON_SAMPLE_RATE, format="WAV")
+        text = self._run_batch_transcribe(audio)
 
-        try:
-            with torch.no_grad():
-                output = self.model.transcribe(
-                    [tmp.name],
-                    batch_size=1,
-                    return_hypotheses=False,
-                )
-
-            elapsed = time.time() - t0
-
-            if isinstance(output, list) and len(output) > 0:
-                text = output[0]
-                # NeMo may return Hypothesis objects even with return_hypotheses=False
-                if hasattr(text, "text"):
-                    text = text.text
-            elif isinstance(output, str):
-                text = output
-            else:
-                text = str(output)
-
-            text = text.replace("\u2581", " ").strip()
-            logger.info(
-                "Nemotron batch: %.1f s audio \u2192 %.1f s processing (%.1fx real-time)",
-                duration, elapsed, duration / max(elapsed, 0.001),
-            )
-            return text, duration
-        finally:
-            import os
-            try:
-                os.unlink(tmp.name)
-            except OSError:
-                pass
+        logger.info(
+            "Nemotron batch: %.1f s audio → %d chars",
+            duration, len(text),
+        )
+        return text, duration
 
     # ── VAD ────────────────────────────────────────────────────────────────
 
@@ -461,30 +421,3 @@ class NemotronPipeline:
             return True
 
         return False
-
-    # ── helpers ────────────────────────────────────────────────────────────
-
-    def _decode_hypothesis(self, hyp) -> str:
-        """Decode a BPE hypothesis → clean text.
-
-        Handles three NeMo hypothesis formats:
-        1.  Hypothesis object with a .text attribute (NeMo 2.0+)
-        2.  torch.Tensor of BPE token ids
-        3.  List of int token ids
-        """
-        import torch
-
-        # Hypothesis object already has decoded text
-        if hasattr(hyp, "text"):
-            text = hyp.text
-        elif isinstance(hyp, torch.Tensor):
-            tokens = hyp.cpu().tolist()
-            text = self.model.tokenizer.bpe_decoder.decode(tokens)
-        else:
-            try:
-                tokens = list(hyp)
-                text = self.model.tokenizer.bpe_decoder.decode(tokens)
-            except TypeError:
-                return str(hyp)
-
-        return text.replace("▁", " ").strip()

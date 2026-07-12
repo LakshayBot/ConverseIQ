@@ -1,3 +1,4 @@
+using CallPilot.Server.Domain.Meetings;
 using CallPilot.Server.Infrastructure.AI;
 using CallPilot.Server.Infrastructure.Data;
 using CallPilot.Server.Infrastructure.Reliability;
@@ -34,8 +35,9 @@ public class DesktopAgentHub : Hub
 
     public override async Task OnConnectedAsync()
     {
-        var userId = Context.User?.FindFirst("userId")?.Value ?? "unknown";
-        _logger.LogInformation("Desktop Agent connected: {ConnectionId}, User: {UserId}", Context.ConnectionId, userId);
+        _logger.LogInformation(
+            "Desktop Agent connected: {ConnectionId}, User: {UserId}",
+            Context.ConnectionId, GetUserId());
         await base.OnConnectedAsync();
     }
 
@@ -47,10 +49,9 @@ public class DesktopAgentHub : Hub
 
     public async Task RegisterAgent(AgentRegistration registration)
     {
-        var userId = Context.User?.FindFirst("userId")?.Value ?? "unknown";
         _logger.LogInformation(
             "Agent registered: User={UserId}, Version={Version}, Platform={Platform}, Capabilities=[{Capabilities}]",
-            userId, registration.AgentVersion, registration.Platform,
+            GetUserId(), registration.AgentVersion, registration.Platform,
             string.Join(", ", registration.Capabilities));
 
         await Clients.Caller.SendAsync("AgentRegistered", new { Status = "Registered", Timestamp = DateTime.UtcNow });
@@ -99,79 +100,7 @@ public class DesktopAgentHub : Hub
         {
             var latencyMs = (long)(DateTime.UtcNow - transcriptionStart).TotalMilliseconds;
             _diagnostics.TrackTranscript(frame.MeetingId, latencyMs);
-            var transcriptEvent = new
-            {
-                segment.Speaker,
-                segment.Text,
-                segment.Confidence,
-                segment.IsFinal,
-                segment.Sequence,
-                LatencyMs = latencyMs
-            };
-
-            await Clients.Caller.SendAsync("TranscriptReceived", transcriptEvent);
-            await Clients.Group($"meeting_{frame.MeetingId}").SendAsync("TranscriptReceived", transcriptEvent);
-
-            if (segment.IsFinal)
-            {
-                var events = await _eventDetector.DetectEventsAsync(segment.Text);
-                foreach (var evt in events)
-                {
-                    _diagnostics.TrackEvent(frame.MeetingId, evt.EventType);
-                    var conversationEvent = new Domain.Meetings.ConversationEvent(
-                        meetingId,
-                        evt.EventType,
-                        evt.EntityName,
-                        evt.Confidence,
-                        segment.Text);
-
-                    dbContext.ConversationEvents.Add(conversationEvent);
-                    await dbContext.SaveChangesAsync();
-
-                    var eventPayload = new
-                    {
-                        conversationEvent.Id,
-                        conversationEvent.EventType,
-                        conversationEvent.EntityName,
-                        conversationEvent.Confidence,
-                        conversationEvent.DetectedAt
-                    };
-
-                    await Clients.Caller.SendAsync("EventDetected", eventPayload);
-                    await Clients.Group($"meeting_{frame.MeetingId}").SendAsync("EventDetected", eventPayload);
-
-                    var userIdClaim = Context.User?.FindFirst("userId")?.Value;
-                    if (userIdClaim is not null && Guid.TryParse(userIdClaim, out var userId))
-                    {
-                        var recommendationStart = DateTime.UtcNow;
-                        var recommendation = await _recommendationEngine.GenerateRecommendationAsync(
-                            meetingId, userId, conversationEvent);
-
-                        if (recommendation is not null)
-                        {
-                            var recLatencyMs = (long)(DateTime.UtcNow - recommendationStart).TotalMilliseconds;
-                            _diagnostics.TrackRecommendation(frame.MeetingId, recLatencyMs, "llm");
-
-                            dbContext.Recommendations.Add(recommendation);
-                            await dbContext.SaveChangesAsync();
-
-                            var recPayload = new
-                            {
-                                recommendation.Id,
-                                recommendation.Type,
-                                recommendation.Title,
-                                recommendation.Summary,
-                                recommendation.Confidence,
-                                recommendation.References,
-                                recommendation.GeneratedAt
-                            };
-
-                            await Clients.Caller.SendAsync("RecommendationGenerated", recPayload);
-                            await Clients.Group($"meeting_{frame.MeetingId}").SendAsync("RecommendationGenerated", recPayload);
-                        }
-                    }
-                }
-            }
+            await ProcessTranscriptAsync(segment, frame, dbContext, latencyMs, meetingId);
         }
 
         await Clients.Caller.SendAsync("AudioFrameAcknowledged", new
@@ -179,6 +108,91 @@ public class DesktopAgentHub : Hub
             frame.Sequence,
             Timestamp = DateTime.UtcNow
         });
+    }
+
+    /// <summary>
+    /// Broadcast the transcript to the caller + meeting group, then — for
+    /// final segments — detect events, persist them, and generate any
+    /// recommendation triggered by those events.
+    /// </summary>
+    private async Task ProcessTranscriptAsync(
+        TranscriptSegment segment,
+        AudioFrameMessage frame,
+        CallPilotDbContext dbContext,
+        long latencyMs,
+        Guid meetingId)
+    {
+        var transcriptEvent = new
+        {
+            segment.Speaker,
+            segment.Text,
+            segment.Confidence,
+            segment.IsFinal,
+            segment.Sequence,
+            LatencyMs = latencyMs
+        };
+
+        await Clients.Caller.SendAsync("TranscriptReceived", transcriptEvent);
+        await Clients.Group($"meeting_{frame.MeetingId}").SendAsync("TranscriptReceived", transcriptEvent);
+
+        if (!segment.IsFinal) return;
+
+        var userId = GetUserId();
+        if (userId is null || !Guid.TryParse(userId, out var userGuid)) return;
+
+        var events = await _eventDetector.DetectEventsAsync(segment.Text);
+        foreach (var evt in events)
+        {
+            _diagnostics.TrackEvent(frame.MeetingId, evt.EventType);
+            var conversationEvent = new Domain.Meetings.ConversationEvent(
+                meetingId,
+                evt.EventType,
+                evt.EntityName,
+                evt.Confidence,
+                segment.Text);
+
+            dbContext.ConversationEvents.Add(conversationEvent);
+            await dbContext.SaveChangesAsync();
+
+            var eventPayload = new
+            {
+                conversationEvent.Id,
+                conversationEvent.EventType,
+                conversationEvent.EntityName,
+                conversationEvent.Confidence,
+                conversationEvent.DetectedAt
+            };
+
+            await Clients.Caller.SendAsync("EventDetected", eventPayload);
+            await Clients.Group($"meeting_{frame.MeetingId}").SendAsync("EventDetected", eventPayload);
+
+            var recommendationStart = DateTime.UtcNow;
+            var recommendation = await _recommendationEngine.GenerateRecommendationAsync(
+                meetingId, userGuid, conversationEvent);
+
+            if (recommendation is not null)
+            {
+                var recLatencyMs = (long)(DateTime.UtcNow - recommendationStart).TotalMilliseconds;
+                _diagnostics.TrackRecommendation(frame.MeetingId, recLatencyMs, "llm");
+
+                dbContext.Recommendations.Add(recommendation);
+                await dbContext.SaveChangesAsync();
+
+                var recPayload = new
+                {
+                    recommendation.Id,
+                    recommendation.Type,
+                    recommendation.Title,
+                    recommendation.Summary,
+                    recommendation.Confidence,
+                    recommendation.References,
+                    recommendation.GeneratedAt
+                };
+
+                await Clients.Caller.SendAsync("RecommendationGenerated", recPayload);
+                await Clients.Group($"meeting_{frame.MeetingId}").SendAsync("RecommendationGenerated", recPayload);
+            }
+        }
     }
 
     public async Task SendHeartbeat(HeartbeatMessage heartbeat)
@@ -196,6 +210,8 @@ public class DesktopAgentHub : Hub
     {
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"meeting_{meetingId}");
     }
+
+    private string? GetUserId() => Context.User?.FindFirst("userId")?.Value;
 }
 
 public record AgentRegistration(
