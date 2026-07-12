@@ -122,6 +122,10 @@ class NemotronPipeline:
     def is_loaded(self) -> bool:
         return self._loaded
 
+    @property
+    def is_loading(self) -> bool:
+        return self._loading
+
     async def ensure_loaded(self) -> None:
         """Lazy-load the Nemotron model on first request (thread-safe)."""
         if self._loaded:
@@ -183,17 +187,18 @@ class NemotronPipeline:
         sess.vad_triggered = False
 
     # ── streaming transcription ───────────────────────────────────────────
-    # Minimum audio duration (ms) before attempting inference.
-    # 160ms is the model's native chunk size.
+    # Minimum audio (ms) before the first inference attempt.
+    # Nemotron processes 160ms chunks natively — fewer samples produce empty output.
     _MIN_STREAMING_CHUNK_MS: int = 160
     _MIN_STREAMING_SAMPLES: int = _MIN_STREAMING_CHUNK_MS * NEMOTRON_SAMPLE_RATE // 1000
 
-    # How often to re-run batch transcribe on the accumulated buffer (ms).
-    # Processing runs at ~8.5x real-time on CPU, so even 2s of audio
-    # processes in ~235ms – far lower latency than Faster-Whisper (3-4s).
-    # Default 500ms matches the desktop agent's chunk interval.
+    # How long to wait between consecutive batch transcribe calls (ms).
+    # The desktop sends 40ms chunks, so an interval of ~200ms means every
+    # 5 chunks trigger a fresh transcript.  The batch engine runs at
+    # ~8.5x real-time, so processing 1-2s of audio takes 120-240ms.
+    # Lower = more frequent updates but more CPU usage.
     _EMIT_INTERVAL_SAMPLES: int = int(
-        os.getenv("NEMOTRON_EMIT_INTERVAL_MS", "500")
+        os.getenv("NEMOTRON_EMIT_INTERVAL_MS", "200")
     ) * NEMOTRON_SAMPLE_RATE // 1000
 
     def append_audio_and_transcribe(
@@ -201,11 +206,12 @@ class NemotronPipeline:
     ) -> Optional[str]:
         """Append raw float32 audio and return full accumulated transcript.
 
-        Uses batch transcribe() on the accumulated buffer — robust and well-tested,
-        unlike the broken conformer_stream_step path.  The batch engine runs at
-        ~8.5x real-time on CPU so incremental updates still feel responsive.
+        Uses batch transcribe() on the accumulated buffer.  The first call that
+        reaches _MIN_STREAMING_SAMPLES triggers the initial inference; subsequent
+        calls re-transcribe only when _EMIT_INTERVAL_SAMPLES of new audio has
+        arrived since the last emission.
 
-        Returns the **full** accumulated transcript text or None if the buffer
+        Returns the **full** accumulated transcript text, or None if the buffer
         hasn't grown enough since the last emission.
         """
         if not self._loaded or self.model is None:
@@ -213,31 +219,28 @@ class NemotronPipeline:
 
         sess.accumulated_audio = np.concatenate([sess.accumulated_audio, chunk])
 
-        # Don't transcribe if the buffer is tiny — wait for meaningful speech.
+        # Don't transcribe at all until we have at least one native chunk.
         if len(sess.accumulated_audio) < self._MIN_STREAMING_SAMPLES:
             return None
 
-        # Only re-run inference when enough *new* audio has arrived since the
-        # last emission.  This throttles the expensive batch call.
+        # Only re-run inference when enough *new* audio has arrived.
         samples_since_emit = len(sess.accumulated_audio) - (sess.emitted_frames * NEMOTRON_HOP_SAMPLES)
-        if samples_since_emit < self._EMIT_INTERVAL_SAMPLES:
+        if sess.emitted_frames > 0 and samples_since_emit < self._EMIT_INTERVAL_SAMPLES:
             return None
 
-        import torch
-
         try:
+            import torch
             with torch.no_grad():
                 text, _duration = self._transcribe_accumulated(sess, return_duration=True)
         except Exception:
             logger.exception("Nemotron streaming batch inference failed")
             return sess.current_text  # return last known good text
 
-        if text and text.strip():
+        if text:
             sess.emitted_frames = len(sess.accumulated_audio) // NEMOTRON_HOP_SAMPLES
             sess.current_text = text
-            return text
 
-        return sess.current_text
+        return text or sess.current_text
 
     def _transcribe_accumulated(
         self, sess: NemotronSession, return_duration: bool = False

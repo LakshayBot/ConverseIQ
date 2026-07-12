@@ -48,9 +48,28 @@ async def lifespan(app: FastAPI):
 
     event_detector = EventDetector()
 
+    # ── Pre-load Nemotron model in background (if enabled) ─────────────
+    if _NEMOTRON_ENABLED:
+        try:
+            from engine.stt.nemotron_pipeline import NemotronPipeline
+            pipe = NemotronPipeline.get_instance()
+            asyncio.create_task(_preload_nemotron(pipe))
+        except Exception:
+            logger.exception("Failed to start Nemotron pre-load")
+
     logger.info("AI Engine ready")
     yield
     logger.info("AI Engine shutting down")
+
+
+async def _preload_nemotron(pipe) -> None:
+    """Pre-load the Nemotron model so the first streaming request is fast."""
+    try:
+        logger.info("Nemotron pre-load started (background)…")
+        await pipe.ensure_loaded()
+        logger.info("Nemotron pre-load complete")
+    except Exception as exc:
+        logger.warning("Nemotron pre-load failed (will retry on first request): %s", exc)
 
 
 app = FastAPI(
@@ -186,21 +205,32 @@ if _NEMOTRON_ENABLED:
         channels: int = Query(1),
         source: str = Query("microphone"),
     ):
-        """Streaming transcription using Nemotron — drop-in replacement for /api/v1/ai/transcribe.
+        """Streaming transcription via Nemotron — drop-in for /api/v1/ai/transcribe.
 
         Maintains per-meeting NemotronSession state across sequential chunks.
-        Returns partial transcripts immediately, final transcripts on VAD silence.
+        Returns partial transcripts frequently (~every 200ms of accumulated audio),
+        final transcripts on VAD silence, or a \"loading\" status while the model
+        initialises.
         """
         from engine.stt.nemotron_pipeline import NemotronPipeline
         import numpy as np
 
         pipe = NemotronPipeline.get_instance()
+
+        # ── Lazy-load model (blocks first call for 30-60s) ──────────────
         if not pipe.is_loaded:
-            try:
-                await pipe.ensure_loaded()
-            except Exception as exc:
-                logger.exception("Nemotron lazy-load failed")
-                raise HTTPException(status_code=503, detail=f"Nemotron unavailable: {exc}")
+            if not pipe.is_loading:
+                logger.info("Nemotron model not loaded — starting lazy load (first request)")
+                # Kick off loading in background so we can return a status
+                asyncio.create_task(_load_nemotron_background(pipe))
+            return SpeechTaskResult(
+                task_id=f"nemotron-{meeting_id}-{sequence}",
+                success=True,
+                transcript=None,
+                duration_ms=0,
+                silence_detected=False,
+                error="nemotron_loading",
+            )
 
         # Read raw PCM16 audio
         body = await request.body()
@@ -243,7 +273,7 @@ if _NEMOTRON_ENABLED:
 
             transcript = TranscriptSegment(
                 speaker="Customer-1",
-                text=final_text,
+                text=final_text if final_text else sess.current_text,
                 confidence=0.95,
                 start=str(sess.emitted_frames * 0.01),
                 end=str((sess.emitted_frames + 1) * 0.01),
@@ -260,7 +290,7 @@ if _NEMOTRON_ENABLED:
                 silence_detected=True,
             )
 
-        if text is not None:
+        if text is not None and text.strip():
             transcript = TranscriptSegment(
                 speaker="Customer-1",
                 text=text,
@@ -287,6 +317,15 @@ if _NEMOTRON_ENABLED:
             duration_ms=duration_ms,
             silence_detected=silence,
         )
+
+
+    async def _load_nemotron_background(pipe) -> None:
+        """Background task to load the Nemotron model without blocking."""
+        try:
+            await pipe.ensure_loaded()
+            logger.info("Nemotron model loaded successfully (background)")
+        except Exception as exc:
+            logger.exception("Nemotron background load failed: %s", exc)
 
     @app.post("/api/v1/meetings/{meeting_id}/reset/nemotron")
     async def reset_meeting_nemotron(meeting_id: str):
