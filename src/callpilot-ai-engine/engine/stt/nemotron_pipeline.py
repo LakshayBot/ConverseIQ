@@ -188,8 +188,11 @@ class NemotronPipeline:
 
     # ── streaming transcription ───────────────────────────────────────────
     # Minimum audio (ms) before the first inference attempt.
-    # Nemotron processes 160ms chunks natively — fewer samples produce empty output.
-    _MIN_STREAMING_CHUNK_MS: int = 160
+    # Nemotron processes 160ms chunks natively, but short audio often
+    # returns empty text — wasting ~500ms of NeMo overhead.  320ms gives
+    # the model enough signal for a meaningful first word without adding
+    # noticeable latency.
+    _MIN_STREAMING_CHUNK_MS: int = int(os.getenv("NEMOTRON_MIN_CHUNK_MS", "320"))
     _MIN_STREAMING_SAMPLES: int = _MIN_STREAMING_CHUNK_MS * NEMOTRON_SAMPLE_RATE // 1000
 
     # How long to wait between consecutive batch transcribe calls (ms).
@@ -248,8 +251,13 @@ class NemotronPipeline:
             logger.exception("Nemotron streaming batch inference failed")
             return sess.current_text  # return last known good text
 
+        # ⚠ Always advance emitted_frames after inference — even if text is
+        # empty.  Without this, short-audio inferences that return "" never
+        # update the pointer, so every 40ms chunk triggers a fresh (queued)
+        # inference and the system never catches up.
+        sess.emitted_frames = len(sess.accumulated_audio) // NEMOTRON_HOP_SAMPLES
+
         if text:
-            sess.emitted_frames = len(sess.accumulated_audio) // NEMOTRON_HOP_SAMPLES
             sess.current_text = text
 
         return text or sess.current_text
