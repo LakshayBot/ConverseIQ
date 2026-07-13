@@ -198,14 +198,21 @@ public class KnowledgeUploadHandler
         await db.SaveChangesAsync();
         _logger.LogInformation("GLiNER extracted {Count} entities from document {DocId}", entities.Count, documentId);
 
-        await RebuildTrieAsync(client);
+        await RebuildTrieAsync(client, db);
     }
 
-    private static async Task RebuildTrieAsync(HttpClient client)
+    private static async Task RebuildTrieAsync(HttpClient client, CallPilotDbContext db)
     {
         try
         {
-            await client.PostAsync("/api/v1/ai/trie/rebuild", null);
+            var entities = await db.DocumentEntities
+                .Select(e => new { entity_text = e.EntityText, entity_type = e.EntityType, document_id = e.DocumentId.ToString() })
+                .ToListAsync();
+            var response = await client.PostAsJsonAsync("/api/v1/ai/trie/rebuild", new { entities });
+            if (!response.IsSuccessStatusCode)
+            {
+                // Best-effort; log is handled by caller
+            }
         }
         catch
         {
