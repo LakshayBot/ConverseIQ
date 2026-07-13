@@ -338,7 +338,8 @@ app.MapPost("/api/v1/meetings/{id:guid}/process", async (
         diagnostics.TrackEvent(id.ToString(), evt.EventType);
 
         var conversationEvent = new ConversationEvent(
-            id, evt.EventType, evt.EntityName, evt.Confidence, text);
+            id, evt.EventType, evt.EntityName, evt.Confidence,
+            text.Length > 1000 ? text[..1000] : text);
         db.ConversationEvents.Add(conversationEvent);
         persistedEvents.Add(new { conversationEvent.Id, conversationEvent.EventType, conversationEvent.EntityName, conversationEvent.Confidence });
 

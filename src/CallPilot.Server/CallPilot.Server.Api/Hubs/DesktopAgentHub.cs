@@ -149,7 +149,7 @@ public class DesktopAgentHub : Hub
                 evt.EventType,
                 evt.EntityName,
                 evt.Confidence,
-                segment.Text);
+                segment.Text.Length > 1000 ? segment.Text[..1000] : segment.Text);
 
             dbContext.ConversationEvents.Add(conversationEvent);
             await dbContext.SaveChangesAsync();
