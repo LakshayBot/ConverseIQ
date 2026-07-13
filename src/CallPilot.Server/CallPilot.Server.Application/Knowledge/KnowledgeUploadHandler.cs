@@ -222,13 +222,17 @@ public class KnowledgeUploadHandler
 
     private class ExtractEntitiesResponse
     {
+        [System.Text.Json.Serialization.JsonPropertyName("entities")]
         public List<ExtractedEntity> Entities { get; set; } = [];
     }
 
     private class ExtractedEntity
     {
+        [System.Text.Json.Serialization.JsonPropertyName("entity_text")]
         public string EntityText { get; set; } = "";
+        [System.Text.Json.Serialization.JsonPropertyName("entity_type")]
         public string EntityType { get; set; } = "";
+        [System.Text.Json.Serialization.JsonPropertyName("confidence")]
         public double Confidence { get; set; }
     }
 }
