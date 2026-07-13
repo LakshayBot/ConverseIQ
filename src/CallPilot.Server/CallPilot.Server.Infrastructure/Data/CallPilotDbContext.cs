@@ -112,7 +112,7 @@ public class CallPilotDbContext : DbContext
             entity.Property(e => e.EntityText).HasMaxLength(300).IsRequired();
             entity.Property(e => e.EntityType).HasMaxLength(50).IsRequired();
             entity.HasOne(e => e.Document)
-                  .WithMany()
+                  .WithMany(d => d.DocumentEntities)
                   .HasForeignKey(e => e.DocumentId)
                   .OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Chunk)
