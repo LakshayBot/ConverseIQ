@@ -52,6 +52,12 @@ export default function DashboardPage() {
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-600">{user?.email}</span>
             <button
+              onClick={() => router.push('/dashboard/knowledge')}
+              className="text-sm text-blue-600 hover:text-blue-800"
+            >
+              Knowledge
+            </button>
+            <button
               onClick={() => router.push('/providers')}
               className="text-sm text-blue-600 hover:text-blue-800"
             >

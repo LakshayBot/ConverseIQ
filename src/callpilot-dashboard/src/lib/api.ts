@@ -86,6 +86,41 @@ export async function apiDeleteProvider(id: string) {
   return apiRequest<void>(`/api/v1/providers/${id}`, { method: 'DELETE' });
 }
 
+export async function apiUploadKnowledge(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const headers: Record<string, string> = {};
+  if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+
+  const response = await fetch(`${API_BASE}/api/v1/knowledge/upload`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) throw new Error(await response.text());
+  return response.json() as Promise<KnowledgeDocument>;
+}
+
+export async function apiGetKnowledgeDocuments() {
+  return apiRequest<KnowledgeDocument[]>('/api/v1/knowledge');
+}
+
+export async function apiDeleteKnowledgeDocument(id: string) {
+  return apiRequest<void>(`/api/v1/knowledge/${id}`, { method: 'DELETE' });
+}
+
+export interface KnowledgeDocument {
+  id: string;
+  fileName: string;
+  contentType: string;
+  fileSizeBytes: number;
+  processingStatus: string;
+  createdAt: string;
+  chunkCount: number;
+}
+
 export interface LoginResponse {
   accessToken: string;
   refreshToken: string;
