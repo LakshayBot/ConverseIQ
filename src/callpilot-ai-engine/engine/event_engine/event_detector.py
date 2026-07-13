@@ -1,31 +1,7 @@
 import re
 from typing import Optional
 
-
-COMPETITORS = {
-    "salesforce": ["Salesforce", "CRM"],
-    "hubspot": ["HubSpot", "CRM"],
-    "zendesk": ["Zendesk", "Support"],
-    "freshdesk": ["Freshdesk", "Support"],
-    "intercom": ["Intercom", "Messaging"],
-    "zoho": ["Zoho", "CRM"],
-    "pipedrive": ["Pipedrive", "CRM"],
-    "microsoft dynamics": ["Microsoft Dynamics", "CRM"],
-    "sap": ["SAP", "ERP"],
-    "oracle": ["Oracle", "Database"],
-    "servicenow": ["ServiceNow", "ITSM"],
-    "jira": ["Jira", "Project Management"],
-    "asana": ["Asana", "Project Management"],
-    "monday.com": ["Monday.com", "Project Management"],
-    "notion": ["Notion", "Knowledge Base"],
-    "confluence": ["Confluence", "Knowledge Base"],
-    "slack": ["Slack", "Communication"],
-    "teams": ["Microsoft Teams", "Communication"],
-    "zoom": ["Zoom", "Video Conferencing"],
-    "google meet": ["Google Meet", "Video Conferencing"],
-    "gong": ["Gong", "Sales Intelligence"],
-    "chorus": ["Chorus", "Sales Intelligence"],
-}
+from engine.services.trie_scanner import scan_text  # Aho-Corasick trie
 
 PRICING_PATTERNS = [
     r"\b(pric(e|ing)|cost|budget|expensive|cheap|affordable|discount)\b",
@@ -61,20 +37,40 @@ TECHNICAL_PATTERNS = [
     r"\b(uptime|SLA|latency|throughput|scal(e|ing))\b",
 ]
 
+# Map trie entity_type → event type
+TRIE_TYPE_EVENT_MAP = {
+    "competitor": "CompetitorMentioned",
+    "product": "ProductMentioned",
+    "integration": "TechnicalQuestion",
+    "pricing": "PricingDiscussion",
+    "feature": "TechnicalQuestion",
+}
+
 
 class EventDetector:
-    def detect_competitors(self, text: str) -> list[dict]:
-        text_lower = text.lower()
-        results = []
-        for key, (name, category) in COMPETITORS.items():
-            if key in text_lower:
-                if not any(r["entityName"] == name for r in results):
-                    results.append({
-                        "eventType": "CompetitorMentioned",
-                        "entityName": name,
-                        "confidence": 0.95,
-                        "category": category,
-                    })
+    def detect_trie_entities(self, text: str) -> list[dict]:
+        """Scan text through Aho-Corasick trie for dynamic entities.
+
+        Returns events for competitors, products, integrations, pricing, features
+        found via the trie (built from uploaded documents + seed competitors).
+        """
+        hits = scan_text(text)
+        results: list[dict] = []
+        seen: set[tuple[str, str]] = set()
+        for hit in hits:
+            etext = hit["entity_text"]
+            etype = hit["entity_type"]
+            event_type = TRIE_TYPE_EVENT_MAP.get(etype, "ProductMentioned")
+            key = (event_type, etext)
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append({
+                "eventType": event_type,
+                "entityName": etext,
+                "confidence": 0.92,
+                "category": etype,
+            })
         return results
 
     def detect_pricing(self, text: str) -> Optional[dict]:
@@ -139,7 +135,8 @@ class EventDetector:
     def detect_all(self, text: str) -> list[dict]:
         events: list[dict] = []
 
-        events.extend(self.detect_competitors(text))
+        # Dynamic entity detection via Aho-Corasick trie (replaces hardcoded 28 competitors)
+        events.extend(self.detect_trie_entities(text))
 
         pricing = self.detect_pricing(text)
         if pricing:

@@ -85,6 +85,13 @@ async def lifespan(app: FastAPI):
             "NEMOTRON_ENABLED is false — the only STT path will refuse to load. "
             "Set NEMOTRON_ENABLED=true (the default) to enable transcription."
         )
+
+    # Build the in-memory Aho-Corasick trie from seed competitors.
+    # Document entities are loaded via /api/v1/ai/trie/rebuild after ingest.
+    from engine.services.trie_scanner import build_trie
+    build_trie([])
+    logger.info("Trie initialised with seed competitors (%d patterns)", 28)
+
     yield
     logger.info("AI Engine shutting down")
 
@@ -379,3 +386,61 @@ async def generate_embedding(request: dict):
     svc = _get_embedding_service()
     embedding = svc.generate(text)
     return {"embedding": embedding, "model": svc.model_name, "dimensions": len(embedding)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Dynamic Entity Extraction + Trie Management
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@app.post("/api/v1/ai/extract-entities")
+async def extract_entities_from_text(request: dict):
+    """Run GLiNER entity extraction on *text* and return deduplicated entities.
+
+    Called by the .NET knowledge upload pipeline after text extraction,
+    before chunking/embedding. GLiNER runs only here (ingest time), never
+    during live calls.
+    """
+    text = request.get("text", "")
+    if not text:
+        raise HTTPException(status_code=400, detail="No text provided")
+
+    threshold = float(request.get("confidence_threshold", 0.4))
+
+    try:
+        from engine.services.entity_extractor import extract_entities as _extract
+        entities = await _extract(text, confidence_threshold=threshold)
+        return {"entities": entities, "count": len(entities)}
+    except Exception as exc:
+        logger.exception("Entity extraction failed")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/v1/ai/trie/rebuild")
+async def rebuild_trie(request: dict | None = None):
+    """Rebuild the in-memory Aho-Corasick trie from a list of entities.
+
+    Called after document ingest to register new entities.  If no entities
+    are provided the trie is rebuilt with seed competitors only.
+    """
+    from engine.services.trie_scanner import build_trie
+
+    entities: list = (request or {}).get("entities", [])
+
+    try:
+        trie = build_trie(entities)
+        return {"status": "rebuilt", "pattern_count": len(trie)}
+    except Exception as exc:
+        logger.exception("Trie rebuild failed")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/v1/ai/trie/status")
+async def trie_status():
+    """Return trie health info."""
+    from engine.services.trie_scanner import get_trie
+    trie = get_trie()
+    return {
+        "built": trie is not None,
+        "pattern_count": len(trie) if trie else 0,
+    }

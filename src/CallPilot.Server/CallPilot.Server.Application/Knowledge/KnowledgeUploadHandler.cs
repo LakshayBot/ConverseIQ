@@ -1,9 +1,12 @@
 using CallPilot.Server.Domain.Knowledge;
+using CallPilot.Server.Domain.Meetings;
 using CallPilot.Server.Infrastructure.Data;
 using CallPilot.Server.Infrastructure.Embedding;
 using CallPilot.Server.Infrastructure.Knowledge;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Net.Http.Json;
+using System.Text.Json;
 
 namespace CallPilot.Server.Application.Knowledge;
 
@@ -13,6 +16,7 @@ public class KnowledgeUploadHandler
     private readonly TextExtractorFactory _extractorFactory;
     private readonly ChunkingService _chunkingService;
     private readonly EmbeddingService _embeddingService;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<KnowledgeUploadHandler> _logger;
 
     public KnowledgeUploadHandler(
@@ -20,12 +24,14 @@ public class KnowledgeUploadHandler
         TextExtractorFactory extractorFactory,
         ChunkingService chunkingService,
         EmbeddingService embeddingService,
+        IHttpClientFactory httpClientFactory,
         ILogger<KnowledgeUploadHandler> logger)
     {
         _dbContext = dbContext;
         _extractorFactory = extractorFactory;
         _chunkingService = chunkingService;
         _embeddingService = embeddingService;
+        _httpClientFactory = httpClientFactory;
         _logger = logger;
     }
 
@@ -110,6 +116,19 @@ public class KnowledgeUploadHandler
             await _dbContext.SaveChangesAsync();
 
             _logger.LogInformation("Document indexed: {FileName}, {ChunkCount} chunks", fileName, chunks.Count);
+
+            // ── Dynamic Entity Extraction (GLiNER, runs async — does not block) ──
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await ExtractAndStoreEntitiesAsync(document.Id, text);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Entity extraction skipped for {FileName}: {Message}", fileName, ex.Message);
+                }
+            });
         }
         catch (Exception ex)
         {
@@ -144,5 +163,59 @@ public class KnowledgeUploadHandler
 
         _dbContext.KnowledgeDocuments.Remove(document);
         await _dbContext.SaveChangesAsync();
+    }
+
+    private async Task ExtractAndStoreEntitiesAsync(Guid documentId, string text)
+    {
+        var client = _httpClientFactory.CreateClient("AiEngine");
+        var response = await client.PostAsJsonAsync(
+            "/api/v1/ai/extract-entities",
+            new { text, confidence_threshold = 0.4 });
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("GLiNER extraction returned {StatusCode}", response.StatusCode);
+            return;
+        }
+
+        var result = await response.Content.ReadFromJsonAsync<ExtractEntitiesResponse>();
+        var entities = result?.Entities ?? [];
+        if (entities.Count == 0) return;
+
+        foreach (var ent in entities)
+        {
+            var entity = new DocumentEntity(
+                documentId, null, ent.EntityText, ent.EntityType, ent.Confidence);
+            _dbContext.DocumentEntities.Add(entity);
+        }
+        await _dbContext.SaveChangesAsync();
+        _logger.LogInformation("GLiNER extracted {Count} entities from document {DocId}", entities.Count, documentId);
+
+        // Rebuild the trie with all current entities
+        await RebuildTrieAsync(client);
+    }
+
+    private static async Task RebuildTrieAsync(HttpClient client)
+    {
+        try
+        {
+            await client.PostAsync("/api/v1/ai/trie/rebuild", null);
+        }
+        catch
+        {
+            // Trie rebuild is best-effort; don't fail the ingest
+        }
+    }
+
+    private class ExtractEntitiesResponse
+    {
+        public List<ExtractedEntity> Entities { get; set; } = [];
+    }
+
+    private class ExtractedEntity
+    {
+        public string EntityText { get; set; } = "";
+        public string EntityType { get; set; } = "";
+        public double Confidence { get; set; }
     }
 }

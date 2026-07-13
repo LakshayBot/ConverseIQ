@@ -132,6 +132,12 @@ builder.Services.AddHttpClient("LlmClient", client =>
     policy.WaitAndRetryAsync(2, retryAttempt =>
         TimeSpan.FromMilliseconds(Math.Pow(2, retryAttempt) * 1000)));
 
+builder.Services.AddHttpClient("AiEngine", client =>
+{
+    client.BaseAddress = new Uri(aiEngineUrl);
+    client.Timeout = TimeSpan.FromSeconds(120);
+});
+
 builder.Services.AddScoped<RecommendationEngine>();
 
 // Note: AiCoordinatorService, EmbeddingService, EventDetectionService, and LlmService
@@ -355,6 +361,32 @@ app.MapPost("/api/v1/meetings/{id:guid}/process", async (
 
     await db.SaveChangesAsync();
     return Results.Ok(new { events = persistedEvents, recommendations });
+}).RequireAuthorization();
+
+// ── Entity Admin (for trie sync) ──────────────────────────────────────────────
+
+app.MapGet("/api/v1/knowledge/entities/all", async (CallPilotDbContext db) =>
+{
+    var entities = await db.DocumentEntities
+        .Select(e => new { e.EntityText, e.EntityType, e.Confidence, e.DocumentId })
+        .Distinct()
+        .ToListAsync();
+    return Results.Ok(new { entities, count = entities.Count });
+}).RequireAuthorization();
+
+app.MapPost("/api/v1/knowledge/entities/sync-trie", async (
+    CallPilotDbContext db,
+    IHttpClientFactory httpClientFactory) =>
+{
+    var entities = await db.DocumentEntities
+        .Select(e => new { entity_text = e.EntityText, entity_type = e.EntityType, document_id = e.DocumentId.ToString() })
+        .ToListAsync();
+
+    var client = httpClientFactory.CreateClient("AiEngine");
+    var response = await client.PostAsJsonAsync("/api/v1/ai/trie/rebuild", new { entities });
+    return response.IsSuccessStatusCode
+        ? Results.Ok(new { status = "synced", count = entities.Count })
+        : Results.Problem("Trie rebuild failed", statusCode: 500);
 }).RequireAuthorization();
 
 Log.Information("CallPilot Server starting...");

@@ -20,6 +20,7 @@ public class CallPilotDbContext : DbContext
     public DbSet<CallPilot.Server.Domain.Knowledge.Embedding> Embeddings => Set<CallPilot.Server.Domain.Knowledge.Embedding>();
     public DbSet<ConversationEvent> ConversationEvents => Set<ConversationEvent>();
     public DbSet<Recommendation> Recommendations => Set<Recommendation>();
+    public DbSet<DocumentEntity> DocumentEntities => Set<DocumentEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -100,6 +101,23 @@ public class CallPilotDbContext : DbContext
             entity.HasOne(c => c.Document)
                   .WithMany(d => d.Chunks)
                   .HasForeignKey(c => c.DocumentId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<DocumentEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.DocumentId);
+            entity.HasIndex(e => new { e.EntityText, e.EntityType });
+            entity.Property(e => e.EntityText).HasMaxLength(300).IsRequired();
+            entity.Property(e => e.EntityType).HasMaxLength(50).IsRequired();
+            entity.HasOne(e => e.Document)
+                  .WithMany()
+                  .HasForeignKey(e => e.DocumentId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Chunk)
+                  .WithMany()
+                  .HasForeignKey(e => e.ChunkId)
                   .OnDelete(DeleteBehavior.Cascade);
         });
 

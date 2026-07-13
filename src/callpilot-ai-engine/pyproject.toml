@@ -16,6 +16,8 @@ dependencies = [
     "pydantic>=2.0.0",
     "httpx>=0.28.0",
     "python-multipart>=0.0.20",
+    "gliner>=0.3.0",
+    "pyahocorasick>=2.1.0",
 ]
 
 [project.optional-dependencies]
