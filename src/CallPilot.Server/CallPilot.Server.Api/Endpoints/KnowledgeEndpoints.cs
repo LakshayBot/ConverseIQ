@@ -1,5 +1,7 @@
 using System.Security.Claims;
 using CallPilot.Server.Application.Knowledge;
+using CallPilot.Server.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace CallPilot.Server.Api.Endpoints;
 
@@ -37,7 +39,8 @@ public static class KnowledgeEndpoints
                 contentType = document.ContentType,
                 fileSizeBytes = document.FileSizeBytes,
                 processingStatus = document.ProcessingStatus,
-                createdAt = document.CreatedAt
+                createdAt = document.CreatedAt,
+                chunkCount = 0,
             });
         }).DisableAntiforgery();
 
@@ -59,6 +62,46 @@ public static class KnowledgeEndpoints
                 createdAt = d.CreatedAt,
                 chunkCount = d.Chunks.Count
             }));
+        });
+
+        group.MapGet("/{id:guid}", async (
+            ClaimsPrincipal user,
+            Guid id,
+            CallPilotDbContext db) =>
+        {
+            var userIdClaim = user.FindFirst("userId")?.Value;
+            if (userIdClaim is null) return Results.Unauthorized();
+
+            var doc = await db.KnowledgeDocuments
+                .Include(d => d.Chunks)
+                .Include(d => d.DocumentEntities)
+                .FirstOrDefaultAsync(d => d.Id == id && d.UserId == Guid.Parse(userIdClaim));
+
+            if (doc is null) return Results.NotFound();
+
+            return Results.Ok(new
+            {
+                id = doc.Id,
+                fileName = doc.FileName,
+                contentType = doc.ContentType,
+                fileSizeBytes = doc.FileSizeBytes,
+                processingStatus = doc.ProcessingStatus,
+                createdAt = doc.CreatedAt,
+                chunks = doc.Chunks.OrderBy(c => c.ChunkIndex).Select(c => new
+                {
+                    c.Id,
+                    c.ChunkIndex,
+                    text = c.Text,
+                    c.TokenCount,
+                }),
+                entities = doc.DocumentEntities.Select(e => new
+                {
+                    e.Id,
+                    e.EntityText,
+                    e.EntityType,
+                    e.Confidence,
+                }),
+            });
         });
 
         group.MapDelete("/{id:guid}", async (

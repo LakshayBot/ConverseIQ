@@ -1,3 +1,5 @@
+using CallPilot.Server.Domain.Meetings;
+
 namespace CallPilot.Server.Domain.Knowledge;
 
 public class KnowledgeDocument
@@ -14,6 +16,7 @@ public class KnowledgeDocument
     public DateTime? DeletedAt { get; private set; }
 
     public ICollection<KnowledgeChunk> Chunks { get; private set; } = new List<KnowledgeChunk>();
+    public ICollection<DocumentEntity> DocumentEntities { get; private set; } = new List<DocumentEntity>();
 
     private KnowledgeDocument() { }
 

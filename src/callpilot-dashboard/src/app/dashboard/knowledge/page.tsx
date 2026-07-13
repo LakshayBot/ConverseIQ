@@ -7,7 +7,9 @@ import {
   apiUploadKnowledge,
   apiGetKnowledgeDocuments,
   apiDeleteKnowledgeDocument,
+  apiGetKnowledgeDocument,
   KnowledgeDocument,
+  KnowledgeDocumentDetail,
 } from '@/lib/api';
 
 export default function KnowledgePage() {
@@ -16,6 +18,9 @@ export default function KnowledgePage() {
   const [docs, setDocs] = useState<KnowledgeDocument[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewDoc, setViewDoc] = useState<KnowledgeDocumentDetail | null>(null);
+  const [viewLoading, setViewLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'chunks' | 'entities'>('chunks');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -30,7 +35,6 @@ export default function KnowledgePage() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     setUploading(true);
     setError(null);
     try {
@@ -42,6 +46,15 @@ export default function KnowledgePage() {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const handleView = async (id: string) => {
+    setViewLoading(true);
+    try {
+      const detail = await apiGetKnowledgeDocument(id);
+      setViewDoc(detail);
+    } catch { /* ignore */ }
+    finally { setViewLoading(false); }
   };
 
   const handleDelete = async (id: string) => {
@@ -96,9 +109,7 @@ export default function KnowledgePage() {
         </div>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-            {error}
-          </div>
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>
         )}
 
         {docs.length === 0 ? (
@@ -125,17 +136,102 @@ export default function KnowledgePage() {
                     {formatBytes(doc.fileSizeBytes)} · {doc.chunkCount} chunks · {new Date(doc.createdAt).toLocaleDateString()}
                   </p>
                 </div>
-                <button
-                  onClick={() => handleDelete(doc.id)}
-                  className="ml-4 text-sm text-red-500 hover:text-red-700 shrink-0"
-                >
-                  Delete
-                </button>
+                <div className="flex items-center gap-2 ml-4 shrink-0">
+                  <button onClick={() => handleView(doc.id)} className="text-sm text-blue-600 hover:text-blue-800">
+                    View
+                  </button>
+                  <button onClick={() => handleDelete(doc.id)} className="text-sm text-red-500 hover:text-red-700">
+                    Delete
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         )}
       </main>
+
+      {/* ── View Document Modal ── */}
+      {viewDoc && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setViewDoc(null)}>
+          <div className="bg-white rounded-xl border border-gray-200 w-full max-w-3xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="font-semibold text-gray-900">{viewDoc.fileName}</h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {formatBytes(viewDoc.fileSizeBytes)} · {viewDoc.chunks.length} chunks · {viewDoc.entities.length} entities
+                </p>
+              </div>
+              <button onClick={() => setViewDoc(null)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+            </div>
+
+            <div className="flex gap-0 border-b border-gray-100 shrink-0">
+              <button
+                onClick={() => setActiveTab('chunks')}
+                className={`px-4 py-2 text-sm font-medium ${activeTab === 'chunks' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}
+              >
+                Chunks ({viewDoc.chunks.length})
+              </button>
+              <button
+                onClick={() => setActiveTab('entities')}
+                className={`px-4 py-2 text-sm font-medium ${activeTab === 'entities' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}
+              >
+                Entities ({viewDoc.entities.length})
+              </button>
+            </div>
+
+            <div className="overflow-y-auto p-4 flex-1">
+              {activeTab === 'chunks' ? (
+                viewDoc.chunks.length === 0 ? (
+                  <p className="text-gray-400 text-center py-8">No chunks yet — document may still be processing</p>
+                ) : (
+                  <div className="space-y-4">
+                    {viewDoc.chunks.map(chunk => (
+                      <div key={chunk.id} className="bg-gray-50 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-gray-400">Chunk {chunk.chunkIndex + 1}</span>
+                          <span className="text-xs text-gray-400">{chunk.tokenCount} tokens</span>
+                        </div>
+                        <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{chunk.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                )
+              ) : (
+                viewDoc.entities.length === 0 ? (
+                  <p className="text-gray-400 text-center py-8">No entities extracted yet</p>
+                ) : (
+                  <div className="space-y-2">
+                    {viewDoc.entities.map(entity => (
+                      <div key={entity.id} className="flex items-center justify-between bg-gray-50 rounded-lg p-3">
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm font-medium text-gray-800">{entity.entityText || '(unnamed)'}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            entity.entityType === 'competitor' ? 'bg-red-100 text-red-700' :
+                            entity.entityType === 'product' ? 'bg-blue-100 text-blue-700' :
+                            entity.entityType === 'pricing' ? 'bg-green-100 text-green-700' :
+                            entity.entityType === 'feature' ? 'bg-purple-100 text-purple-700' :
+                            'bg-gray-100 text-gray-600'
+                          }`}>
+                            {entity.entityType}
+                          </span>
+                        </div>
+                        <span className="text-xs text-gray-400">{(entity.confidence * 100).toFixed(0)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── View loading overlay ── */}
+      {viewLoading && (
+        <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg px-6 py-4 text-sm text-gray-600">Loading...</div>
+        </div>
+      )}
     </div>
   );
 }

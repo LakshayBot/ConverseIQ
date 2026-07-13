@@ -111,6 +111,10 @@ export async function apiDeleteKnowledgeDocument(id: string) {
   return apiRequest<void>(`/api/v1/knowledge/${id}`, { method: 'DELETE' });
 }
 
+export async function apiGetKnowledgeDocument(id: string) {
+  return apiRequest<KnowledgeDocumentDetail>(`/api/v1/knowledge/${id}`);
+}
+
 export interface KnowledgeDocument {
   id: string;
   fileName: string;
@@ -119,6 +123,11 @@ export interface KnowledgeDocument {
   processingStatus: string;
   createdAt: string;
   chunkCount: number;
+}
+
+export interface KnowledgeDocumentDetail extends KnowledgeDocument {
+  chunks: { id: string; chunkIndex: number; text: string; tokenCount: number }[];
+  entities: { id: string; entityText: string; entityType: string; confidence: number }[];
 }
 
 export interface LoginResponse {

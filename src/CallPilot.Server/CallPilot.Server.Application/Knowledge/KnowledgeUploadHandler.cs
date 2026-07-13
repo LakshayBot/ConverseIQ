@@ -146,6 +146,7 @@ public class KnowledgeUploadHandler
     public async Task<IReadOnlyList<KnowledgeDocument>> ListDocumentsAsync(Guid userId)
     {
         return await _dbContext.KnowledgeDocuments
+            .Include(d => d.Chunks)
             .Where(d => d.UserId == userId)
             .OrderByDescending(d => d.CreatedAt)
             .ToListAsync();
