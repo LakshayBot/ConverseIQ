@@ -27,14 +27,15 @@ public class ChunkingService
         {
             if (currentChunk.Length + sentence.Length > _maxChunkSize && currentChunk.Length > 0)
             {
-                chunks.Add(CreateChunk(documentId, chunkIndex++, currentChunk.ToString(), charOffset));
+                var chunkText = currentChunk.ToString();
+                chunks.Add(CreateChunk(documentId, chunkIndex++, chunkText, charOffset));
                 charOffset += currentChunk.Length;
 
                 var overlapStart = Math.Max(0, currentChunk.Length - _chunkOverlap);
                 currentChunk.Clear();
                 if (overlapStart > 0)
                 {
-                    currentChunk.Append(currentChunk.ToString().Substring(overlapStart));
+                    currentChunk.Append(chunkText.Substring(overlapStart));
                     charOffset -= _chunkOverlap;
                 }
             }
