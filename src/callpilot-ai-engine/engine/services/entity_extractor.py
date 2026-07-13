@@ -49,7 +49,7 @@ class EntityExtractor:
         from gliner import GLiNER
 
         self._model = GLiNER.from_pretrained(self._model_id, load_tokenizer=True)
-        logger.info("GLiNER model loaded (device=%s)", self._model.model.device)
+        logger.info("GLiNER model loaded")
 
     def extract(
         self,
