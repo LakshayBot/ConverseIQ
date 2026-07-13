@@ -4,9 +4,9 @@ using CallPilot.Server.Infrastructure.Data;
 using CallPilot.Server.Infrastructure.Embedding;
 using CallPilot.Server.Infrastructure.Knowledge;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Net.Http.Json;
-using System.Text.Json;
 
 namespace CallPilot.Server.Application.Knowledge;
 
@@ -17,6 +17,7 @@ public class KnowledgeUploadHandler
     private readonly ChunkingService _chunkingService;
     private readonly EmbeddingService _embeddingService;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<KnowledgeUploadHandler> _logger;
 
     public KnowledgeUploadHandler(
@@ -25,6 +26,7 @@ public class KnowledgeUploadHandler
         ChunkingService chunkingService,
         EmbeddingService embeddingService,
         IHttpClientFactory httpClientFactory,
+        IServiceScopeFactory scopeFactory,
         ILogger<KnowledgeUploadHandler> logger)
     {
         _dbContext = dbContext;
@@ -32,6 +34,7 @@ public class KnowledgeUploadHandler
         _chunkingService = chunkingService;
         _embeddingService = embeddingService;
         _httpClientFactory = httpClientFactory;
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -167,7 +170,11 @@ public class KnowledgeUploadHandler
 
     private async Task ExtractAndStoreEntitiesAsync(Guid documentId, string text)
     {
-        var client = _httpClientFactory.CreateClient("AiEngine");
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CallPilotDbContext>();
+        var factory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
+
+        var client = factory.CreateClient("AiEngine");
         var response = await client.PostAsJsonAsync(
             "/api/v1/ai/extract-entities",
             new { text, confidence_threshold = 0.4 });
@@ -186,12 +193,11 @@ public class KnowledgeUploadHandler
         {
             var entity = new DocumentEntity(
                 documentId, null, ent.EntityText, ent.EntityType, ent.Confidence);
-            _dbContext.DocumentEntities.Add(entity);
+            db.DocumentEntities.Add(entity);
         }
-        await _dbContext.SaveChangesAsync();
+        await db.SaveChangesAsync();
         _logger.LogInformation("GLiNER extracted {Count} entities from document {DocId}", entities.Count, documentId);
 
-        // Rebuild the trie with all current entities
         await RebuildTrieAsync(client);
     }
 
