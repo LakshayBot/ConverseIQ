@@ -121,20 +121,20 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
         if (!string.IsNullOrEmpty(_fileInput))
         {
             // File input mode: read audio file, resample to 16kHz mono, stream at real-time speed
-            args = $"-re -i \"{_fileInput}\" -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
-            _logger.LogInformation("Starting file playback: file={File}, args={Args}", _fileInput, args);
+            args = $"-loglevel error -nostats -re -i \"{_fileInput}\" -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
+            _logger.LogInformation("Starting file playback: file={File}", _fileInput);
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             var input = ResolveDevice(_micDevice);
-            args = $"-f avfoundation -i {input} -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
-            _logger.LogInformation("Starting macOS audio capture: args={Args}", args);
+            args = $"-loglevel error -nostats -f avfoundation -i {input} -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
+            _logger.LogInformation("Starting audio capture: device={Device} source={Source}", input, _source);
         }
         else
         {
             var device = GetAudioInputDevice();
-            args = $"-f {device} -i default -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
-            _logger.LogInformation("Starting audio capture: args={Args}", args);
+            args = $"-loglevel error -nostats -f {device} -i default -f s16le -acodec pcm_s16le -ar {sampleRate} -ac {channels} -";
+            _logger.LogInformation("Starting audio capture: device={Device}", device);
         }
 
         _ffmpegProcess = new Process
