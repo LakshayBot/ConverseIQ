@@ -110,21 +110,26 @@ export default function MeetingPage() {
               </div>
             ) : (
               <div className="p-4 leading-relaxed text-gray-800 whitespace-pre-wrap">
-                {groups.map((g) => (
-                  <span key={g.key}>
-                    <span className={`font-semibold ${
-                      g.speaker === 'Salesperson' ? 'text-blue-600' : 'text-purple-600'
-                    }`}>
-                      {g.speaker}:
+                {groups.map((g, i) => {
+                  const showLabel = i === 0 || g.speaker !== groups[i-1].speaker;
+                  return (
+                    <span key={g.key}>
+                      {showLabel && (
+                        <span className={`font-semibold ${
+                          g.speaker === 'Salesperson' ? 'text-blue-600' : 'text-purple-600'
+                        }`}>
+                          {g.speaker}:
+                        </span>
+                      )}
+                      <span className={g.isFinal ? 'text-gray-800' : 'text-blue-600'}>
+                        {g.text}{' '}
+                      </span>
+                      {!g.isFinal && (
+                        <span className="inline-block w-1.5 h-4 bg-blue-400 animate-pulse ml-0.5 align-middle rounded-sm" />
+                      )}
                     </span>
-                    <span className={g.isFinal ? 'text-gray-800' : 'text-blue-600'}>
-                      {g.text}{' '}
-                    </span>
-                    {!g.isFinal && (
-                      <span className="inline-block w-1.5 h-4 bg-blue-400 animate-pulse ml-0.5 align-middle rounded-sm" />
-                    )}
-                  </span>
-                ))}
+                  );
+                })}
                 <div ref={transcriptEndRef} />
               </div>
             )}
