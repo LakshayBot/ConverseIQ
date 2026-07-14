@@ -21,15 +21,16 @@ function mergeTranscripts(transcripts: { speaker: string; text: string; isFinal:
     const prev = groups[groups.length - 1];
 
     if (t.isFinal) {
-      // Append finalized text as a new group (or extend previous if same speaker)
-      if (prev && prev.speaker === compact && prev.isFinal) {
+      if (prev && prev.speaker === compact && !prev.isFinal) {
+        prev.text = t.text;
+        prev.isFinal = true;
+      } else if (prev && prev.speaker === compact && prev.isFinal) {
         prev.text += ' ' + t.text;
       } else {
         groups.push({ speaker: compact, text: t.text, isFinal: true, key: keyCounter++ });
       }
     } else {
-      // PARTIAL: update the last group if it's a live one, otherwise add new
-      if (prev && !prev.isFinal) {
+      if (prev && prev.speaker === compact && !prev.isFinal) {
         prev.text = t.text;
       } else {
         groups.push({ speaker: compact, text: t.text, isFinal: false, key: keyCounter++ });
@@ -95,18 +96,17 @@ export default function MeetingPage() {
             ) : (
               <div className="p-4 leading-relaxed text-gray-800 whitespace-pre-wrap">
                 {groups.map((g) => (
-                  <span
-                    key={g.key}
-                    className={g.isFinal ? 'text-gray-800' : 'text-blue-600'}
-                  >
-                    <span className={`font-semibold mr-1 ${
+                  <span key={g.key}>
+                    <span className={`font-semibold ${
                       g.speaker === 'Salesperson' ? 'text-blue-600' : 'text-purple-600'
                     }`}>
                       {g.speaker}:
                     </span>
-                    {g.text}
-                    {g.isFinal ? ' ' : (
-                      <span className="inline-block w-2 h-4 bg-blue-400 animate-pulse ml-0.5 align-middle rounded-sm" />
+                    <span className={g.isFinal ? 'text-gray-800' : 'text-blue-600'}>
+                      {g.text}{' '}
+                    </span>
+                    {!g.isFinal && (
+                      <span className="inline-block w-1.5 h-4 bg-blue-400 animate-pulse ml-0.5 align-middle rounded-sm" />
                     )}
                   </span>
                 ))}
