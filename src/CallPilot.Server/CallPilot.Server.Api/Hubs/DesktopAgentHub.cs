@@ -140,7 +140,7 @@ public class DesktopAgentHub : Hub
         var userId = GetUserId();
         if (userId is null || !Guid.TryParse(userId, out var userGuid)) return;
 
-        var events = await _eventDetector.DetectEventsAsync(segment.Text);
+        var events = await _eventDetector.DetectEventsForMeetingAsync(segment.Text, meetingId.ToString());
         foreach (var evt in events)
         {
             _diagnostics.TrackEvent(frame.MeetingId, evt.EventType);

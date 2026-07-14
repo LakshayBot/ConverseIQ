@@ -90,7 +90,7 @@ async def lifespan(app: FastAPI):
     # Document entities are loaded via /api/v1/ai/trie/rebuild after ingest.
     from engine.services.trie_scanner import build_trie
     build_trie([])
-    logger.info("Trie initialised with seed competitors (%d patterns)", 28)
+    logger.info("Trie initialised (empty — entities loaded from documents after ingest)")
 
     yield
     logger.info("AI Engine shutting down")
@@ -458,3 +458,63 @@ async def trie_status():
         "built": trie is not None,
         "pattern_count": len(trie) if trie else 0,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Competitive Intelligence — Phase 2 (Tavily) + Phase 3 (Redis cache)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@app.post("/internal/competitor-intel")
+async def competitor_intel(request: dict):
+    """Analyze an unknown entity for competitive intelligence.
+
+    Called by the .NET EventDetectionService when trie scan misses an entity
+    that appears to be a competing product. Fire-and-forget from .NET side.
+    """
+    entity = request.get("entity", "")
+    segment = request.get("segment", "")
+    meeting_id = request.get("meeting_id", "unknown")
+    company_name = request.get("company_name", "")
+
+    if not entity or not segment:
+        raise HTTPException(status_code=400, detail="entity and segment are required")
+
+    from engine.services.competitor_orchestrator import handle_unknown_entity
+
+    # ── LLM client factory (lazy, uses .NET-configured provider) ──────
+    async def _llm_client(prompt: str) -> str:
+        """Proxy to the .NET LlmService via internal HTTP call."""
+        import os
+        import httpx
+        server_url = os.getenv("CALLPILOT_SERVER_URL", "http://server:5001")
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"{server_url}/internal/llm/generate",
+                json={"prompt": prompt, "meeting_id": meeting_id},
+            )
+            if resp.status_code == 200:
+                return resp.json().get("response", "")
+            return ""
+
+    result = await handle_unknown_entity(
+        entity=entity,
+        segment=segment,
+        meeting_id=meeting_id,
+        company_name=company_name,
+        llm_client=_llm_client,
+        cosine_search_fn=None,  # .NET handles cosine search; Python just runs classification + web intel
+    )
+
+    if result is None:
+        return {"event_type": "NoAction", "entity": entity, "reason": "not_a_competitor"}
+
+    return result
+
+
+@app.delete("/internal/competitor-cache/{competitor_name}")
+async def invalidate_competitor_cache(competitor_name: str):
+    """Invalidate the Redis cache for a specific competitor."""
+    from engine.services.competitor_intel import invalidate_cache
+    ok = await invalidate_cache(competitor_name)
+    return {"status": "invalidated" if ok else "not_found", "competitor": competitor_name}

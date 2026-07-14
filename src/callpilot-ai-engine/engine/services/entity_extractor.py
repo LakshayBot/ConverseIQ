@@ -15,8 +15,9 @@ logger = logging.getLogger(__name__)
 _extractor: Optional["EntityExtractor"] = None
 
 # Labels passed to GLiNER that map to our internal entity types.
+# NOTE: 'competitor' is intentionally excluded — competitors are detected
+# dynamically via the competitor_classifier (heuristic + LLM), not via GLiNER.
 GLINER_LABELS = [
-    "competitor",
     "product name",
     "software integration",
     "pricing tier",
@@ -25,7 +26,6 @@ GLINER_LABELS = [
 
 # Mapping from GLiNER label → internal entity_type stored in DB.
 LABEL_TYPE_MAP = {
-    "competitor": "competitor",
     "product name": "product",
     "software integration": "integration",
     "pricing tier": "pricing",

@@ -16,43 +16,25 @@ logger = logging.getLogger(__name__)
 # In-memory trie singleton.  Rebuilt on startup and after every document ingest.
 _trie: ahocorasick.Automaton | None = None
 
-# Fallback seed data — guarantees the trie is warm even before any docs are uploaded.
-_SEED_COMPETITORS = [
-    "salesforce", "hubspot", "zendesk", "freshdesk", "intercom", "zoho",
-    "pipedrive", "microsoft dynamics", "sap", "oracle", "servicenow",
-    "jira", "asana", "monday.com", "notion", "confluence", "slack",
-    "teams", "zoom", "google meet", "gong", "chorus", "salesloft",
-    "outreach", "clari", "people.ai", "6sense", "zoominfo",
-]
-
 
 def build_trie(entities: List[dict]) -> ahocorasick.Automaton:
     """Construct a new trie from a list of entity dictionaries.
 
     Each entity dict must have: ``entity_text``, ``entity_type``, ``document_id``.
-    Seed competitors are merged in automatically.
+    Only product, feature, integration, and pricing entities are indexed.
     """
     global _trie
 
     automaton = ahocorasick.Automaton()
 
-    # Seed competitors so the trie is warm before any docs are uploaded
-    for comp in _SEED_COMPETITORS:
-        payload = {
-            "entity_text": comp,
-            "entity_type": "competitor",
-            "document_ids": [],
-        }
-        automaton.add_word(comp, payload)
-
-    # Add user-document entities
     for ent in entities:
         text = ent["entity_text"]
         etype = ent.get("entity_type", "product")
+        if etype == "competitor":
+            continue  # competitors are handled dynamically in Phase 2
         doc_id = ent.get("document_id", "")
         doc_ids = ent.get("document_ids", [])
 
-        # Build or merge payload
         if automaton.exists(text):
             existing = automaton.get(text)
             if existing:
@@ -72,8 +54,7 @@ def build_trie(entities: List[dict]) -> ahocorasick.Automaton:
 
     automaton.make_automaton()
     _trie = automaton
-    logger.info("Trie built with %d entities (%d seed + %d document)",
-                 len(automaton), len(_SEED_COMPETITORS), len(entities))
+    logger.info("Trie built with %d entities", len(automaton))
     return automaton
 
 

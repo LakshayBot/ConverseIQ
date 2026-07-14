@@ -38,8 +38,8 @@ TECHNICAL_PATTERNS = [
 ]
 
 # Map trie entity_type → event type
+# 'competitor' is NOT here — competitors are handled dynamically via Phase 2 classifier
 TRIE_TYPE_EVENT_MAP = {
-    "competitor": "CompetitorMentioned",
     "product": "ProductMentioned",
     "integration": "TechnicalQuestion",
     "pricing": "PricingDiscussion",
