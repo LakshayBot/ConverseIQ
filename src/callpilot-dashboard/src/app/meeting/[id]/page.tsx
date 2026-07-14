@@ -12,6 +12,17 @@ interface SpeakerGroup {
   key: number;
 }
 
+function wordOverlap(a: string, b: string): boolean {
+  const wa = new Set(a.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  const wb = new Set(b.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  if (wa.size === 0 || wb.size === 0) return false;
+  const smaller = wa.size < wb.size ? wa : wb;
+  const larger = wa.size < wb.size ? wb : wa;
+  let overlap = 0;
+  for (const w of smaller) { if (larger.has(w)) overlap++; }
+  return overlap / smaller.size > 0.6;
+}
+
 function mergeTranscripts(transcripts: { speaker: string; text: string; isFinal: boolean; sequence: number }[]): SpeakerGroup[] {
   const groups: SpeakerGroup[] = [];
   let keyCounter = 0;
@@ -20,29 +31,19 @@ function mergeTranscripts(transcripts: { speaker: string; text: string; isFinal:
     const compact = t.speaker === 'Customer-1' ? 'Customer' : t.speaker;
     const prev = groups[groups.length - 1];
 
-    const isRefinement = prev && prev.speaker === compact && (
-      // Text is growing (Nemotron refining same utterance)
+    const isSameUtterance = prev && prev.speaker === compact && (
       t.text.includes(prev.text) ||
-      // OR some overlap at the start (Nemotron re-transcribed and extended)
-      prev.text.length >= 10 && t.text.startsWith(prev.text.slice(0, Math.min(20, prev.text.length)))
+      wordOverlap(t.text, prev.text)
     );
 
-    if (t.isFinal) {
-      // FINAL: promote the current live group
-      if (prev && prev.speaker === compact && !prev.isFinal) {
-        prev.text = t.text;
-        prev.isFinal = true;
-      } else if (prev && prev.speaker === compact && prev.isFinal) {
+    if (isSameUtterance) {
+      prev.text = t.text;
+      if (t.isFinal) prev.isFinal = true;
+    } else {
+      if (prev && prev.speaker === compact && t.isFinal && prev.isFinal) {
         prev.text += ' ' + t.text;
       } else {
-        groups.push({ speaker: compact, text: t.text, isFinal: true, key: keyCounter++ });
-      }
-    } else {
-      // PARTIAL: update if refining, otherwise new utterance
-      if (isRefinement) {
-        prev.text = t.text;
-      } else {
-        groups.push({ speaker: compact, text: t.text, isFinal: false, key: keyCounter++ });
+        groups.push({ speaker: compact, text: t.text, isFinal: t.isFinal, key: keyCounter++ });
       }
     }
   }
