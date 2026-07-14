@@ -21,6 +21,7 @@ function mergeTranscripts(transcripts: { speaker: string; text: string; isFinal:
     const prev = groups[groups.length - 1];
 
     if (t.isFinal) {
+      // FINAL: promote partial or append to previous final
       if (prev && prev.speaker === compact && !prev.isFinal) {
         prev.text = t.text;
         prev.isFinal = true;
@@ -30,10 +31,19 @@ function mergeTranscripts(transcripts: { speaker: string; text: string; isFinal:
         groups.push({ speaker: compact, text: t.text, isFinal: true, key: keyCounter++ });
       }
     } else {
+      // PARTIAL: update live group if same speaker and text is growing
       if (prev && prev.speaker === compact && !prev.isFinal) {
+        // Only update if text actually grew (Nemotron refines same utterance)
         prev.text = t.text;
-      } else {
+      } else if (prev && prev.speaker === compact && prev.isFinal && !prev.text.includes(t.text)) {
+        // New utterance starts mid-sentence — create fresh live group
         groups.push({ speaker: compact, text: t.text, isFinal: false, key: keyCounter++ });
+      } else if (!prev || prev.speaker !== compact) {
+        // Different speaker
+        groups.push({ speaker: compact, text: t.text, isFinal: false, key: keyCounter++ });
+      } else {
+        // Same final — update text in place (refinement)
+        prev.text = t.text;
       }
     }
   }
