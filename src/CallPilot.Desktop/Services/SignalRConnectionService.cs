@@ -17,8 +17,28 @@ public class SignalRConnectionService : IAsyncDisposable
     private int _transcriptCount;
 
     private string _lastDisplayLine = "";
+    private string _lastFinalText = "";
     private static readonly object _consoleLock = new();
     private static bool _cursorHidden;
+    private const int ClearWidth = 200;
+
+    private void WriteLiveCaption(string rawLine)
+    {
+        lock (_consoleLock)
+        {
+            if (!_cursorHidden)
+            {
+                Console.CursorVisible = false;
+                _cursorHidden = true;
+            }
+
+            // Pad line to ClearWidth with spaces to wipe any remnants of previous longer line
+            if (rawLine.Length < ClearWidth)
+                rawLine = rawLine.PadRight(ClearWidth);
+
+            Console.Write($"\r{rawLine}");
+        }
+    }
 
     public event EventHandler<string>? ConnectionStateChanged;
     public bool IsConnected => _connection?.State == HubConnectionState.Connected;
@@ -50,41 +70,29 @@ public class SignalRConnectionService : IAsyncDisposable
         {
             _lastTranscriptTime = DateTime.UtcNow;
 
-            var prefix = transcript.Speaker switch
+            var tag = transcript.Speaker switch
             {
-                "Salesperson" => "🎙",
-                "Customer-1" => "📞",
-                _ => "🗣"
+                "Salesperson" => "You",
+                "Customer-1" => "Customer",
+                _ => transcript.Speaker,
             };
 
-            var line = $"{prefix} {transcript.Speaker}: {transcript.Text}";
-            if (line == _lastDisplayLine) return;
-            _lastDisplayLine = line;
+            var liveLine = $"{tag}: {transcript.Text}";
+            if (liveLine == _lastDisplayLine) return;
+            _lastDisplayLine = liveLine;
+
+            if (transcript.IsFinal)
+                _lastFinalText = liveLine;
 
             Interlocked.Increment(ref _transcriptCount);
 
-            // Log full detail to file only (not console)
-            _logger.LogDebug("[{Status}] [{LatencyMs}ms] [{Seq}] {Speaker}: {Text}",
+            _logger.LogDebug("[{Status}] [{LatencyMs}ms] {Speaker}: {Text}",
                 transcript.IsFinal ? "FINAL" : "PARTIAL",
                 transcript.LatencyMs,
-                transcript.Sequence,
                 transcript.Speaker,
                 transcript.Text);
 
-            lock (_consoleLock)
-            {
-                if (!_cursorHidden)
-                {
-                    Console.CursorVisible = false;
-                    _cursorHidden = true;
-                }
-
-                var maxLen = Math.Max(60, Console.WindowWidth - 1);
-                if (line.Length > maxLen)
-                    line = line[..(maxLen - 1)] + "…";
-
-                Console.Write($"\r{new string(' ', Console.WindowWidth - 1)}\r{line}");
-            }
+            WriteLiveCaption(liveLine);
         });
 
         _connection.On<SilenceEvent>("SilenceDetected", (silence) =>
@@ -159,12 +167,14 @@ public class SignalRConnectionService : IAsyncDisposable
 
         lock (_consoleLock)
         {
+            Console.WriteLine();
+            if (!string.IsNullOrEmpty(_lastFinalText))
+                Console.WriteLine($"  Last: {_lastFinalText}");
+            Console.WriteLine($"  — {_transcriptCount} transcript updates —");
             if (_cursorHidden)
             {
                 Console.CursorVisible = true;
                 _cursorHidden = false;
-                Console.WriteLine();
-                Console.WriteLine($"  — {_transcriptCount} transcript updates received —");
             }
         }
 
