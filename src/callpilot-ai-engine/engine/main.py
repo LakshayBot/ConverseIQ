@@ -148,10 +148,22 @@ if NEMOTRON_ENABLED:
             self.state_lock = threading.Lock()
             self.inference_in_progress: bool = False
             self.just_reset: bool = False  # set after FINAL; cleared on first new inference
+            self.history: list[str] = []   # accumulates finalized utterance texts
 
         def get_last_text(self) -> str:
             with self.last_text_lock:
                 return self.last_text
+
+        def get_full_text(self) -> str:
+            """Returns history + current partial — the full conversation so far."""
+            with self.last_text_lock:
+                parts = self.history + ([self.last_text] if self.last_text else [])
+                return " ".join(p for p in parts if p)
+
+        def add_final(self, text: str) -> None:
+            with self.last_text_lock:
+                if text:
+                    self.history.append(text)
 
         def reset(self) -> None:
             with self.state_lock:
@@ -252,6 +264,8 @@ if NEMOTRON_ENABLED:
             final_text = await asyncio.get_event_loop().run_in_executor(
                 None, streamer.pipe.finalize, sess
             )
+            if final_text:
+                streamer.add_final(final_text)
             streamer.reset()
             duration_ms = (time.time() - t0) * 1000
             return SpeechTaskResult(
@@ -295,7 +309,7 @@ if NEMOTRON_ENABLED:
             asyncio.create_task(_run_streaming_inference(meeting_id, streamer))
 
         # ── Return last known text immediately ─────────────────────────
-        last_text = streamer.get_last_text()
+        last_text = streamer.get_full_text() or streamer.get_last_text()
         duration_ms = (time.time() - t0) * 1000
 
         if last_text:
