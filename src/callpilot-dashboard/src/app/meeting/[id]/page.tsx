@@ -20,30 +20,35 @@ function wordOverlap(a: string, b: string): boolean {
   const larger = wa.size < wb.size ? wb : wa;
   let overlap = 0;
   for (const w of smaller) { if (larger.has(w)) overlap++; }
-  return overlap / smaller.size > 0.6;
+  return overlap / smaller.size > 0.4;
 }
 
 function mergeTranscripts(transcripts: { speaker: string; text: string; isFinal: boolean; sequence: number }[]): SpeakerGroup[] {
   const groups: SpeakerGroup[] = [];
+  const maxText: string[] = [];  // longest version of each group's text
   let keyCounter = 0;
 
   for (const t of transcripts) {
     const compact = t.speaker === 'Customer-1' ? 'Customer' : t.speaker;
     const prev = groups[groups.length - 1];
+    const prevMax = groups.length > 0 ? maxText[groups.length - 1] : '';
 
     const isSameUtterance = prev && prev.speaker === compact && (
-      t.text.includes(prev.text) ||
-      wordOverlap(t.text, prev.text)
+      wordOverlap(t.text, prevMax || prev.text) ||
+      t.text.includes(prev.text)
     );
 
     if (isSameUtterance) {
       prev.text = t.text;
+      maxText[groups.length - 1] = t.text.length > (prevMax.length || 0) ? t.text : prevMax;
       if (t.isFinal) prev.isFinal = true;
     } else {
       if (prev && prev.speaker === compact && t.isFinal && prev.isFinal) {
         prev.text += ' ' + t.text;
+        maxText[groups.length - 1] = prev.text;
       } else {
         groups.push({ speaker: compact, text: t.text, isFinal: t.isFinal, key: keyCounter++ });
+        maxText.push(t.text);
       }
     }
   }
