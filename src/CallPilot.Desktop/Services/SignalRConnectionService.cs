@@ -17,7 +17,8 @@ public class SignalRConnectionService : IAsyncDisposable
     private int _transcriptCount;
 
     private string _lastDisplayLine = "";
-    private string _lastFinalText = "";
+    private string _conversation = "";
+    private string _currentPartial = "";
     private static readonly object _consoleLock = new();
     private static bool _cursorHidden;
 
@@ -38,6 +39,43 @@ public class SignalRConnectionService : IAsyncDisposable
 
             Console.Write($"\r{rawLine}");
         }
+    }
+
+    private void UpdateDisplay(string speaker, string text, bool isFinal)
+    {
+        var compact = speaker switch { "Salesperson" => "You", "Customer-1" => "Customer", _ => speaker };
+
+        if (isFinal)
+        {
+            // Append to rolling conversation buffer
+            if (_conversation.Length > 0)
+                _conversation += "  ";
+            _conversation += $"{compact}: {text}";
+
+            _currentPartial = "";
+
+            // Keep only the last ~600 chars visible
+            var maxWidth = Math.Max(80, Console.WindowWidth * 2);
+            if (_conversation.Length > maxWidth)
+                _conversation = "…" + _conversation[^maxWidth..];
+        }
+        else
+        {
+            _currentPartial = $"{compact}: {text}";
+        }
+
+        // Show: rolling conversation history (trimmed) + current partial
+        var display = _conversation;
+        if (!string.IsNullOrEmpty(_currentPartial))
+        {
+            if (display.Length > 0) display += " · ";
+            display += _currentPartial;
+        }
+
+        if (display == _lastDisplayLine) return;
+        _lastDisplayLine = display;
+
+        WriteLiveCaption(display);
     }
 
     public event EventHandler<string>? ConnectionStateChanged;
@@ -69,21 +107,6 @@ public class SignalRConnectionService : IAsyncDisposable
         _connection.On<TranscriptEvent>("TranscriptReceived", (transcript) =>
         {
             _lastTranscriptTime = DateTime.UtcNow;
-
-            var tag = transcript.Speaker switch
-            {
-                "Salesperson" => "You",
-                "Customer-1" => "Customer",
-                _ => transcript.Speaker,
-            };
-
-            var liveLine = $"{tag}: {transcript.Text}";
-            if (liveLine == _lastDisplayLine) return;
-            _lastDisplayLine = liveLine;
-
-            if (transcript.IsFinal)
-                _lastFinalText = liveLine;
-
             Interlocked.Increment(ref _transcriptCount);
 
             _logger.LogDebug("[{Status}] [{LatencyMs}ms] {Speaker}: {Text}",
@@ -92,7 +115,7 @@ public class SignalRConnectionService : IAsyncDisposable
                 transcript.Speaker,
                 transcript.Text);
 
-            WriteLiveCaption(liveLine);
+            UpdateDisplay(transcript.Speaker, transcript.Text, transcript.IsFinal);
         });
 
         _connection.On<SilenceEvent>("SilenceDetected", (silence) =>
@@ -168,8 +191,11 @@ public class SignalRConnectionService : IAsyncDisposable
         lock (_consoleLock)
         {
             Console.WriteLine();
-            if (!string.IsNullOrEmpty(_lastFinalText))
-                Console.WriteLine($"  Last: {_lastFinalText}");
+            if (_conversation.Length > 0)
+            {
+                var preview = _conversation.Length > 120 ? _conversation[^120..] : _conversation;
+                Console.WriteLine($"  Last: ...{preview}");
+            }
             Console.WriteLine($"  — {_transcriptCount} transcript updates —");
             if (_cursorHidden)
             {
