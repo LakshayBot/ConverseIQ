@@ -20,7 +20,6 @@ public class SignalRConnectionService : IAsyncDisposable
     private string _lastFinalText = "";
     private static readonly object _consoleLock = new();
     private static bool _cursorHidden;
-    private const int ClearWidth = 200;
 
     private void WriteLiveCaption(string rawLine)
     {
@@ -32,9 +31,10 @@ public class SignalRConnectionService : IAsyncDisposable
                 _cursorHidden = true;
             }
 
-            // Pad line to ClearWidth with spaces to wipe any remnants of previous longer line
-            if (rawLine.Length < ClearWidth)
-                rawLine = rawLine.PadRight(ClearWidth);
+            var maxLen = Math.Max(60, Console.WindowWidth - 1);
+            if (rawLine.Length > maxLen)
+                rawLine = rawLine[..maxLen];
+            rawLine = rawLine.PadRight(maxLen);
 
             Console.Write($"\r{rawLine}");
         }
