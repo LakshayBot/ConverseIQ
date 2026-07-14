@@ -20,8 +20,15 @@ function mergeTranscripts(transcripts: { speaker: string; text: string; isFinal:
     const compact = t.speaker === 'Customer-1' ? 'Customer' : t.speaker;
     const prev = groups[groups.length - 1];
 
+    const isRefinement = prev && prev.speaker === compact && (
+      // Text is growing (Nemotron refining same utterance)
+      t.text.includes(prev.text) ||
+      // OR some overlap at the start (Nemotron re-transcribed and extended)
+      prev.text.length >= 10 && t.text.startsWith(prev.text.slice(0, Math.min(20, prev.text.length)))
+    );
+
     if (t.isFinal) {
-      // FINAL: promote partial or append to previous final
+      // FINAL: promote the current live group
       if (prev && prev.speaker === compact && !prev.isFinal) {
         prev.text = t.text;
         prev.isFinal = true;
@@ -31,19 +38,11 @@ function mergeTranscripts(transcripts: { speaker: string; text: string; isFinal:
         groups.push({ speaker: compact, text: t.text, isFinal: true, key: keyCounter++ });
       }
     } else {
-      // PARTIAL: update live group if same speaker and text is growing
-      if (prev && prev.speaker === compact && !prev.isFinal) {
-        // Only update if text actually grew (Nemotron refines same utterance)
+      // PARTIAL: update if refining, otherwise new utterance
+      if (isRefinement) {
         prev.text = t.text;
-      } else if (prev && prev.speaker === compact && prev.isFinal && !prev.text.includes(t.text)) {
-        // New utterance starts mid-sentence — create fresh live group
-        groups.push({ speaker: compact, text: t.text, isFinal: false, key: keyCounter++ });
-      } else if (!prev || prev.speaker !== compact) {
-        // Different speaker
-        groups.push({ speaker: compact, text: t.text, isFinal: false, key: keyCounter++ });
       } else {
-        // Same final — update text in place (refinement)
-        prev.text = t.text;
+        groups.push({ speaker: compact, text: t.text, isFinal: false, key: keyCounter++ });
       }
     }
   }
