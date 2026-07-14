@@ -34,7 +34,7 @@ public class SignalRConnectionService : IAsyncDisposable
 
             var maxLen = Math.Max(60, Console.WindowWidth - 1);
             if (rawLine.Length > maxLen)
-                rawLine = rawLine[..maxLen];
+                rawLine = rawLine[^maxLen..];    // keep rightmost (newest) text
             rawLine = rawLine.PadRight(maxLen);
 
             Console.Write($"\r{rawLine}");
@@ -54,10 +54,10 @@ public class SignalRConnectionService : IAsyncDisposable
 
             _currentPartial = "";
 
-            // Keep only the last ~600 chars visible
-            var maxWidth = Math.Max(80, Console.WindowWidth * 2);
-            if (_conversation.Length > maxWidth)
-                _conversation = "…" + _conversation[^maxWidth..];
+            // Buffer rolling history (keep much more than visible for disconnect summary)
+            var bufferCap = Math.Max(500, Console.WindowWidth * 5);
+            if (_conversation.Length > bufferCap)
+                _conversation = "…" + _conversation[^bufferCap..];
         }
         else
         {
