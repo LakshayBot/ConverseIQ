@@ -1,16 +1,49 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
-import { apiGetTranscripts, TranscriptEntry } from '@/lib/api';
 import { useSignalR } from '@/lib/signalr';
+
+interface SpeakerGroup {
+  speaker: string;
+  text: string;
+  isFinal: boolean;
+  key: number;
+}
+
+function mergeTranscripts(transcripts: { speaker: string; text: string; isFinal: boolean; sequence: number }[]): SpeakerGroup[] {
+  const groups: SpeakerGroup[] = [];
+  let keyCounter = 0;
+
+  for (const t of transcripts) {
+    const compact = t.speaker === 'Customer-1' ? 'Customer' : t.speaker;
+    const prev = groups[groups.length - 1];
+
+    if (t.isFinal) {
+      // Append finalized text as a new group (or extend previous if same speaker)
+      if (prev && prev.speaker === compact && prev.isFinal) {
+        prev.text += ' ' + t.text;
+      } else {
+        groups.push({ speaker: compact, text: t.text, isFinal: true, key: keyCounter++ });
+      }
+    } else {
+      // PARTIAL: update the last group if it's a live one, otherwise add new
+      if (prev && !prev.isFinal) {
+        prev.text = t.text;
+      } else {
+        groups.push({ speaker: compact, text: t.text, isFinal: false, key: keyCounter++ });
+      }
+    }
+  }
+
+  return groups;
+}
 
 export default function MeetingPage() {
   const { id: meetingId } = useParams<{ id: string }>();
   const { user, isLoading } = useAuth();
   const router = useRouter();
-  const [initialTranscripts, setInitialTranscripts] = useState<TranscriptEntry[]>([]);
   const { transcripts: liveTranscripts, events, recommendations, isConnected, error: signalRError } = useSignalR(
     isLoading ? null : (meetingId ?? null)
   );
@@ -22,41 +55,23 @@ export default function MeetingPage() {
     }
   }, [user, isLoading]);
 
-  useEffect(() => {
-    if (meetingId) {
-      apiGetTranscripts(meetingId).then(setInitialTranscripts).catch(() => {});
-    }
-  }, [meetingId]);
-
-  const allTranscripts = [
-    ...initialTranscripts.map(t => ({ ...t, fromServer: true })),
-    ...liveTranscripts,
-  ];
+  const groups = useMemo(() => mergeTranscripts(liveTranscripts), [liveTranscripts]);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [allTranscripts.length]);
+  }, [groups.length]);
 
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <button
-              onClick={() => router.push('/dashboard')}
-              className="text-gray-500 hover:text-gray-700"
-            >
-              ← Back
-            </button>
+            <button onClick={() => router.push('/dashboard')} className="text-gray-500 hover:text-gray-700">← Back</button>
             <h1 className="text-lg font-semibold text-gray-900">Live Meeting</h1>
           </div>
           <div className="flex items-center gap-3">
-            <span className={`inline-flex items-center gap-1.5 text-sm ${
-              isConnected ? 'text-green-600' : 'text-red-500'
-            }`}>
-              <span className={`w-2 h-2 rounded-full ${
-                isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
-              }`} />
+            <span className={`inline-flex items-center gap-1.5 text-sm ${isConnected ? 'text-green-600' : 'text-red-500'}`}>
+              <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
               {isConnected ? 'Connected' : 'Disconnected'}
             </span>
           </div>
@@ -66,46 +81,38 @@ export default function MeetingPage() {
       <main className="max-w-5xl mx-auto px-4 py-6">
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="p-4 border-b border-gray-100 bg-gray-50">
-              <h2 className="font-semibold text-gray-700">Live Transcript</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Meeting ID: {meetingId}</p>
-              {signalRError && (
-                <p className="text-xs text-red-500 mt-1">Connection error: {signalRError}</p>
-              )}
+            <h2 className="font-semibold text-gray-700">Live Transcript</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Meeting ID: {meetingId}</p>
+            {signalRError && <p className="text-xs text-red-500 mt-1">Connection error: {signalRError}</p>}
           </div>
 
-          <div className="divide-y divide-gray-100 max-h-[calc(100vh-180px)] overflow-y-auto">
-            {allTranscripts.length === 0 ? (
+          <div className="max-h-[calc(100vh-180px)] overflow-y-auto">
+            {groups.length === 0 && liveTranscripts.length === 0 ? (
               <div className="p-12 text-center text-gray-400">
                 <p className="text-lg">Waiting for audio...</p>
                 <p className="text-sm mt-2">Start speaking to see live transcription</p>
               </div>
             ) : (
-              allTranscripts.map((entry, i) => (
-                <div key={i} className={`p-4 ${!entry.isFinal ? 'bg-blue-50/50' : ''}`}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                      entry.speaker === 'Salesperson'
-                        ? 'bg-blue-100 text-blue-700'
-                        : 'bg-purple-100 text-purple-700'
+              <div className="p-4 leading-relaxed text-gray-800 whitespace-pre-wrap">
+                {groups.map((g) => (
+                  <span
+                    key={g.key}
+                    className={g.isFinal ? 'text-gray-800' : 'text-blue-600'}
+                  >
+                    <span className={`font-semibold mr-1 ${
+                      g.speaker === 'Salesperson' ? 'text-blue-600' : 'text-purple-600'
                     }`}>
-                      {entry.speaker}
+                      {g.speaker}:
                     </span>
-                    {!entry.isFinal && (
-                      <span className="text-xs text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded-full">
-                        Live
-                      </span>
+                    {g.text}
+                    {g.isFinal ? ' ' : (
+                      <span className="inline-block w-2 h-4 bg-blue-400 animate-pulse ml-0.5 align-middle rounded-sm" />
                     )}
-                    {entry.confidence != null && (
-                      <span className="text-xs text-gray-400">
-                        {(entry.confidence * 100).toFixed(0)}% confidence
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-gray-800 leading-relaxed">{entry.text}</p>
-                </div>
-              ))
+                  </span>
+                ))}
+                <div ref={transcriptEndRef} />
+              </div>
             )}
-            <div ref={transcriptEndRef} />
           </div>
 
           {events.length > 0 && (
