@@ -82,6 +82,8 @@ public class KnowledgeUploadHandler
                 return document;
             }
 
+            text = SanitizeText(text);
+
             document.SetProcessingStatus("Chunking");
             await _dbContext.SaveChangesAsync();
 
@@ -219,6 +221,22 @@ public class KnowledgeUploadHandler
         {
             // Trie rebuild is best-effort; don't fail the ingest
         }
+    }
+
+    private static string SanitizeText(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        // Remove null bytes and other control chars that PostgreSQL rejects
+        var sb = new System.Text.StringBuilder(text.Length);
+        foreach (char c in text)
+        {
+            if (c == '\0') continue;       // null byte
+            if (c == '\ufffd') continue;   // unicode replacement char
+            if (char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.OtherNotAssigned)
+                continue;
+            sb.Append(c);
+        }
+        return sb.ToString().Trim();
     }
 
     private class ExtractEntitiesResponse
