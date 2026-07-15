@@ -46,6 +46,30 @@ public class LlmService
         }
     }
 
+    public async Task<string?> GenerateResponseForAnyProviderAsync(string prompt)
+    {
+        try
+        {
+            var provider = await _dbContext.ProviderConfigurations
+                .FirstOrDefaultAsync(p => p.IsEnabled);
+
+            if (provider is null) return null;
+
+            return provider.ProviderType.ToLowerInvariant() switch
+            {
+                "ollama" => await CallOllamaAsync(provider, prompt),
+                "deepseek" => await CallDeepSeekAsync(provider, prompt),
+                "openai" => await CallOpenAiAsync(provider, prompt),
+                _ => null,
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "LLM generation for any provider failed");
+            return null;
+        }
+    }
+
     private async Task<string?> CallOllamaAsync(ProviderConfiguration provider, string prompt)
     {
         var client = _httpClientFactory.CreateClient("LlmClient");

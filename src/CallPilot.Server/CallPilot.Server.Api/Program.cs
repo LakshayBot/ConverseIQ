@@ -389,8 +389,27 @@ app.MapPost("/api/v1/knowledge/entities/sync-trie", async (
         : Results.Problem("Trie rebuild failed", statusCode: 500);
 }).RequireAuthorization();
 
+// ── Internal LLM proxy (used by AI Engine for competitive intel) ────────────
+
+app.MapPost("/internal/llm/generate", async (
+    GenerateRequest req,
+    LlmService llmService) =>
+{
+    if (string.IsNullOrEmpty(req.Prompt))
+        return Results.BadRequest(new { error = "prompt is required" });
+
+    try
+    {
+        // Find any enabled provider (userId doesn't matter for internal calls)
+        var response = await llmService.GenerateResponseAsync(Guid.Empty, req.Prompt)
+            ?? await llmService.GenerateResponseForAnyProviderAsync(req.Prompt);
+
+        return Results.Ok(new { response = response ?? "" });
+    }
+    catch
+    {
+        return Results.Ok(new { response = "" });
+    }
+});
+
 Log.Information("CallPilot Server starting...");
-
-app.Run();
-
-public record ProcessTextRequest(string text);
