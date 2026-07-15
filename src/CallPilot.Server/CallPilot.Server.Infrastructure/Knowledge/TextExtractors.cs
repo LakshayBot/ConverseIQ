@@ -1,3 +1,6 @@
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
+
 namespace CallPilot.Server.Infrastructure.Knowledge;
 
 public interface ITextExtractor
@@ -11,20 +14,39 @@ public class PdfTextExtractor : ITextExtractor
     public bool CanExtract(string contentType) =>
         contentType.Contains("pdf") || contentType == "application/pdf";
 
-    public async Task<string> ExtractTextAsync(Stream fileStream)
+    public Task<string> ExtractTextAsync(Stream fileStream)
     {
-        using var reader = new StreamReader(fileStream, leaveOpen: true);
-        var content = await reader.ReadToEndAsync();
-
-        if (content.StartsWith("%PDF"))
+        try
         {
-            return ExtractPdfText(content);
-        }
+            using var document = PdfDocument.Open(fileStream);
+            var text = new System.Text.StringBuilder();
 
-        return content.Trim();
+            foreach (var page in document.GetPages())
+            {
+                var pageText = page.Text;
+                if (!string.IsNullOrWhiteSpace(pageText))
+                {
+                    text.AppendLine(pageText);
+                }
+            }
+
+            return Task.FromResult(text.ToString().Trim());
+        }
+        catch
+        {
+            // Fall back to original naive extraction for corrupt PDFs
+            fileStream.Position = 0;
+            using var reader = new StreamReader(fileStream, leaveOpen: true);
+            var raw = reader.ReadToEnd();
+            if (raw.StartsWith("%PDF"))
+            {
+                return Task.FromResult(ExtractPdfTextFallback(raw));
+            }
+            return Task.FromResult(string.Empty);
+        }
     }
 
-    private static string ExtractPdfText(string pdfContent)
+    private static string ExtractPdfTextFallback(string pdfContent)
     {
         var text = new System.Text.StringBuilder();
         var lines = pdfContent.Split('\n');
@@ -32,16 +54,8 @@ public class PdfTextExtractor : ITextExtractor
 
         foreach (var line in lines)
         {
-            if (line.Contains("BT"))
-            {
-                inStream = true;
-                continue;
-            }
-            if (line.Contains("ET"))
-            {
-                inStream = false;
-                continue;
-            }
+            if (line.Contains("BT")) { inStream = true; continue; }
+            if (line.Contains("ET")) { inStream = false; continue; }
             if (inStream)
             {
                 var matches = System.Text.RegularExpressions.Regex.Matches(line, @"\(([^)]*)\)");
