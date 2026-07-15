@@ -413,3 +413,8 @@ app.MapPost("/internal/llm/generate", async (
 });
 
 Log.Information("CallPilot Server starting...");
+
+app.Run();
+
+public record GenerateRequest(string Prompt, string? MeetingId);
+public record ProcessTextRequest(string text);
