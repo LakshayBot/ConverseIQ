@@ -1,0 +1,55 @@
+SALES CALL SCRIPT — Secure Meters Product Discussion
+Duration: ~90-120 seconds at natural speaking pace
+
+---
+
+SELLER (Raj, Secure Meters):
+Hi Priya, thanks for jumping on this call. I know your team at Tata Power has been evaluating smart metering solutions for the Delhi distribution project, so I wanted to walk through what Secure Meters can offer — specifically around the AMI requirements you outlined last week.
+
+BUYER (Priya, Tata Power):
+Yes, thanks Raj. We're currently standardizing on Landis+Gyr meters for our urban rollout, but honestly we've been running into issues with their three-phase CT-operated units — the accuracy drifts after about six months in the field, and the external CT installations are a nightmare for our field teams. I'm open to alternatives.
+
+SELLER:
+That's exactly why I wanted to show you Prodigy. It's a three-phase CT-operated meter but the current transformers are built-in — thread-through connections, no external CTs or accessories. Your field teams just pass the cable directly through the meter. No more lugging around separate CT kits. Our Delhi discom client reduced their installation time by forty percent after switching from Landis+Gyr E650 units.
+
+BUYER:
+Built-in CTs are interesting. What about accuracy class? Our spec calls for class 0.2S for bulk consumer points and 0.5S for the distribution transformer level.
+
+SELLER:
+Prodigy handles both. But for your transmission and bulk power transfer points, you'd actually want Apex 100 — that's our high-end precision meter, full four-quadrant import/export metering with total harmonic distortion measurement. It's class 0.2S by default, supports ICS DLMS open protocol. And if you need something more modular for your mixed residential and small commercial feeders, the Sprint 210 is three-phase with pluggable GPRS and mesh radio modules — fully DLMS COSEM compliant.
+
+BUYER:
+Okay that modularity is appealing. One of our big pain points with Landis+Gyr is that swapping communication modules means sending the meter back to the factory — it takes six weeks. Can Sprint 210 modules be swapped in the field?
+
+SELLER:
+Absolutely. Slide-out module, slide-in replacement, no recalibration needed. The i-Credit 510 works the same way for the single-phase side. Both support remote firmware upgrades and load control relays for demand-side management. For your prepaid pilot in the rural zones, we'd recommend Liberty+ — it's a single-phase token-less smart meter, encrypted vend codes, multi-rate tariffs with friendly credit periods. Your consumers won't need to physically buy tokens.
+
+BUYER:
+The prepaid pilot is actually one of our key priorities this quarter. How does Liberty+ handle the consumer display side? Our regulatory requirement says consumers must see real-time consumption in rupees, not just kilowatt-hours.
+
+SELLER:
+That's where Pipit 500 comes in. It's an in-home display that pairs wirelessly with the meter over ZigBee. Large backlit touchscreen, shows consumption in rupees per hour, historical comparisons, carbon footprint. It connects through a Home Area Network — consumers can see exactly how much they're spending in real time. And for the gas metering piece of your smart city project, we have Liberty EG4v which also uses ZigBee radio to link to the smart meter communications hub — same ecosystem, same head-end.
+
+BUYER:
+Speaking of the head-end, what about meter reading and data integration? We have a complex SCADA environment and we're running Schneider Electric's EcoStruxure for grid management.
+
+SELLER:
+Two pieces there. ECD 210 and ECD 310 modems handle the GSM GPRS data transfer from the meters to your central station — they can auto-trigger SMS alerts on tamper events, which ties into your theft detection workflows. And for the software layer, Integrator is our web-based multi-vendor reading platform — it connects to various meter makes over different communication media, including DLMS and Modbus. It does scheduled and on-demand interval data collection, and it can import meter reading data from external sources. It's designed to work alongside systems like EcoStruxure, not replace them.
+
+BUYER:
+Good. We were also looking at Elster meters for the commercial segment — their pricing came in about fifteen percent lower on the three-phase side. Can you compete on that?
+
+SELLER:
+I can't quote firm pricing on this call, but I'll tell you — Sprint 350 for direct-connected three-phase installations is our most cost-competitive option, and it has advanced revenue protection features. Billing data history, tamper detection, backlight LCD with annunciators. For the volume you're talking about — roughly thirty thousand meters across Delhi — we can be very aggressive on pricing. I'll send over a preliminary quote by end of week.
+
+BUYER:
+Send it over. And can you include pricing for Liberty 310 as well? That's the three-phase token-less version, right? We might standardize prepaid across both single and three-phase.
+
+SELLER:
+Yes, Liberty 310 is the three-phase equivalent of Liberty+. Same encrypted vend codes, same IHD compatibility, just handles three-phase loads. I'll include both. One last thing — if energy audit is part of your T&D loss reduction mandate, our Enerlyser software gives you AT&C loss analysis, network hierarchy drill-down, and decision support for corrective actions. I'll include a demo license in the proposal.
+
+BUYER:
+That would be useful — our losses are running at about eighteen percent in the rural feeders. Alright Raj, send me the proposal and we'll set up a technical deep-dive with my engineering team for next week. I want them to look at the Prodigy thread-through design and the Integrator integration path with our existing systems.
+
+SELLER:
+Done. I'll get it to you by Friday. Thanks Priya.
