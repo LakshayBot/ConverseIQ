@@ -105,6 +105,12 @@ app = FastAPI(
 if NEMOTRON_ENABLED:
     app.include_router(nemotron_router)
 
+# Structure-aware document ingest (Docling). Always mounted — even on
+# deployments that don't need Nemotron, callers can still use structured
+# ingest. The Docling model is lazy-loaded on the first request.
+from engine.routers.ingest_router import router as ingest_router
+app.include_router(ingest_router)
+
 
 @app.get("/health")
 async def health():

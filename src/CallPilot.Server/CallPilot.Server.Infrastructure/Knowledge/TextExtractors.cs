@@ -1,5 +1,6 @@
-using UglyToad.PdfPig;
-using UglyToad.PdfPig.Content;
+using Docnet.Core;
+using Docnet.Core.Models;
+using Microsoft.Extensions.Logging;
 
 namespace CallPilot.Server.Infrastructure.Knowledge;
 
@@ -11,63 +12,58 @@ public interface ITextExtractor
 
 public class PdfTextExtractor : ITextExtractor
 {
+    private readonly ILogger<PdfTextExtractor>? _logger;
+
+    public PdfTextExtractor() { }
+
+    public PdfTextExtractor(ILogger<PdfTextExtractor> logger) => _logger = logger;
+
     public bool CanExtract(string contentType) =>
         contentType.Contains("pdf") || contentType == "application/pdf";
 
-    public Task<string> ExtractTextAsync(Stream fileStream)
+    public async Task<string> ExtractTextAsync(Stream fileStream)
     {
-        try
+        // Docnet.Core takes a byte[] snapshot — drain the stream so the caller can
+        // rewind/seek freely without us depending on the input stream type.
+        if (fileStream.CanSeek)
         {
-            using var document = PdfDocument.Open(fileStream);
-            var text = new System.Text.StringBuilder();
-
-            foreach (var page in document.GetPages())
-            {
-                var pageText = page.Text;
-                if (!string.IsNullOrWhiteSpace(pageText))
-                {
-                    text.AppendLine(pageText);
-                }
-            }
-
-            return Task.FromResult(text.ToString().Trim());
-        }
-        catch
-        {
-            // Fall back to original naive extraction for corrupt PDFs
             fileStream.Position = 0;
-            using var reader = new StreamReader(fileStream, leaveOpen: true);
-            var raw = reader.ReadToEnd();
-            if (raw.StartsWith("%PDF"))
-            {
-                return Task.FromResult(ExtractPdfTextFallback(raw));
-            }
-            return Task.FromResult(string.Empty);
         }
-    }
+        using var ms = new MemoryStream();
+        await fileStream.CopyToAsync(ms);
+        var bytes = ms.ToArray();
 
-    private static string ExtractPdfTextFallback(string pdfContent)
-    {
-        var text = new System.Text.StringBuilder();
-        var lines = pdfContent.Split('\n');
-        bool inStream = false;
-
-        foreach (var line in lines)
+        if (bytes.Length == 0)
         {
-            if (line.Contains("BT")) { inStream = true; continue; }
-            if (line.Contains("ET")) { inStream = false; continue; }
-            if (inStream)
+            _logger?.LogWarning("PDF extraction skipped: empty stream");
+            return string.Empty;
+        }
+
+        var text = new System.Text.StringBuilder();
+        int pagesWithText = 0;
+        int pageCount = 0;
+
+        using var library = DocLib.Instance;
+        using var docReader = library.GetDocReader(bytes, new PageDimensions());
+        pageCount = docReader.GetPageCount();
+
+        for (var i = 0; i < pageCount; i++)
+        {
+            using var pageReader = docReader.GetPageReader(i);
+            var pageText = pageReader.GetText();
+            if (!string.IsNullOrWhiteSpace(pageText))
             {
-                var matches = System.Text.RegularExpressions.Regex.Matches(line, @"\(([^)]*)\)");
-                foreach (System.Text.RegularExpressions.Match match in matches)
-                {
-                    text.Append(match.Groups[1].Value);
-                    text.Append(' ');
-                }
+                pagesWithText++;
+                text.AppendLine(pageText);
             }
         }
 
-        return text.ToString().Trim();
+        var result = text.ToString().Trim();
+        _logger?.LogInformation(
+            "Docnet extracted {Chars} chars from {Pages} page(s) (out of {Total} total)",
+            result.Length, pagesWithText, pageCount);
+
+        return result;
     }
 }
 

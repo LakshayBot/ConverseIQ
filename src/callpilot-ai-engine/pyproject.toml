@@ -20,6 +20,7 @@ dependencies = [
     "pyahocorasick>=2.1.0",
     "tavily-python>=0.5.0",
     "redis>=5.0.0",
+    "docling>=2.50.0",
 ]
 
 [project.optional-dependencies]

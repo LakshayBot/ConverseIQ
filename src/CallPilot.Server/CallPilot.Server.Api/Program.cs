@@ -156,6 +156,7 @@ builder.Services.AddSingleton<ITextExtractor, MarkdownTextExtractor>();
 builder.Services.AddSingleton<TextExtractorFactory>();
 
 builder.Services.AddScoped<KnowledgeUploadHandler>();
+builder.Services.AddScoped<StructuredIngestClient>();
 
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<CacheService>();

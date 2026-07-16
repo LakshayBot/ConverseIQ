@@ -98,6 +98,12 @@ public class CallPilotDbContext : DbContext
             entity.HasIndex(c => c.DocumentId);
             entity.HasIndex(c => new { c.DocumentId, c.ChunkIndex }).IsUnique();
             entity.Property(c => c.Text).HasColumnType("text").IsRequired();
+            entity.Property(c => c.SectionHeading).HasMaxLength(500);
+            entity.Property(c => c.ChunkType).HasMaxLength(50).IsRequired().HasDefaultValue("paragraph");
+            entity.Property(c => c.MetadataJson).HasColumnType("jsonb");
+            // GIN index on the JSONB metadata so structured filters (e.g.
+            // metadata->>'section_heading') stay fast as the table grows.
+            entity.HasIndex(c => c.MetadataJson).HasMethod("gin");
             entity.HasOne(c => c.Document)
                   .WithMany(d => d.Chunks)
                   .HasForeignKey(c => c.DocumentId)

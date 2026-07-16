@@ -14,6 +14,7 @@ public static class KnowledgeEndpoints
         group.MapPost("/upload", async (
             HttpRequest request,
             ClaimsPrincipal user,
+            string? mode,
             KnowledgeUploadHandler handler) =>
         {
             var userIdClaim = user.FindFirst("userId")?.Value;
@@ -21,6 +22,10 @@ public static class KnowledgeEndpoints
 
             if (!request.HasFormContentType || request.Form.Files.Count == 0)
                 return Results.BadRequest(new { error = "No file provided" });
+
+            var ingestMode = ParseMode(mode);
+            if (ingestMode is null)
+                return Results.BadRequest(new { error = $"Unknown mode '{mode}'. Use 'fast' or 'structured'." });
 
             var file = request.Form.Files[0];
 
@@ -30,7 +35,8 @@ public static class KnowledgeEndpoints
                 file.FileName,
                 file.ContentType,
                 file.Length,
-                stream);
+                stream,
+                ingestMode.Value);
 
             return Results.Created($"/api/v1/knowledge/{document.Id}", new
             {
@@ -41,6 +47,7 @@ public static class KnowledgeEndpoints
                 processingStatus = document.ProcessingStatus,
                 createdAt = document.CreatedAt,
                 chunkCount = 0,
+                mode = ingestMode.Value.ToString().ToLowerInvariant(),
             });
         }).DisableAntiforgery();
 
@@ -93,6 +100,10 @@ public static class KnowledgeEndpoints
                     c.ChunkIndex,
                     text = c.Text,
                     c.TokenCount,
+                    c.SectionHeading,
+                    c.ChunkType,
+                    c.PageHint,
+                    metadata = c.MetadataJson,
                 }),
                 entities = doc.DocumentEntities.Select(e => new
                 {
@@ -122,5 +133,46 @@ public static class KnowledgeEndpoints
                 return Results.NotFound();
             }
         });
+
+        // Re-run extraction → chunking → embedding on an already-stored document.
+        // Useful when the document was ingested with a broken extractor (e.g. legacy
+        // regex fallback that produced garbled chunks) and the user wants to recover
+        // it without re-uploading.
+        // Optional `?mode=structured` forwards the PDF to the Python AI Engine
+        // (Docling) for layout-aware extraction. Default is `fast` (Docnet in-process).
+        group.MapPost("/{id:guid}/reindex", async (
+            ClaimsPrincipal user,
+            Guid id,
+            string? mode,
+            KnowledgeUploadHandler handler) =>
+        {
+            var userIdClaim = user.FindFirst("userId")?.Value;
+            if (userIdClaim is null) return Results.Unauthorized();
+
+            var ingestMode = ParseMode(mode);
+            if (ingestMode is null)
+                return Results.BadRequest(new { error = $"Unknown mode '{mode}'. Use 'fast' or 'structured'." });
+
+            var document = await handler.ReindexAsync(Guid.Parse(userIdClaim), id, ingestMode.Value);
+            if (document is null) return Results.NotFound();
+
+            return Results.Ok(new
+            {
+                id = document.Id,
+                fileName = document.FileName,
+                processingStatus = document.ProcessingStatus,
+                updatedAt = document.UpdatedAt,
+                mode = ingestMode.Value.ToString().ToLowerInvariant(),
+            });
+        });
+    }
+
+    private static IngestMode? ParseMode(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw) || raw.Equals("fast", StringComparison.OrdinalIgnoreCase))
+            return IngestMode.Fast;
+        if (raw.Equals("structured", StringComparison.OrdinalIgnoreCase))
+            return IngestMode.Structured;
+        return null;
     }
 }

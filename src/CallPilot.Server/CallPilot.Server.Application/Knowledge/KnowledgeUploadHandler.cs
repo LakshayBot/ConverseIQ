@@ -10,6 +10,14 @@ using System.Net.Http.Json;
 
 namespace CallPilot.Server.Application.Knowledge;
 
+public enum IngestMode
+{
+    /// <summary>Docnet.Core + paragraph chunker in-process. Sub-second, no network hop. Default.</summary>
+    Fast,
+    /// <summary>Forwards PDF to Python AI Engine (Docling). Preserves layout, headings, page numbers. 5-60s.</summary>
+    Structured,
+}
+
 public class KnowledgeUploadHandler
 {
     private readonly CallPilotDbContext _dbContext;
@@ -18,6 +26,7 @@ public class KnowledgeUploadHandler
     private readonly EmbeddingService _embeddingService;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly StructuredIngestClient _structuredIngest;
     private readonly ILogger<KnowledgeUploadHandler> _logger;
 
     public KnowledgeUploadHandler(
@@ -27,6 +36,7 @@ public class KnowledgeUploadHandler
         EmbeddingService embeddingService,
         IHttpClientFactory httpClientFactory,
         IServiceScopeFactory scopeFactory,
+        StructuredIngestClient structuredIngest,
         ILogger<KnowledgeUploadHandler> logger)
     {
         _dbContext = dbContext;
@@ -35,15 +45,25 @@ public class KnowledgeUploadHandler
         _embeddingService = embeddingService;
         _httpClientFactory = httpClientFactory;
         _scopeFactory = scopeFactory;
+        _structuredIngest = structuredIngest;
         _logger = logger;
     }
+
+    public Task<KnowledgeDocument> UploadAsync(
+        Guid userId,
+        string fileName,
+        string contentType,
+        long fileSize,
+        Stream fileStream)
+        => UploadAsync(userId, fileName, contentType, fileSize, fileStream, IngestMode.Fast);
 
     public async Task<KnowledgeDocument> UploadAsync(
         Guid userId,
         string fileName,
         string contentType,
         long fileSize,
-        Stream fileStream)
+        Stream fileStream,
+        IngestMode mode)
     {
         var document = new KnowledgeDocument(userId, fileName, contentType, fileSize);
 
@@ -60,34 +80,79 @@ public class KnowledgeUploadHandler
         _dbContext.KnowledgeDocuments.Add(document);
         await _dbContext.SaveChangesAsync();
 
+        await ProcessAsync(document, fileStream, mode);
+
+        return document;
+    }
+
+    public Task<KnowledgeDocument?> ReindexAsync(Guid userId, Guid documentId)
+        => ReindexAsync(userId, documentId, IngestMode.Fast);
+
+    /// <summary>
+    /// Wipes existing chunks/embeddings/entities for an already-stored document and
+    /// re-runs extraction → chunking → embedding against the original file. Used to
+    /// recover documents ingested with a broken extractor, or to switch an existing
+    /// document between fast and structured modes.
+    /// </summary>
+    public async Task<KnowledgeDocument?> ReindexAsync(Guid userId, Guid documentId, IngestMode mode)
+    {
+        var document = await _dbContext.KnowledgeDocuments
+            .FirstOrDefaultAsync(d => d.Id == documentId && d.UserId == userId);
+
+        if (document is null) return null;
+        if (string.IsNullOrEmpty(document.StoragePath) || !File.Exists(document.StoragePath))
+        {
+            document.SetProcessingStatus("Source file missing — re-upload required");
+            await _dbContext.SaveChangesAsync();
+            return document;
+        }
+
+        // Wipe children so the document is re-processable from a clean slate.
+        var existingChunks = await _dbContext.KnowledgeChunks
+            .Where(c => c.DocumentId == documentId)
+            .ToListAsync();
+        var existingEntities = await _dbContext.DocumentEntities
+            .Where(e => e.DocumentId == documentId)
+            .ToListAsync();
+
+        _dbContext.KnowledgeChunks.RemoveRange(existingChunks);
+        _dbContext.DocumentEntities.RemoveRange(existingEntities);
+        await _dbContext.SaveChangesAsync();
+
+        using var fs = File.OpenRead(document.StoragePath);
+        await ProcessAsync(document, fs, mode);
+
+        return document;
+    }
+
+    /// <summary>
+    /// Shared extraction → chunking → embedding pipeline used by both upload and reindex.
+    /// </summary>
+    private async Task ProcessAsync(KnowledgeDocument document, Stream fileStream, IngestMode mode)
+    {
         try
         {
-            document.SetProcessingStatus("Extracting");
-            await _dbContext.SaveChangesAsync();
+            // Fast mode: keep the current path so existing PDF behavior doesn't
+            // change. Structured mode: forward the bytes to the Python AI Engine
+            // for layout-aware extraction.
+            List<TextChunk> chunks;
+            string? rawTextForEntityExtraction;
 
-            fileStream.Position = 0;
-            var extractor = _extractorFactory.GetExtractor(contentType);
-            if (extractor is null)
+            if (mode == IngestMode.Structured)
             {
-                document.SetProcessingStatus($"Unsupported format: {contentType}");
-                await _dbContext.SaveChangesAsync();
-                return document;
+                (chunks, rawTextForEntityExtraction) = await ExtractStructuredAsync(document, fileStream);
+            }
+            else
+            {
+                (chunks, rawTextForEntityExtraction) = await ExtractFastAsync(document, fileStream);
             }
 
-            var text = await extractor.ExtractTextAsync(fileStream);
-            if (string.IsNullOrWhiteSpace(text))
+            if (chunks.Count == 0)
             {
                 document.SetProcessingStatus("No extractable text found");
                 await _dbContext.SaveChangesAsync();
-                return document;
+                return;
             }
-
-            text = SanitizeText(text);
-
-            document.SetProcessingStatus("Chunking");
-            await _dbContext.SaveChangesAsync();
-
-            var chunks = _chunkingService.ChunkText(text, document.Id);
 
             document.SetProcessingStatus("Embedding");
             await _dbContext.SaveChangesAsync();
@@ -100,7 +165,11 @@ public class KnowledgeUploadHandler
                     chunk.Text,
                     chunk.TokenCount,
                     chunk.CharOffset,
-                    chunk.CharLength);
+                    chunk.CharLength,
+                    sectionHeading: chunk.SectionHeading,
+                    chunkType: chunk.ChunkType,
+                    pageHint: chunk.PageHint,
+                    metadataJson: chunk.MetadataJson);
 
                 _dbContext.KnowledgeChunks.Add(knowledgeChunk);
                 await _dbContext.SaveChangesAsync();
@@ -120,29 +189,85 @@ public class KnowledgeUploadHandler
             document.SetProcessingStatus("Indexed");
             await _dbContext.SaveChangesAsync();
 
-            _logger.LogInformation("Document indexed: {FileName}, {ChunkCount} chunks", fileName, chunks.Count);
+            _logger.LogInformation(
+                "Document indexed: {FileName}, {ChunkCount} chunks, mode={Mode}",
+                document.FileName, chunks.Count, mode);
 
             // ── Dynamic Entity Extraction (GLiNER, runs async — does not block) ──
-            _ = Task.Run(async () =>
+            if (rawTextForEntityExtraction is not null)
             {
-                try
+                var textForEntities = rawTextForEntityExtraction;
+                _ = Task.Run(async () =>
                 {
-                    await ExtractAndStoreEntitiesAsync(document.Id, text);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Entity extraction skipped for {FileName}: {Message}", fileName, ex.Message);
-                }
-            });
+                    try
+                    {
+                        await ExtractAndStoreEntitiesAsync(document.Id, textForEntities);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Entity extraction skipped for {FileName}: {Message}", document.FileName, ex.Message);
+                    }
+                });
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to process document {FileName}", fileName);
+            _logger.LogError(ex, "Failed to process document {FileName}", document.FileName);
             document.SetProcessingStatus($"Error: {ex.Message}");
             await _dbContext.SaveChangesAsync();
         }
+    }
 
-        return document;
+    /// <summary>
+    /// Fast extraction: Docnet.Core + paragraph-aware chunker, both in-process.
+    /// </summary>
+    private async Task<(List<TextChunk> chunks, string? rawText)> ExtractFastAsync(
+        KnowledgeDocument document, Stream fileStream)
+    {
+        document.SetProcessingStatus("Extracting");
+        await _dbContext.SaveChangesAsync();
+
+        if (fileStream.CanSeek) fileStream.Position = 0;
+        var extractor = _extractorFactory.GetExtractor(document.ContentType);
+        if (extractor is null)
+        {
+            document.SetProcessingStatus($"Unsupported format: {document.ContentType}");
+            await _dbContext.SaveChangesAsync();
+            return ([], null);
+        }
+
+        var text = await extractor.ExtractTextAsync(fileStream);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return ([], null);
+        }
+        text = SanitizeText(text);
+
+        document.SetProcessingStatus("Chunking");
+        await _dbContext.SaveChangesAsync();
+
+        return (_chunkingService.ChunkText(text, document.Id), text);
+    }
+
+    /// <summary>
+    /// Structured extraction: forward the PDF to the Python AI Engine. Returns
+    /// pre-chunked TextChunk records with section_heading, chunk_type, and page
+    /// numbers populated. The raw text isn't available in this mode (Docling
+    /// returns chunks, not flat text) so entity extraction is skipped.
+    /// </summary>
+    private async Task<(List<TextChunk> chunks, string? rawText)> ExtractStructuredAsync(
+        KnowledgeDocument document, Stream fileStream)
+    {
+        document.SetProcessingStatus("Extracting (structured)");
+        await _dbContext.SaveChangesAsync();
+
+        if (fileStream.CanSeek) fileStream.Position = 0;
+        using var ms = new MemoryStream();
+        await fileStream.CopyToAsync(ms);
+        var bytes = ms.ToArray();
+
+        var chunks = await _structuredIngest.IngestAsync(document.Id, document.FileName, bytes);
+        return (chunks ?? [], null);
     }
 
     public async Task<IReadOnlyList<KnowledgeDocument>> ListDocumentsAsync(Guid userId)
@@ -231,7 +356,7 @@ public class KnowledgeUploadHandler
         foreach (char c in text)
         {
             if (c == '\0') continue;       // null byte
-            if (c == '\ufffd') continue;   // unicode replacement char
+            if (c == '�') continue;   // unicode replacement char
             if (char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.OtherNotAssigned)
                 continue;
             sb.Append(c);
