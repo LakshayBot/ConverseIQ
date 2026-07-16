@@ -252,8 +252,9 @@ public class KnowledgeUploadHandler
     /// <summary>
     /// Structured extraction: forward the PDF to the Python AI Engine. Returns
     /// pre-chunked TextChunk records with section_heading, chunk_type, and page
-    /// numbers populated. The raw text isn't available in this mode (Docling
-    /// returns chunks, not flat text) so entity extraction is skipped.
+    /// numbers populated. Also builds a GLiNER-friendly text blob by prepending
+    /// structured context ([chunk_type] section_heading) to each chunk so entity
+    /// extraction can run with higher confidence than flat fast-mode text.
     /// </summary>
     private async Task<(List<TextChunk> chunks, string? rawText)> ExtractStructuredAsync(
         KnowledgeDocument document, Stream fileStream)
@@ -267,7 +268,19 @@ public class KnowledgeUploadHandler
         var bytes = ms.ToArray();
 
         var chunks = await _structuredIngest.IngestAsync(document.Id, document.FileName, bytes);
-        return (chunks ?? [], null);
+        if (chunks is null || chunks.Count == 0)
+            return ([], null);
+
+        var sb = new System.Text.StringBuilder();
+        foreach (var chunk in chunks)
+        {
+            sb.Append('[').Append(chunk.ChunkType).Append("] ");
+            if (!string.IsNullOrWhiteSpace(chunk.SectionHeading))
+                sb.Append(chunk.SectionHeading).Append('\n');
+            sb.Append(chunk.Text).Append("\n\n");
+        }
+
+        return (chunks, sb.ToString().Trim());
     }
 
     public async Task<IReadOnlyList<KnowledgeDocument>> ListDocumentsAsync(Guid userId)
