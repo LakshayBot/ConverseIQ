@@ -17,18 +17,25 @@ logger = logging.getLogger(__name__)
 _trie: ahocorasick.Automaton | None = None
 
 
-def build_trie(entities: List[dict]) -> ahocorasick.Automaton:
+def build_trie(entities: List[dict]) -> ahocorasick.Automaton | None:
     """Construct a new trie from a list of entity dictionaries.
 
     Each entity dict must have: ``entity_text``, ``entity_type``, ``document_id``.
     Only product, feature, integration, and pricing entities are indexed.
+
+    Returns the new automaton, or ``None`` if no indexable entities were
+    supplied.  Callers should treat ``None`` as "no trie available" — the
+    matching :func:`scan_text` will simply return ``[]`` instead of crashing.
     """
     global _trie
 
     automaton = ahocorasick.Automaton()
+    indexed = 0
 
     for ent in entities:
-        text = ent["entity_text"]
+        text = ent.get("entity_text")
+        if not text:
+            continue
         etype = ent.get("entity_type", "product")
         if etype == "competitor":
             continue  # competitors are handled dynamically in Phase 2
@@ -51,10 +58,20 @@ def build_trie(entities: List[dict]) -> ahocorasick.Automaton:
                 "document_ids": [doc_id] if doc_id else list(doc_ids),
             }
             automaton.add_word(text, payload)
+            indexed += 1
+
+    if indexed == 0:
+        # ahocorasick's Automaton is left in a non-iterable state when
+        # make_automaton() is called with zero patterns — the first .iter()
+        # call raises AttributeError.  Leave the global as None so
+        # scan_text() short-circuits cleanly.
+        _trie = None
+        logger.info("Trie built with 0 entities (no indexable patterns)")
+        return None
 
     automaton.make_automaton()
     _trie = automaton
-    logger.info("Trie built with %d entities", len(automaton))
+    logger.info("Trie built with %d entities", indexed)
     return automaton
 
 
@@ -66,7 +83,7 @@ def scan_text(text: str) -> list[dict]:
     """Scan *text* through the trie and return list of matched entities.
 
     Each result: ``{"entity_text": str, "entity_type": str, "document_ids": list[str]}``
-    Returns empty list if trie is not yet built.
+    Returns empty list if the trie is not yet built (no documents ingested).
     """
     if _trie is None:
         return []
@@ -75,7 +92,14 @@ def scan_text(text: str) -> list[dict]:
     results: list[dict] = []
     seen: set[str] = set()
 
-    for end_idx, payload in _trie.iter(text_lower):
+    try:
+        iterator = _trie.iter(text_lower)
+    except AttributeError:
+        # Defensive: ahocorasick raises this if make_automaton() was never
+        # finalised. Treat it the same as an empty trie.
+        return []
+
+    for end_idx, payload in iterator:
         etext = payload["entity_text"]
         if etext in seen:
             continue
