@@ -390,6 +390,19 @@ app.MapPost("/api/v1/knowledge/entities/sync-trie", async (
         : Results.Problem("Trie rebuild failed", statusCode: 500);
 }).RequireAuthorization();
 
+// ── Service-to-service entity dump (anonymous, intended for the AI engine) ──
+//
+// Used by the AI engine's startup hook to populate the Aho-Corasick trie
+// from the canonical entity list in PostgreSQL. Anonymous because the AI
+// engine runs in the same docker network and doesn't carry a user JWT.
+app.MapGet("/internal/knowledge/entities", async (CallPilotDbContext db) =>
+{
+    var entities = await db.DocumentEntities
+        .Select(e => new { entity_text = e.EntityText, entity_type = e.EntityType, document_id = e.DocumentId.ToString() })
+        .ToListAsync();
+    return Results.Ok(new { entities, count = entities.Count });
+});
+
 // ── Internal LLM proxy (used by AI Engine for competitive intel) ────────────
 
 app.MapPost("/internal/llm/generate", async (
