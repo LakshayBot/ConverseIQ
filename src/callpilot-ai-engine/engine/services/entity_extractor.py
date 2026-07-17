@@ -54,7 +54,7 @@ class EntityExtractor:
     def extract(
         self,
         text: str,
-        confidence_threshold: float = 0.4,
+        confidence_threshold: float = 0.3,
     ) -> list[dict]:
         """Run GLiNER over *text* and return a deduplicated list of entities.
 
@@ -88,7 +88,7 @@ def get_extractor() -> EntityExtractor:
     return _extractor
 
 
-async def extract_entities(text: str, confidence_threshold: float = 0.4) -> list[dict]:
+async def extract_entities(text: str, confidence_threshold: float = 0.3) -> list[dict]:
     """Async wrapper — runs the GLiNER call in a thread executor."""
     import asyncio
 

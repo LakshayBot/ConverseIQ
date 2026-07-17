@@ -316,9 +316,13 @@ public class KnowledgeUploadHandler
         var factory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
 
         var client = factory.CreateClient("AiEngine");
+        // 0.3 captures brand product names ("Apex 100", "Prodigy", "Liberty 500"…)
+        // that GLiNER's "product name" label scores in the 0.4-0.5 range — the
+        // stricter 0.4 default missed almost all of them and left the live trie
+        // with only generic terms like "transformer-operated smart meter".
         var response = await client.PostAsJsonAsync(
             "/api/v1/ai/extract-entities",
-            new { text, confidence_threshold = 0.4 });
+            new { text, confidence_threshold = 0.3 });
 
         if (!response.IsSuccessStatusCode)
         {
