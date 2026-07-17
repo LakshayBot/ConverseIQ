@@ -92,8 +92,65 @@ async def lifespan(app: FastAPI):
     build_trie([])
     logger.info("Trie initialised (empty — entities loaded from documents after ingest)")
 
+    # Pull existing document entities from the .NET server on startup so the
+    # trie isn't empty after a container restart (previously the AI engine
+    # would boot with an empty trie and silently drop every detected event
+    # until a fresh document was uploaded and the .NET side called
+    # /api/v1/ai/trie/rebuild).  Best-effort: if the .NET server isn't
+    # reachable yet (cold start), the trie just stays empty and the first
+    # upload will rebuild it.
+    asyncio.create_task(_auto_load_trie_from_server())
+
     yield
     logger.info("AI Engine shutting down")
+
+
+async def _auto_load_trie_from_server() -> None:
+    """Best-effort startup sync of the trie from the .NET server.
+
+    Retries with backoff for up to ~60 s so we survive the .NET container
+    coming up after us.  Logs and swallows any error — never crashes the
+    AI engine boot path.
+    """
+    import os
+    import httpx
+
+    server_url = os.getenv("CALLPILOT_SERVER_URL", "http://server:5001").rstrip("/")
+    url = f"{server_url}/internal/knowledge/entities"
+
+    for attempt in range(12):  # 12 × 5s = 60s window
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(url)
+            if resp.status_code == 200:
+                payload = resp.json() or {}
+                raw = payload.get("entities", [])
+                # Map .NET shape → trie shape
+                entities = [
+                    {
+                        "entity_text": e.get("EntityText") or e.get("entity_text"),
+                        "entity_type": e.get("EntityType") or e.get("entity_type", "product"),
+                        "document_id": str(e.get("DocumentId") or e.get("document_id") or ""),
+                    }
+                    for e in raw
+                    if (e.get("EntityText") or e.get("entity_text"))
+                ]
+                from engine.services.trie_scanner import build_trie
+                build_trie(entities)
+                logger.info(
+                    "Startup trie sync: %d entities loaded from .NET server",
+                    len(entities),
+                )
+                return
+            logger.warning(
+                "Startup trie sync: server returned %s (attempt %d/12)",
+                resp.status_code, attempt + 1,
+            )
+        except Exception as exc:  # noqa: BLE001 — fire-and-forget
+            logger.warning(
+                "Startup trie sync: %s (attempt %d/12)", exc, attempt + 1,
+            )
+        await asyncio.sleep(5)
 
 
 app = FastAPI(
@@ -449,7 +506,7 @@ async def rebuild_trie(request: dict | None = None):
 
     try:
         trie = build_trie(entities)
-        return {"status": "rebuilt", "pattern_count": len(trie)}
+        return {"status": "rebuilt", "pattern_count": len(trie) if trie else 0}
     except Exception as exc:
         logger.exception("Trie rebuild failed")
         raise HTTPException(status_code=500, detail=str(exc))
