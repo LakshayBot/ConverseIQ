@@ -86,14 +86,14 @@ export async function apiDeleteProvider(id: string) {
   return apiRequest<void>(`/api/v1/providers/${id}`, { method: 'DELETE' });
 }
 
-export async function apiUploadKnowledge(file: File) {
+export async function apiUploadKnowledge(file: File, mode: 'fast' | 'structured' = 'fast') {
   const formData = new FormData();
   formData.append('file', file);
 
   const headers: Record<string, string> = {};
   if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
 
-  const response = await fetch(`${API_BASE}/api/v1/knowledge/upload`, {
+  const response = await fetch(`${API_BASE}/api/v1/knowledge/upload?mode=${mode}`, {
     method: 'POST',
     headers,
     body: formData,
@@ -115,14 +115,69 @@ export async function apiGetKnowledgeDocument(id: string) {
   return apiRequest<KnowledgeDocumentDetail>(`/api/v1/knowledge/${id}`);
 }
 
+/**
+ * Lightweight status poller — returns just the two status fields and
+ * cheap counts.  Used by the ProcessingStepper to refresh every ~1.5s
+ * without pulling the full chunk/entity payload.  Resolves to null if
+ * the document was deleted between polls.
+ */
+export async function apiGetDocumentStatus(id: string): Promise<DocumentStatus | null> {
+  try {
+    return await apiRequest<DocumentStatus>(`/api/v1/knowledge/${id}/status`);
+  } catch {
+    return null;
+  }
+}
+
+export interface ProductDetailsDocument {
+  id: string;
+  fileName: string;
+  pageHint: number;
+  sectionHeading: string | null;
+  snippet: string | null;
+}
+
+export interface ProductDetails {
+  name: string;
+  type: string;
+  confidence?: number;
+  description: string | null;
+  documents: ProductDetailsDocument[];
+  isSeed: boolean;
+  notFound: boolean;
+}
+
+/** Fetch product details for the live-meeting product card. */
+export async function apiGetProductDetails(name: string): Promise<ProductDetails> {
+  return apiRequest<ProductDetails>(
+    `/api/v1/knowledge/entities/${encodeURIComponent(name)}/details`,
+  );
+}
+
 export interface KnowledgeDocument {
   id: string;
   fileName: string;
   contentType: string;
   fileSizeBytes: number;
   processingStatus: string;
+  /** LLM enrichment state — null in fast mode, otherwise "enriching" | "enriched" | "enrichment_failed" */
+  enrichmentStatus: string | null;
   createdAt: string;
   chunkCount: number;
+  /** Which ingest path was used.  Fast = in-process Docnet; structured = Python AI Engine (Docling + optional LLM enrichment). */
+  mode?: 'fast' | 'structured';
+}
+
+/**
+ * Minimal document status snapshot.  Returned by GET /api/v1/knowledge/{id}/status
+ * for the ProcessingStepper to poll without re-fetching chunks/entities.
+ */
+export interface DocumentStatus {
+  id: string;
+  processingStatus: string;
+  enrichmentStatus: string | null;
+  chunkCount: number;
+  entityCount: number;
 }
 
 export interface KnowledgeDocumentDetail extends KnowledgeDocument {

@@ -85,9 +85,11 @@ public class CallPilotDbContext : DbContext
             entity.HasKey(d => d.Id);
             entity.HasIndex(d => d.UserId);
             entity.HasIndex(d => d.ProcessingStatus);
+            entity.HasIndex(d => d.EnrichmentStatus);
             entity.Property(d => d.FileName).HasMaxLength(500).IsRequired();
             entity.Property(d => d.ContentType).HasMaxLength(200).IsRequired();
             entity.Property(d => d.ProcessingStatus).HasMaxLength(200).IsRequired();
+            entity.Property(d => d.EnrichmentStatus).HasMaxLength(50);
             entity.Property(d => d.StoragePath).HasMaxLength(1000);
             entity.HasQueryFilter(d => d.DeletedAt == null);
         });

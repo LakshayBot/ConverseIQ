@@ -45,6 +45,7 @@ public static class KnowledgeEndpoints
                 contentType = document.ContentType,
                 fileSizeBytes = document.FileSizeBytes,
                 processingStatus = document.ProcessingStatus,
+                enrichmentStatus = document.EnrichmentStatus,
                 createdAt = document.CreatedAt,
                 chunkCount = 0,
                 mode = ingestMode.Value.ToString().ToLowerInvariant(),
@@ -66,8 +67,10 @@ public static class KnowledgeEndpoints
                 contentType = d.ContentType,
                 fileSizeBytes = d.FileSizeBytes,
                 processingStatus = d.ProcessingStatus,
+                enrichmentStatus = d.EnrichmentStatus,
                 createdAt = d.CreatedAt,
-                chunkCount = d.Chunks.Count
+                chunkCount = d.Chunks.Count,
+                mode = d.Mode,
             }));
         });
 
@@ -93,6 +96,7 @@ public static class KnowledgeEndpoints
                 contentType = doc.ContentType,
                 fileSizeBytes = doc.FileSizeBytes,
                 processingStatus = doc.ProcessingStatus,
+                enrichmentStatus = doc.EnrichmentStatus,
                 createdAt = doc.CreatedAt,
                 chunks = doc.Chunks.OrderBy(c => c.ChunkIndex).Select(c => new
                 {
@@ -132,6 +136,134 @@ public static class KnowledgeEndpoints
             {
                 return Results.NotFound();
             }
+        });
+
+        // Lookup product details by canonical name.  Used by the live meeting
+        // page's right-side product card to populate when a ProductMentioned
+        // event arrives.  Returns the documents + a representative chunk
+        // excerpt so the salesperson can see what the product is without a
+        // second round-trip.  Case-insensitive name match (the trie and the
+        // extractor both lowercase on insert).
+        group.MapGet("/entities/{name}/details", async (
+            ClaimsPrincipal user,
+            string name,
+            CallPilotDbContext db) =>
+        {
+            var userIdClaim = user.FindFirst("userId")?.Value;
+            if (userIdClaim is null) return Results.Unauthorized();
+
+            var userId = Guid.Parse(userIdClaim);
+            var normalized = name.ToLowerInvariant().Trim();
+
+            // Find all entities with this name across the user's documents.
+            // Join to the document and the originating chunk (if any) so the
+            // caller can show "Found in: <doc> (page 3)" and a snippet.
+            var matches = await db.DocumentEntities
+                .Where(e => e.EntityText == normalized)
+                .Join(db.KnowledgeDocuments.Where(d => d.UserId == userId),
+                      e => e.DocumentId,
+                      d => d.Id,
+                      (e, d) => new { Entity = e, Document = d })
+                .OrderByDescending(x => x.Entity.Confidence)
+                .Take(5)
+                .ToListAsync();
+
+            if (matches.Count == 0)
+            {
+                return Results.Ok(new
+                {
+                    name = normalized,
+                    type = "product",
+                    description = (string?)null,
+                    documents = Array.Empty<object>(),
+                    isSeed = false,
+                    notFound = true,
+                });
+            }
+
+            // For each match, fetch the most useful chunk text — prefer the
+            // chunk the entity was extracted from, otherwise the first chunk
+            // of the document.  Truncate excerpts to 280 chars.
+            var chunkIds = matches
+                .Where(m => m.Entity.ChunkId.HasValue)
+                .Select(m => m.Entity.ChunkId!.Value)
+                .Distinct()
+                .ToList();
+
+            var docIds = matches.Select(m => m.Document.Id).Distinct().ToList();
+
+            var chunks = await db.KnowledgeChunks
+                .Where(c => docIds.Contains(c.DocumentId) || chunkIds.Contains(c.Id))
+                .OrderBy(c => c.DocumentId)
+                .ThenBy(c => c.ChunkIndex)
+                .ToListAsync();
+
+            var chunksByDoc = chunks
+                .GroupBy(c => c.DocumentId)
+                .ToDictionary(g => g.Key, g => g.OrderBy(c => c.ChunkIndex).ToList());
+
+            var documents = matches.Select(m =>
+            {
+                var docId = m.Document.Id;
+                var pool = chunksByDoc.TryGetValue(docId, out var list) ? list : new List<Domain.Knowledge.KnowledgeChunk>();
+                // Prefer the chunk the entity was extracted from, otherwise
+                // the first chunk of the document.
+                var chosen = m.Entity.ChunkId.HasValue
+                    ? pool.FirstOrDefault(c => c.Id == m.Entity.ChunkId.Value)
+                    : pool.FirstOrDefault();
+                var snippet = chosen?.Text is { Length: > 0 } txt
+                    ? (txt.Length > 280 ? txt[..280] + "…" : txt)
+                    : null;
+                return new
+                {
+                    id = m.Document.Id,
+                    fileName = m.Document.FileName,
+                    pageHint = chosen?.PageHint ?? 0,
+                    sectionHeading = chosen?.SectionHeading,
+                    snippet,
+                };
+            }).ToList();
+
+            var first = matches[0];
+            return Results.Ok(new
+            {
+                name = first.Entity.EntityText,
+                type = first.Entity.EntityType,
+                confidence = first.Entity.Confidence,
+                description = (string?)null,
+                documents,
+                isSeed = false,
+                notFound = false,
+            });
+        });
+
+        // Lightweight status poll endpoint.  Returns only the two status
+        // fields plus cheap counts so the dashboard can poll every ~1.5s
+        // during processing without pulling chunks/entities each time.
+        // Cheap counts only — no joins to KnowledgeChunks or DocumentEntities.
+        group.MapGet("/{id:guid}/status", async (
+            ClaimsPrincipal user,
+            Guid id,
+            CallPilotDbContext db) =>
+        {
+            var userIdClaim = user.FindFirst("userId")?.Value;
+            if (userIdClaim is null) return Results.Unauthorized();
+
+            var userId = Guid.Parse(userIdClaim);
+            var doc = await db.KnowledgeDocuments
+                .Where(d => d.Id == id && d.UserId == userId)
+                .Select(d => new
+                {
+                    d.Id,
+                    d.ProcessingStatus,
+                    d.EnrichmentStatus,
+                    ChunkCount = db.KnowledgeChunks.Count(c => c.DocumentId == d.Id),
+                    EntityCount = db.DocumentEntities.Count(e => e.DocumentId == d.Id),
+                })
+                .FirstOrDefaultAsync();
+
+            if (doc is null) return Results.NotFound();
+            return Results.Ok(doc);
         });
 
         // Re-run extraction → chunking → embedding on an already-stored document.

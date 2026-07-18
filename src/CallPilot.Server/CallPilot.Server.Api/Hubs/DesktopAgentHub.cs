@@ -160,7 +160,9 @@ public class DesktopAgentHub : Hub
                 conversationEvent.EventType,
                 conversationEvent.EntityName,
                 conversationEvent.Confidence,
-                conversationEvent.DetectedAt
+                conversationEvent.DetectedAt,
+                category = evt.Category,
+                supportingTranscript = conversationEvent.SupportingTranscript
             };
 
             await Clients.Caller.SendAsync("EventDetected", eventPayload);

@@ -41,8 +41,9 @@ CallPilot AI is an open-source, real-time AI sales intelligence platform that as
 git clone https://github.com/LakshayBot/ConverseIQ.git
 cd ConverseIQ
 
-# Start PostgreSQL (runs in background)
-docker compose up -d postgres
+# Start PostgreSQL (runs in background) — use the dev override so the DB
+# is published on host:5432 for local client connections
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
 
 # Verify it's running
 docker compose exec postgres pg_isready -U callpilot
@@ -243,20 +244,35 @@ cp .env.example .env
 # Edit .env to set your JWT_SECRET and other values
 # vim .env
 
-# Build and start all services
-docker compose up -d
+# Build and start all services (dev — includes Postgres host-port exposure)
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 # Verify all services are healthy
 docker compose ps
 ```
 
-**Services and Ports:**
+**Dev vs Prod:**
+| Command | What changes |
+|---|---|
+| `docker compose -f docker-compose.yml -f docker-compose.dev.yml up` | Dev. Postgres is published on host `5432`, ASPNETCORE_ENVIRONMENT=Development, hot-reload volumes mounted, AI engine code mounted for live edits. |
+| `docker compose -f docker-compose.yml up` | Production-equivalent. Postgres is **not** published to the host — only reachable from other services on the internal docker network (`Host=postgres`). |
+
+**Services and Ports (dev):**
 | Service | Port | Health Check |
 |---------|------|-------------|
-| PostgreSQL + pgvector | 5432 | pg_isready |
+| PostgreSQL + pgvector | 5432 (dev only) | pg_isready |
 | AI Engine | 8001 | GET /health |
 | CallPilot Server | 5001 | GET /health |
 | Dashboard | 3000 | GET / |
+
+**Local Postgres connection (dev only):**
+```
+Host:     localhost
+Port:     5432
+Database: callpilot
+User:     callpilot
+Password: callpilot_dev
+```
 
 **Stop everything:**
 ```bash

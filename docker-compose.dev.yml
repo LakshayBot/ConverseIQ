@@ -1,0 +1,44 @@
+# Local-development overrides — committed so every dev gets them.
+#
+# USAGE
+#   Dev:        docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#   Prod:       docker compose -f docker-compose.yml up
+#
+# Anything in here is dev-only.  Production MUST work without this file.
+
+services:
+  # Publish Postgres on host port 5432 so a local SQL client (psql,
+  # TablePlus, DBeaver, pgAdmin) can connect with the same credentials
+  # the .NET server uses internally:
+  #
+  #   Host:     localhost
+  #   Port:     5432
+  #   Database: callpilot
+  #   User:     callpilot
+  #   Password: callpilot_dev
+  #
+  # In production this block is absent, so the database is reachable only
+  # from other services on the internal docker network (the .NET server
+  # connects via Host=postgres).
+  postgres:
+    ports:
+      - "5432:5432"
+
+  server:
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+    volumes:
+      - ./src/CallPilot.Server/CallPilot.Server.Api/appsettings.Development.json:/app/appsettings.Development.json:ro
+
+  ai-engine:
+    volumes:
+      - ./src/callpilot-ai-engine/engine:/app/engine
+    environment:
+      WHISPER_MODEL_SIZE: medium.en
+      WHISPER_DEVICE: cpu
+
+  dashboard:
+    build:
+      dockerfile: src/docker/Dockerfile.dashboard
+    environment:
+      NODE_ENV: development

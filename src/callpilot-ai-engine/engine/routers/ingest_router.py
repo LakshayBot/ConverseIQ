@@ -13,6 +13,16 @@ page numbers, and chunk-type labels. Consumed by the .NET
 This endpoint is intentionally slow (5-60s on CPU) — Docling runs layout
 analysis, table recognition, and (optionally) OCR on the input. The .NET
 client uses a long timeout when calling it.
+
+POST /api/v1/documents/enrich
+  Content-Type: application/json
+  Body: {"document_id": "...", "pages": [{"page": 1, "text": "..."}, ...]}
+
+Runs the LLM enrichment pass (Ollama / qwen2.5:3b by default) on each page
+and returns a list of structured product cards.  Per-page failure is
+non-blocking: a page whose LLM call times out or returns garbage comes
+back with ``products: []`` and ``page_type: "other"``, which the .NET
+handler interprets as "keep the original Docling chunks for this page".
 """
 
 from __future__ import annotations
@@ -21,9 +31,10 @@ import logging
 import time
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, File, HTTPException, UploadFile
 
 from engine.knowledge_engine.docling_service import get_docling_service
+from engine.services.enrichment_service import enrich_pages
 
 logger = logging.getLogger(__name__)
 
@@ -76,3 +87,55 @@ async def ingest_structured(file: UploadFile = File(...)) -> dict[str, Any]:
             for c in chunks
         ],
     }
+
+
+@router.post("/enrich")
+async def enrich_document(payload: dict = Body(...)) -> dict[str, Any]:
+    """Run the LLM enrichment pass over a list of brochure pages.
+
+    Body::
+
+        {
+          "document_id": "<guid>",     # for logging only
+          "pages": [
+            {"page": 1, "text": "..."},
+            {"page": 2, "text": "..."}
+          ]
+        }
+
+    Returns::
+
+        {
+          "document_id": "...",
+          "page_count": N,
+          "pages": [
+            {"page": 1, "products": [...], "page_type": "..."},
+            ...
+          ]
+        }
+
+    Never raises on per-page failure: the enrichment service is fail-open
+    and a broken Ollama / bad JSON simply yields ``products: []``.
+    """
+    pages = payload.get("pages") or []
+    if not isinstance(pages, list):
+        raise HTTPException(status_code=400, detail="pages must be a list")
+    document_id = payload.get("document_id", "unknown")
+    t0 = time.time()
+    logger.info(
+        "enrich: document_id=%s, %d page(s)", document_id, len(pages),
+    )
+    results = await enrich_pages(pages)
+    elapsed_ms = int((time.time() - t0) * 1000)
+    products_total = sum(len(p.get("products", [])) for p in results)
+    logger.info(
+        "enrich: document_id=%s done in %dms, %d product(s) across %d page(s)",
+        document_id, elapsed_ms, products_total, len(results),
+    )
+    return {
+        "document_id": document_id,
+        "page_count": len(results),
+        "enrichment_ms": elapsed_ms,
+        "pages": results,
+    }
+

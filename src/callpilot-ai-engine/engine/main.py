@@ -111,13 +111,22 @@ async def _auto_load_trie_from_server() -> None:
     Retries with backoff for up to ~60 s so we survive the .NET container
     coming up after us.  Logs and swallows any error — never crashes the
     AI engine boot path.
+
+    If the .NET server returns an empty entity list (no brochure uploaded
+    yet, or the server is unreachable), falls back to the hardcoded Secure
+    Meters product seed list so the live call still gets product
+    detections from the very first frame.
     """
     import os
     import httpx
 
+    from engine.services.seed_entities import get_seed_entities
+    from engine.services.trie_scanner import build_trie
+
     server_url = os.getenv("CALLPILOT_SERVER_URL", "http://server:5001").rstrip("/")
     url = f"{server_url}/internal/knowledge/entities"
 
+    server_reachable = False
     for attempt in range(12):  # 12 × 5s = 60s window
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
@@ -135,13 +144,19 @@ async def _auto_load_trie_from_server() -> None:
                     for e in raw
                     if (e.get("EntityText") or e.get("entity_text"))
                 ]
-                from engine.services.trie_scanner import build_trie
-                build_trie(entities)
-                logger.info(
-                    "Startup trie sync: %d entities loaded from .NET server",
-                    len(entities),
+                if entities:
+                    build_trie(entities)
+                    logger.info(
+                        "Startup trie sync: %d entities loaded from .NET server",
+                        len(entities),
+                    )
+                    return
+                # Server up but empty — fall through to seed
+                server_reachable = True
+                logger.warning(
+                    "Startup trie sync: server returned 0 entities, using seed list"
                 )
-                return
+                break
             logger.warning(
                 "Startup trie sync: server returned %s (attempt %d/12)",
                 resp.status_code, attempt + 1,
@@ -151,6 +166,16 @@ async def _auto_load_trie_from_server() -> None:
                 "Startup trie sync: %s (attempt %d/12)", exc, attempt + 1,
             )
         await asyncio.sleep(5)
+
+    # Fallback: seed list.  Loaded either when the server was reachable but
+    # empty, or when every retry failed.
+    seeds = get_seed_entities()
+    build_trie(seeds)
+    logger.info(
+        "Startup trie seed: %d entities loaded (%s)",
+        len(seeds),
+        "server unreachable" if not server_reachable else "server empty",
+    )
 
 
 app = FastAPI(
@@ -482,7 +507,7 @@ async def extract_entities_from_text(request: dict):
     if not text:
         raise HTTPException(status_code=400, detail="No text provided")
 
-    threshold = float(request.get("confidence_threshold", 0.4))
+    threshold = float(request.get("confidence_threshold", 0.3))
 
     try:
         from engine.services.entity_extractor import extract_entities as _extract
@@ -498,15 +523,25 @@ async def rebuild_trie(request: dict | None = None):
     """Rebuild the in-memory Aho-Corasick trie from a list of entities.
 
     Called after document ingest to register new entities.  If no entities
-    are provided the trie is rebuilt with seed competitors only.
+    are provided the trie is rebuilt from the Secure Meters product seed
+    list so live calls still get product detections.
     """
+    from engine.services.seed_entities import get_seed_entities
     from engine.services.trie_scanner import build_trie
 
-    entities: list = (request or {}).get("entities", [])
+    entities: list = (request or {}).get("entities", []) or []
+    used_seed = False
+    if not entities:
+        entities = get_seed_entities()
+        used_seed = True
 
     try:
         trie = build_trie(entities)
-        return {"status": "rebuilt", "pattern_count": len(trie) if trie else 0}
+        return {
+            "status": "rebuilt",
+            "pattern_count": len(trie) if trie else 0,
+            "used_seed": used_seed,
+        }
     except Exception as exc:
         logger.exception("Trie rebuild failed")
         raise HTTPException(status_code=500, detail=str(exc))

@@ -6,7 +6,7 @@ Extracts: competitors, product names, integrations, pricing tiers, features.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,31 @@ LABEL_TYPE_MAP = {
     "software integration": "integration",
     "pricing tier": "pricing",
     "product feature": "feature",
+}
+
+# Quality gate applied to every GLiNER hit before it lands in the trie.
+# Anything below MIN_ENTITY_LEN chars is dropped unless it is a known
+# industry acronym (shared with trie_scanner.ACRONYM_ALLOWLIST).
+MIN_ENTITY_LEN = 4
+ACRONYM_ALLOWLIST: Set[str] = {
+    "dlms", "ct", "ami", "hes", "ics", "at&c", "gsm", "gprs", "rms", "hpl",
+    "cosem", "zigbee", "rf",
+}
+
+# Common English stop-words / fragments that GLiNER occasionally emits as
+# "product name" hits.  Kept small and obvious — anything more aggressive
+# and we start dropping real product tokens.
+STOP_WORDS: Set[str] = {
+    "the", "and", "for", "with", "this", "that", "it", "is", "are",
+    "your", "our", "their", "you", "we", "they", "have", "has", "had",
+    "can", "could", "will", "would", "should", "may", "might", "must",
+    "from", "into", "onto", "upon", "over", "under", "after", "before",
+    "via", "than", "also", "just", "only", "very", "more", "most", "less",
+    "such", "any", "all", "one", "two", "three", "four", "five", "six",
+    "seven", "eight", "nine", "ten", "first", "second", "third",
+    "meter", "meters", "module", "modular", "system", "systems",
+    "phase", "three-phase", "single-phase", "smart", "class",
+    "plus", "plus+", "core", "edge", "hub", "kit", "kits",
 }
 
 
@@ -59,6 +84,13 @@ class EntityExtractor:
         """Run GLiNER over *text* and return a deduplicated list of entities.
 
         Each dict has keys: ``entity_text``, ``entity_type``, ``confidence``.
+
+        A quality gate is applied to every raw GLiNER hit before it is
+        returned: tokens shorter than ``MIN_ENTITY_LEN`` (unless acronym),
+        pure stop-words, and tokens that are pure digits are dropped.
+        This stops GLiNER's frequent fragment-token emissions (e.g. "han",
+        "am", "th") from polluting the trie and producing false-positive
+        ``ProductMentioned`` events on the live call.
         """
         self._ensure_model()
 
@@ -69,6 +101,8 @@ class EntityExtractor:
         for ent in raw:
             etext = ent["text"].strip().lower()
             etype = LABEL_TYPE_MAP.get(ent["label"], "product")
+            if not self._is_valid_entity_text(etext):
+                continue
             key = (etext, etype)
             if key in seen:
                 continue
@@ -79,6 +113,28 @@ class EntityExtractor:
                 "confidence": round(ent["score"], 4),
             })
         return entities
+
+    @staticmethod
+    def _is_valid_entity_text(text: str) -> bool:
+        """Quality gate: drop fragments, stop-words, pure-digit tokens."""
+        if not text:
+            return False
+        t = text.strip()
+        if not t:
+            return False
+        # Acronyms are always allowed, even when short.
+        if t.lower() in ACRONYM_ALLOWLIST:
+            return True
+        # Pure-digit tokens (e.g. "100", "210") are useful as part of a brand
+        # name but on their own are not a product.  The trie (which has the
+        # surrounding phrase) will surface them in context.
+        if t.isdigit():
+            return False
+        if len(t) < MIN_ENTITY_LEN:
+            return False
+        if t.lower() in STOP_WORDS:
+            return False
+        return True
 
 
 def get_extractor() -> EntityExtractor:

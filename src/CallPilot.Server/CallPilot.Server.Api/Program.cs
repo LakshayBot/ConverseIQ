@@ -41,6 +41,12 @@ builder.Services.AddDbContext<CallPilotDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 var jwtSecret = builder.Configuration["Jwt:Secret"]!;
+
+// Declared up here so the JWT bearer `OnChallenge` event (below) can
+// reuse the same origin list without duplicating the literal.  See the
+// CORS comment near `AddCors` for the rationale.
+var corsAllowedOrigins = new[] { "http://localhost:3000" };
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -66,6 +72,23 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                     context.Token = accessToken;
                 }
                 return Task.CompletedTask;
+            },
+            // Re-attach CORS headers on 401 responses.  See the comment
+            // above `AddCors` for the full explanation — without this the
+            // browser blocks the 401 with "No Access-Control-Allow-Origin
+            // header" and the dashboard sees ERR_FAILED instead of a real
+            // auth error.
+            OnChallenge = context =>
+            {
+                var origin = context.Request.Headers["Origin"].ToString();
+                if (!string.IsNullOrEmpty(origin) &&
+                    corsAllowedOrigins.Contains(origin))
+                {
+                    context.Response.Headers["Access-Control-Allow-Origin"] = origin;
+                    context.Response.Headers["Access-Control-Allow-Credentials"] = "true";
+                    context.Response.Headers["Vary"] = "Origin";
+                }
+                return Task.CompletedTask;
             }
         };
     });
@@ -73,14 +96,34 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 builder.Services.AddSignalR();
 
+// ── CORS ───────────────────────────────────────────────────────────────────
+// Dashboard runs on http://localhost:3000 and calls this API on :5001.
+// We allow credentials (JWT in Authorization header) so the policy must
+// list explicit origins — `AllowAnyOrigin()` is incompatible with
+// `AllowCredentials()`.
+//
+// Why `WithExposedHeaders("*")`: the file-download and chunked endpoints
+// return custom headers (Content-Disposition, X-...) that the browser
+// would otherwise strip from the JS-visible response.
+//
+// Why the `OnChallenge` hook on the JWT bearer (below): when an
+// authenticated request fails (expired/invalid token), the JWT middleware
+// writes a 401 response directly via its challenge handler.  In some
+// .NET 8+ pipelines the CORS headers are not yet attached to the response
+// at that point, so the browser blocks the 401 with
+// "No 'Access-Control-Allow-Origin' header is present" even though the
+// CORS middleware is registered.  Re-adding the headers from the challenge
+// handler is the documented workaround.
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.WithOrigins("http://localhost:3000")
+        policy.WithOrigins(corsAllowedOrigins)
               .AllowAnyMethod()
               .AllowAnyHeader()
-              .AllowCredentials();
+              .AllowCredentials()
+              .WithExposedHeaders("*")
+              .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
     });
 });
 
@@ -157,6 +200,7 @@ builder.Services.AddSingleton<TextExtractorFactory>();
 
 builder.Services.AddScoped<KnowledgeUploadHandler>();
 builder.Services.AddScoped<StructuredIngestClient>();
+builder.Services.AddScoped<EnrichmentClient>();
 
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<CacheService>();
@@ -175,12 +219,20 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<CallPilotDbContext>();
     try
     {
-        await db.Database.EnsureCreatedAsync();
-        Log.Information("Database schema ensured");
+        // MigrateAsync applies any pending EF Core migrations in order.
+        // We previously used EnsureCreatedAsync here, which only creates
+        // the schema when the database is empty and silently ignores any
+        // migrations added afterwards — that left a previous
+        // AddEnrichmentStatus migration unapplied, causing every upload
+        // to 500 with "column EnrichmentStatus does not exist".
+        // MigrateAsync is idempotent: it applies only what hasn't been
+        // applied yet, and is safe to call on every container start.
+        await db.Database.MigrateAsync();
+        Log.Information("Database migrations applied");
     }
     catch (Exception ex)
     {
-        Log.Error(ex, "Failed to ensure database schema");
+        Log.Error(ex, "Failed to apply database migrations");
         throw;
     }
 }

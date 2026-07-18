@@ -14,12 +14,16 @@ interface TranscriptEvent {
   sequence: number;
 }
 
-interface EventPayload {
+export interface EventPayload {
   id: string;
   eventType: string;
   entityName: string | null;
   confidence: number;
   detectedAt: string;
+  /** GLiNER label / internal entity_type — e.g. "product", "feature", "integration" */
+  category: string | null;
+  /** The transcript segment that triggered the event, capped at 1000 chars */
+  supportingTranscript: string | null;
 }
 
 interface RecommendationPayload {
@@ -30,6 +34,28 @@ interface RecommendationPayload {
   confidence: number;
   references: string[];
   generatedAt: string;
+}
+
+/**
+ * Dedupe window — within this many seconds, the same (eventType, entityName)
+ * pair is treated as a single event.  Without dedupe the trie's substring
+ * match can fire on every partial transcript update and flood the badge list
+ * with copies of the same product.
+ */
+const DEDUPE_WINDOW_MS = 15_000;
+
+function isDuplicate(
+  existing: EventPayload[],
+  incoming: EventPayload,
+  now: number,
+): boolean {
+  for (const e of existing) {
+    if (e.eventType !== incoming.eventType) continue;
+    if ((e.entityName ?? '') !== (incoming.entityName ?? '')) continue;
+    const ts = Date.parse(e.detectedAt);
+    if (!Number.isNaN(ts) && now - ts < DEDUPE_WINDOW_MS) return true;
+  }
+  return false;
 }
 
 export function useSignalR(meetingId: string | null) {
@@ -66,7 +92,13 @@ export function useSignalR(meetingId: string | null) {
     });
 
     connection.on('EventDetected', (data: EventPayload) => {
-      setEvents(prev => [...prev, data]);
+      setEvents(prev => {
+        // Dedupe floods of the same (eventType, entityName) pair.  Keeps the
+        // list clean for the salesperson and prevents the badge row from
+        // getting pushed out by repeated "ProductMentioned: prodigy" copies.
+        if (isDuplicate(prev, data, Date.now())) return prev;
+        return [...prev, data];
+      });
     });
 
     connection.on('RecommendationGenerated', (data: RecommendationPayload) => {

@@ -18,6 +18,7 @@ npm-debug.log*
 out/
 dist/
 .turbo/
+*.tsbuildinfo
 
 # Python
 __pycache__/

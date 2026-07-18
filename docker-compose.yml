@@ -6,8 +6,14 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-callpilot}
       POSTGRES_USER: ${POSTGRES_USER:-callpilot}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-callpilot_dev}
-    ports:
-      - "5432:5432"
+    # NOTE: port 5432 is intentionally NOT published here.
+    # In dev, docker-compose.override.yml re-publishes it so a local client
+    # (psql, TablePlus, pgAdmin) can connect on localhost:5432.  In
+    # production the override is not loaded, so the database is reachable
+    # only from other services on the internal docker network
+    # (e.g. the .NET server using Host=postgres).
+    expose:
+      - "5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -36,9 +42,17 @@ services:
       REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
       TAVILY_API_KEY: "${TAVILY_API_KEY:-}"
       CALLPILOT_SERVER_URL: "http://server:5001"
+      # Inside the docker network the host is the service name, not
+      # localhost.  The Python enrichment service reads this env var.
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://ollama:11434}"
+      ENRICHMENT_MODEL: "${ENRICHMENT_MODEL:-qwen2.5:3b}"
     depends_on:
       postgres:
         condition: service_healthy
+      # Don't add `ollama` here — it lives on the `ollama` profile so
+      # deployments that don't need it can skip it.  The AI engine's
+      # enrichment service is fail-open, so a missing Ollama is logged
+      # and skipped rather than failing the upload.
 
   server:
     build:

@@ -27,6 +27,7 @@ public class KnowledgeUploadHandler
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly StructuredIngestClient _structuredIngest;
+    private readonly EnrichmentClient _enrichmentClient;
     private readonly ILogger<KnowledgeUploadHandler> _logger;
 
     public KnowledgeUploadHandler(
@@ -37,6 +38,7 @@ public class KnowledgeUploadHandler
         IHttpClientFactory httpClientFactory,
         IServiceScopeFactory scopeFactory,
         StructuredIngestClient structuredIngest,
+        EnrichmentClient enrichmentClient,
         ILogger<KnowledgeUploadHandler> logger)
     {
         _dbContext = dbContext;
@@ -46,6 +48,7 @@ public class KnowledgeUploadHandler
         _httpClientFactory = httpClientFactory;
         _scopeFactory = scopeFactory;
         _structuredIngest = structuredIngest;
+        _enrichmentClient = enrichmentClient;
         _logger = logger;
     }
 
@@ -66,6 +69,12 @@ public class KnowledgeUploadHandler
         IngestMode mode)
     {
         var document = new KnowledgeDocument(userId, fileName, contentType, fileSize);
+        // Persist the ingest mode so the dashboard can show the right
+        // status columns (e.g. "Skipped" in the LLM column for fast-mode
+        // docs).  Mode is written before ProcessAsync kicks off the
+        // background enrichment so the GET /status endpoint returns it
+        // immediately, even mid-pipeline.
+        document.SetMode(mode.ToString().ToLowerInvariant());
 
         var uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "uploads");
         Directory.CreateDirectory(uploadsDir);
@@ -117,6 +126,12 @@ public class KnowledgeUploadHandler
 
         _dbContext.KnowledgeChunks.RemoveRange(existingChunks);
         _dbContext.DocumentEntities.RemoveRange(existingEntities);
+        await _dbContext.SaveChangesAsync();
+
+        // Update the mode in case the user is switching fast↔structured on
+        // a reindex.  Write it before ProcessAsync so /status reflects the
+        // new mode immediately.
+        document.SetMode(mode.ToString().ToLowerInvariant());
         await _dbContext.SaveChangesAsync();
 
         using var fs = File.OpenRead(document.StoragePath);
@@ -206,6 +221,28 @@ public class KnowledgeUploadHandler
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex, "Entity extraction skipped for {FileName}: {Message}", document.FileName, ex.Message);
+                    }
+                });
+            }
+
+            // ── Async LLM enrichment pass (structured mode only) ─────────────
+            // Replaces thin Docling chunks with rich product cards for any
+            // page the LLM could parse.  Never blocks the upload response:
+            // the original Docling chunks + embeddings are already persisted
+            // and queryable, so a slow Ollama or network blip just leaves
+            // them in place.  Fast mode is intentionally not enriched.
+            if (mode == IngestMode.Structured)
+            {
+                var docId = document.Id;
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await RunBackgroundEnrichmentAsync(docId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Background enrichment failed for {DocId}", docId);
                     }
                 });
             }
@@ -344,6 +381,200 @@ public class KnowledgeUploadHandler
         _logger.LogInformation("GLiNER extracted {Count} entities from document {DocId}", entities.Count, documentId);
 
         await RebuildTrieAsync(client, db);
+    }
+
+    /// <summary>
+    /// Background enrichment pass — fires after the upload response is already
+    /// returned to the client.  Calls the Python AI Engine
+    /// <c>/api/v1/documents/enrich</c> endpoint, replaces the original Docling
+    /// chunks for any page that yielded product cards, re-embeds the new
+    /// chunks, and updates <c>EnrichmentStatus</c>.
+    ///
+    /// Failures are non-fatal: if the LLM is unreachable, slow, or returns
+    /// no products, the document keeps the original Docling chunks and
+    /// <c>EnrichmentStatus</c> is set to <c>enrichment_failed</c>.
+    /// </summary>
+    private async Task RunBackgroundEnrichmentAsync(Guid documentId)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CallPilotDbContext>();
+        var factory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
+        var embeddingService = scope.ServiceProvider.GetRequiredService<EmbeddingService>();
+
+        var document = await db.KnowledgeDocuments
+            .Include(d => d.Chunks)
+            .FirstOrDefaultAsync(d => d.Id == documentId);
+        if (document is null)
+        {
+            _logger.LogWarning("enrich: document {DocId} not found, skipping", documentId);
+            return;
+        }
+
+        document.SetEnrichmentStatus("enriching");
+        await db.SaveChangesAsync();
+
+        // Group existing chunks by page so we can replace the whole page's
+        // chunks in one shot when enrichment succeeds.  Chunks with no
+        // page hint (page_hint == 0) are kept regardless of enrichment.
+        var pageGroups = document.Chunks
+            .Where(c => c.PageHint > 0)
+            .GroupBy(c => c.PageHint)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        if (pageGroups.Count == 0)
+        {
+            _logger.LogInformation(
+                "enrich: document {DocId} has no page-tagged chunks, skipping",
+                documentId);
+            document.SetEnrichmentStatus("enrichment_failed");
+            await db.SaveChangesAsync();
+            return;
+        }
+
+        // Build the page text input by concatenating chunks per page.
+        var pageInputs = pageGroups
+            .OrderBy(kv => kv.Key)
+            .Select(kv => new EnrichmentClient.EnrichPageInput
+            {
+                Page = kv.Key,
+                Text = string.Join("\n\n", kv.Value.Select(c => c.Text)),
+            })
+            .ToList();
+
+        EnrichmentClient.EnrichResponse? result = null;
+        try
+        {
+            result = await _enrichmentClient.EnrichAsync(documentId, pageInputs);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "enrich: AI Engine call failed for {DocId}", documentId);
+        }
+
+        if (result is null)
+        {
+            document.SetEnrichmentStatus("enrichment_failed");
+            await db.SaveChangesAsync();
+            return;
+        }
+
+        // Apply per-page replacements: for each page that returned product
+        // cards, delete the original Docling chunks and insert one product
+        // card chunk per product.  Pages with no products keep their
+        // original chunks untouched.
+        var client = factory.CreateClient("AiEngine");
+        var newChunksAdded = 0;
+        var chunksDeleted = 0;
+        var allNewProductNames = new List<string>();
+
+        // Index existing chunks by id for cheap lookup + delete.
+        var existingChunks = await db.KnowledgeChunks
+            .Where(c => c.DocumentId == documentId)
+            .ToListAsync();
+
+        var existingByPage = existingChunks
+            .Where(c => c.PageHint > 0)
+            .GroupBy(c => c.PageHint)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        foreach (var pageResult in result.Pages)
+        {
+            if (pageResult.Products.Count == 0) continue;
+            if (!existingByPage.TryGetValue(pageResult.Page, out var pageChunks)) continue;
+
+            // Delete the original Docling chunks for this page (and their
+            // embeddings via cascade).
+            foreach (var chunk in pageChunks)
+            {
+                var embeddings = await db.Embeddings
+                    .Where(e => e.ChunkId == chunk.Id)
+                    .ToListAsync();
+                db.Embeddings.RemoveRange(embeddings);
+                db.KnowledgeChunks.Remove(chunk);
+                chunksDeleted++;
+            }
+            existingChunks.RemoveAll(c => c.PageHint == pageResult.Page);
+
+            // Insert one chunk per product, with the pre-rendered chunk text
+            // and the original EnrichedProduct JSON in MetadataJson.
+            var baseIndex = existingChunks.Count;
+            for (int i = 0; i < pageResult.Products.Count; i++)
+            {
+                var product = pageResult.Products[i];
+                var newChunk = new KnowledgeChunk(
+                    documentId,
+                    baseIndex + i,
+                    product.ChunkText,
+                    EstimateTokenCount(product.ChunkText),
+                    0,
+                    product.ChunkText.Length,
+                    sectionHeading: product.Name,
+                    chunkType: "product_card",
+                    pageHint: pageResult.Page,
+                    metadataJson: SerializeProductMetadata(product, pageResult.PageType));
+                db.KnowledgeChunks.Add(newChunk);
+                await db.SaveChangesAsync();
+
+                var embedding = await embeddingService.GenerateEmbeddingAsync(product.ChunkText)
+                    ?? embeddingService.GenerateLocalEmbedding(product.ChunkText);
+                db.Embeddings.Add(new Embedding(newChunk.Id, embedding, "all-MiniLM-L6-v2"));
+                newChunksAdded++;
+                allNewProductNames.Add(product.Name);
+            }
+        }
+
+        await db.SaveChangesAsync();
+        _logger.LogInformation(
+            "enrich: document {DocId} — added {Added} product card chunks, removed {Removed} Docling chunks",
+            documentId, newChunksAdded, chunksDeleted);
+
+        // Re-run GLiNER on the new product card chunks so the live trie picks
+        // up the brand product names.  This intentionally re-extracts over
+        // the full document text — most product names appear in the cards
+        // AND the surrounding context.
+        var allText = string.Join("\n\n",
+            await db.KnowledgeChunks
+                .Where(c => c.DocumentId == documentId)
+                .Select(c => c.Text)
+                .ToListAsync());
+        try
+        {
+            await ExtractAndStoreEntitiesAsync(documentId, allText);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "enrich: post-enrichment GLiNER pass failed for {DocId}", documentId);
+        }
+
+        document.SetEnrichmentStatus("enriched");
+        await db.SaveChangesAsync();
+    }
+
+    private static int EstimateTokenCount(string text) =>
+        string.IsNullOrEmpty(text) ? 0 :
+        (int)Math.Ceiling(text.Split([' ', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries).Length * 1.3);
+
+    private static string SerializeProductMetadata(
+        EnrichmentClient.EnrichedProductDto product, string pageType)
+    {
+        var dict = new Dictionary<string, object?>
+        {
+            ["source_mode"] = "enriched",
+            ["chunk_type"] = "product_card",
+            ["enrichment"] = new Dictionary<string, object?>
+            {
+                ["name"] = product.Name,
+                ["category"] = product.Category,
+                ["headline"] = product.Headline,
+                ["key_features"] = product.KeyFeatures,
+                ["pricing"] = product.Pricing,
+                ["best_for"] = product.BestFor,
+                ["differentiators"] = product.Differentiators,
+                ["raw_claims"] = product.RawClaims,
+                ["page_type"] = string.IsNullOrEmpty(product.PageType) ? pageType : product.PageType,
+            },
+        };
+        return System.Text.Json.JsonSerializer.Serialize(dict);
     }
 
     private static async Task RebuildTrieAsync(HttpClient client, CallPilotDbContext db)
