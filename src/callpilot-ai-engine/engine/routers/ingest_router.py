@@ -27,14 +27,19 @@ handler interprets as "keep the original Docling chunks for this page".
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any
 
 from fastapi import APIRouter, Body, File, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 
 from engine.knowledge_engine.docling_service import get_docling_service
-from engine.services.enrichment_service import enrich_pages
+from engine.services.enrichment_service import (
+    enrich_pages,
+    enrich_pages_streaming,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +70,7 @@ async def ingest_structured(file: UploadFile = File(...)) -> dict[str, Any]:
     logger.info("ingest-structured: %s (%d bytes, read in %.0fms)", file.filename, len(pdf_bytes), read_ms)
 
     try:
-        chunks = await get_docling_service().ingest_pdf(pdf_bytes, filename=file.filename or "upload.pdf")
+        result = await get_docling_service().ingest_pdf(pdf_bytes, filename=file.filename or "upload.pdf")
     except Exception as exc:
         logger.exception("Docling ingest failed for %s", file.filename)
         raise HTTPException(status_code=500, detail=f"Ingest failed: {exc}") from exc
@@ -73,8 +78,9 @@ async def ingest_structured(file: UploadFile = File(...)) -> dict[str, Any]:
     return {
         "filename": file.filename,
         "size_bytes": len(pdf_bytes),
-        "chunk_count": len(chunks),
+        "chunk_count": len(result.chunks),
         "extraction_ms": int((time.time() - t0) * 1000),
+        "docling": result.to_meta_dict(),
         "chunks": [
             {
                 "text": c.text,
@@ -84,14 +90,15 @@ async def ingest_structured(file: UploadFile = File(...)) -> dict[str, Any]:
                 "pages": c.pages,
                 "metadata": c.metadata,
             }
-            for c in chunks
+            for c in result.chunks
         ],
     }
 
 
 @router.post("/enrich")
-async def enrich_document(payload: dict = Body(...)) -> dict[str, Any]:
-    """Run the LLM enrichment pass over a list of brochure pages.
+async def enrich_document(payload: dict = Body(...)) -> StreamingResponse:
+    """Run the LLM enrichment pass over a list of brochure pages, streaming
+    per-page results as they complete (NDJSON over HTTP).
 
     Body::
 
@@ -103,19 +110,21 @@ async def enrich_document(payload: dict = Body(...)) -> dict[str, Any]:
           ]
         }
 
-    Returns::
+    Response (newline-delimited JSON, one object per line)::
 
-        {
-          "document_id": "...",
-          "page_count": N,
-          "pages": [
-            {"page": 1, "products": [...], "page_type": "..."},
-            ...
-          ]
-        }
+        {"kind": "page", "page": 1, "products": [...], "page_type": "...",
+         "outcome": {"status": "ok", "model": "...", "duration_ms": 1234}}
+        {"kind": "page", "page": 2, "products": [], "page_type": "other",
+         "outcome": {"status": "no_products", ...}}
+        ...
+        {"kind": "summary", "page_count": N, "products_total": M,
+         "failure_count": K, "enrichment_ms": 12345}
 
-    Never raises on per-page failure: the enrichment service is fail-open
-    and a broken Ollama / bad JSON simply yields ``products: []``.
+    Per-page failures (Groq auth, rate limit, timeout, parse error) are
+    surfaced in the per-page ``outcome.status`` field; the response
+    stream never breaks.  The .NET handler consumes one line at a time
+    and writes each page's result to the DB so the dashboard polls
+    reflect progress as pages complete.
     """
     pages = payload.get("pages") or []
     if not isinstance(pages, list):
@@ -123,19 +132,41 @@ async def enrich_document(payload: dict = Body(...)) -> dict[str, Any]:
     document_id = payload.get("document_id", "unknown")
     t0 = time.time()
     logger.info(
-        "enrich: document_id=%s, %d page(s)", document_id, len(pages),
+        "enrich: document_id=%s, %d page(s) [streaming]", document_id, len(pages),
     )
-    results = await enrich_pages(pages)
-    elapsed_ms = int((time.time() - t0) * 1000)
-    products_total = sum(len(p.get("products", [])) for p in results)
-    logger.info(
-        "enrich: document_id=%s done in %dms, %d product(s) across %d page(s)",
-        document_id, elapsed_ms, products_total, len(results),
-    )
-    return {
-        "document_id": document_id,
-        "page_count": len(results),
-        "enrichment_ms": elapsed_ms,
-        "pages": results,
-    }
+
+    async def generate():
+        products_total = 0
+        failure_count = 0
+        emitted = 0
+        try:
+            async for result in enrich_pages_streaming(pages):
+                page_products = len(result.get("products", []))
+                outcome = result.get("outcome") or {}
+                status = outcome.get("status", "unknown")
+                if status in ("ok", "no_products"):
+                    pass
+                else:
+                    failure_count += 1
+                products_total += page_products
+                emitted += 1
+                yield (json.dumps({"kind": "page", **result}) + "\n").encode("utf-8")
+        except Exception as exc:  # noqa: BLE001 — last-line-of-defence
+            logger.exception("enrich stream generator crashed: %s", exc)
+            yield (json.dumps({"kind": "error", "error": str(exc)}) + "\n").encode("utf-8")
+
+        elapsed_ms = int((time.time() - t0) * 1000)
+        logger.info(
+            "enrich: document_id=%s done in %dms, %d product(s) across %d page(s), %d failure(s) [streaming]",
+            document_id, elapsed_ms, products_total, emitted, failure_count,
+        )
+        yield (json.dumps({
+            "kind": "summary",
+            "page_count": emitted,
+            "products_total": products_total,
+            "failure_count": failure_count,
+            "enrichment_ms": elapsed_ms,
+        }) + "\n").encode("utf-8")
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
 

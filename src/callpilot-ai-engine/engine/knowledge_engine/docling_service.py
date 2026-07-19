@@ -36,6 +36,32 @@ class StructuredChunk:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class DoclingResult:
+    """Output of :meth:`DoclingIngestService.ingest_pdf`.
+
+    Carries the structured chunks plus a small metadata block the
+    dashboard uses to show "Docling: 12 pages, 42310ms model load,
+    1230ms convert" instead of a frozen stepper during the first
+    request after a fresh container start.
+    """
+    chunks: list[StructuredChunk]
+    page_count: int
+    convert_ms: int
+    chunk_ms: int
+    model_load_ms: int | None     # None after the first call has been made
+    warnings: list[str] = field(default_factory=list)
+
+    def to_meta_dict(self) -> dict[str, Any]:
+        return {
+            "page_count": self.page_count,
+            "convert_ms": self.convert_ms,
+            "chunk_ms": self.chunk_ms,
+            "model_load_ms": self.model_load_ms,
+            "warnings": list(self.warnings),
+        }
+
+
 class DoclingIngestService:
     """Wraps a Docling DocumentConverter + HybridChunker behind a small, stable API."""
 
@@ -43,6 +69,10 @@ class DoclingIngestService:
         self._lock = threading.Lock()
         self._converter = None
         self._chunker = None
+        # One-time model load time (None until first call). Surfaced in
+        # the /ingest-structured response so the dashboard can show
+        # "Docling model load: 42s" instead of a frozen stepper.
+        self._model_load_ms: int | None = None
 
     def _ensure_loaded(self) -> None:
         # Imported lazily so a deployment that never calls /ingest-structured
@@ -58,13 +88,13 @@ class DoclingIngestService:
             t0 = time.time()
             self._converter = DocumentConverter()
             self._chunker = HybridChunker()
+            self._model_load_ms = int((time.time() - t0) * 1000)
             logger.info("Docling loaded in %.1fs", time.time() - t0)
 
-    async def ingest_pdf(self, pdf_bytes: bytes, filename: str = "upload.pdf") -> list[StructuredChunk]:
-        """Convert a PDF byte stream into structure-aware chunks.
-
-        `filename` is used by Docling only for logging; the actual parsing
-        happens from the in-memory bytes.
+    async def ingest_pdf(self, pdf_bytes: bytes, filename: str = "upload.pdf") -> "DoclingResult":
+        """Convert a PDF byte stream into structure-aware chunks + a
+        metadata block (page count, convert/chunk/model-load timings,
+        warnings) the .NET handler can persist for the dashboard.
         """
         # Docling is CPU-bound and synchronous. Run it in a thread so the
         # FastAPI event loop stays responsive (the endpoint can take 30-90s
@@ -74,7 +104,7 @@ class DoclingIngestService:
 
     # ── internals ──────────────────────────────────────────────────────────
 
-    def _ingest_sync(self, pdf_bytes: bytes, filename: str) -> list[StructuredChunk]:
+    def _ingest_sync(self, pdf_bytes: bytes, filename: str) -> "DoclingResult":
         self._ensure_loaded()
 
         from docling.datamodel.base_models import InputFormat
@@ -98,15 +128,38 @@ class DoclingIngestService:
         from io import BytesIO
         doc_stream = DocumentStream(name=filename, stream=BytesIO(pdf_bytes))
         result = converter.convert(doc_stream)
-        convert_ms = (time.time() - t0) * 1000
+        convert_ms = int((time.time() - t0) * 1000)
         logger.info("Docling converted %s (%d bytes) in %.0fms", filename, len(pdf_bytes), convert_ms)
 
         t0 = time.time()
         chunks_raw = list(self._chunker.chunk(result.document))
-        chunk_ms = (time.time() - t0) * 1000
+        chunk_ms = int((time.time() - t0) * 1000)
         logger.info("Docling chunker produced %d chunks in %.0fms", len(chunks_raw), chunk_ms)
 
-        return [self._to_structured(c) for c in chunks_raw]
+        # Page count: best-effort from the first page that surfaced. If the
+        # PDF has no extractable pages Docling returns a doc with no
+        # `pages`, so we fall back to 0 rather than crashing.
+        page_count = 0
+        try:
+            page_count = len(getattr(result.document, "pages", []) or [])
+        except Exception:  # noqa: BLE001
+            page_count = 0
+
+        warnings: list[str] = []
+        # Docling raises on per-page failures but produces output; surface
+        # anything that came out as a non-empty page that nonetheless
+        # yielded zero chunks.
+        if page_count > 0 and len(chunks_raw) == 0:
+            warnings.append("PDF had pages but no chunks were produced")
+
+        return DoclingResult(
+            chunks=[self._to_structured(c) for c in chunks_raw],
+            page_count=page_count,
+            convert_ms=convert_ms,
+            chunk_ms=chunk_ms,
+            model_load_ms=self._model_load_ms,
+            warnings=warnings,
+        )
 
     def _to_structured(self, c) -> StructuredChunk:
         # Headings (most recent first) — the last one in the list is the

@@ -42,10 +42,13 @@ services:
       REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
       TAVILY_API_KEY: "${TAVILY_API_KEY:-}"
       CALLPILOT_SERVER_URL: "http://server:5001"
-      # Inside the docker network the host is the service name, not
-      # localhost.  The Python enrichment service reads this env var.
-      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://ollama:11434}"
-      ENRICHMENT_MODEL: "${ENRICHMENT_MODEL:-qwen2.5:3b}"
+      # ── LLM enrichment (Groq) ──────────────────────────────────────────
+      # These MUST be passed in or the AI engine raises _MissingGroqKey and
+      # the page-level fail-open wrapper returns products=[] for every page
+      # (no entities, no LLM output).  Interpolated from .env on the host
+      # so a fresh `docker compose up` Just Works.
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      ENRICHMENT_MODEL: "${ENRICHMENT_MODEL:-llama-3.1-8b-instant}"
     depends_on:
       postgres:
         condition: service_healthy

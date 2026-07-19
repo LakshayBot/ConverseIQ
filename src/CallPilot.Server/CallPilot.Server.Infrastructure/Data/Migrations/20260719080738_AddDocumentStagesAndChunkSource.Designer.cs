@@ -3,6 +3,7 @@ using System;
 using CallPilot.Server.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CallPilot.Server.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(CallPilotDbContext))]
-    partial class CallPilotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260719080738_AddDocumentStagesAndChunkSource")]
+    partial class AddDocumentStagesAndChunkSource
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -114,7 +117,8 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
 
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("MetadataJson"), "gin");
 
-                    b.HasIndex("DocumentId", "ChunkIndex");
+                    b.HasIndex("DocumentId", "ChunkIndex")
+                        .IsUnique();
 
                     b.ToTable("KnowledgeChunks");
                 });
@@ -135,9 +139,6 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
 
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("EnrichmentProgressJson")
-                        .HasColumnType("jsonb");
 
                     b.Property<string>("EnrichmentStatus")
                         .HasMaxLength(50)

@@ -237,10 +237,12 @@ public static class KnowledgeEndpoints
             });
         });
 
-        // Lightweight status poll endpoint.  Returns only the two status
-        // fields plus cheap counts so the dashboard can poll every ~1.5s
-        // during processing without pulling chunks/entities each time.
-        // Cheap counts only — no joins to KnowledgeChunks or DocumentEntities.
+        // Lightweight status poll endpoint.  Returns the two status
+        // fields, cheap counts, plus the per-stage log + last error +
+        // heartbeat so the dashboard can show a detailed progress bar
+        // without re-pulling the full document.  The stage log is a
+        // jsonb column on the same row, so the SELECT is still one
+        // row and a jsonb read — cheap enough to poll every ~1.5s.
         group.MapGet("/{id:guid}/status", async (
             ClaimsPrincipal user,
             Guid id,
@@ -255,15 +257,115 @@ public static class KnowledgeEndpoints
                 .Select(d => new
                 {
                     d.Id,
+                    d.Mode,
                     d.ProcessingStatus,
                     d.EnrichmentStatus,
+                    d.StagesJson,
+                    d.LastErrorJson,
+                    d.EnrichmentProgressJson,
+                    d.UpdatedAt,
                     ChunkCount = db.KnowledgeChunks.Count(c => c.DocumentId == d.Id),
                     EntityCount = db.DocumentEntities.Count(e => e.DocumentId == d.Id),
                 })
                 .FirstOrDefaultAsync();
 
             if (doc is null) return Results.NotFound();
-            return Results.Ok(doc);
+
+            // Parse the jsonb into typed objects on the server so the
+            // client gets a clean array, not a string field.  Falls
+            // back to empty array / null on legacy rows.
+            IReadOnlyList<CallPilot.Server.Domain.Knowledge.IngestStage> stages =
+                Array.Empty<CallPilot.Server.Domain.Knowledge.IngestStage>();
+            if (!string.IsNullOrEmpty(doc.StagesJson))
+            {
+                try
+                {
+                    stages = System.Text.Json.JsonSerializer
+                        .Deserialize<List<CallPilot.Server.Domain.Knowledge.IngestStage>>(doc.StagesJson)
+                        ?? new List<CallPilot.Server.Domain.Knowledge.IngestStage>();
+                }
+                catch (System.Text.Json.JsonException) { /* leave empty */ }
+            }
+
+            CallPilot.Server.Domain.Knowledge.IngestStageError? lastError = null;
+            if (!string.IsNullOrEmpty(doc.LastErrorJson))
+            {
+                try
+                {
+                    lastError = System.Text.Json.JsonSerializer
+                        .Deserialize<CallPilot.Server.Domain.Knowledge.IngestStageError>(doc.LastErrorJson);
+                }
+                catch (System.Text.Json.JsonException) { /* leave null */ }
+            }
+
+            CallPilot.Server.Domain.Knowledge.EnrichmentProgress? enrichmentProgress = null;
+            if (!string.IsNullOrEmpty(doc.EnrichmentProgressJson))
+            {
+                try
+                {
+                    enrichmentProgress = System.Text.Json.JsonSerializer
+                        .Deserialize<CallPilot.Server.Domain.Knowledge.EnrichmentProgress>(doc.EnrichmentProgressJson);
+                }
+                catch (System.Text.Json.JsonException) { /* leave null */ }
+            }
+
+            return Results.Ok(new
+            {
+                doc.Id,
+                mode = doc.Mode ?? "fast",
+                doc.ProcessingStatus,
+                doc.EnrichmentStatus,
+                doc.ChunkCount,
+                doc.EntityCount,
+                lastUpdatedAt = doc.UpdatedAt,
+                stages,
+                lastError,
+                enrichmentProgress,
+            });
+        });
+
+        // Powers the dashboard's "View raw" tab.  Returns the last
+        // Docling metadata block + last LLM enrichment response so the
+        // user can see exactly what the AI engine produced.
+        // Auth-checked against the document owner.
+        group.MapGet("/{id:guid}/raw-output", async (
+            ClaimsPrincipal user,
+            Guid id,
+            CallPilotDbContext db) =>
+        {
+            var userIdClaim = user.FindFirst("userId")?.Value;
+            if (userIdClaim is null) return Results.Unauthorized();
+
+            var userId = Guid.Parse(userIdClaim);
+            var doc = await db.KnowledgeDocuments
+                .Where(d => d.Id == id && d.UserId == userId)
+                .Select(d => new { d.Id, d.RawOutputJson, d.FileName, d.Mode })
+                .FirstOrDefaultAsync();
+
+            if (doc is null) return Results.NotFound();
+
+            object? rawOutput = null;
+            if (!string.IsNullOrEmpty(doc.RawOutputJson))
+            {
+                try
+                {
+                    // Re-serialize through JsonElement so the client gets
+                    // the nested structure verbatim (jsonb-as-object on
+                    // the wire, not a string).
+                    using var parsed = System.Text.Json.JsonDocument.Parse(doc.RawOutputJson);
+                    rawOutput = System.Text.Json.JsonSerializer
+                        .Deserialize<object>(parsed.RootElement.GetRawText());
+                }
+                catch (System.Text.Json.JsonException) { /* leave null */ }
+            }
+
+            return Results.Ok(new
+            {
+                doc.Id,
+                doc.FileName,
+                mode = doc.Mode ?? "fast",
+                rawOutput,
+            });
         });
 
         // Re-run extraction → chunking → embedding on an already-stored document.

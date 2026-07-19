@@ -129,6 +129,19 @@ export async function apiGetDocumentStatus(id: string): Promise<DocumentStatus |
   }
 }
 
+/**
+ * Fetch the raw AI-engine output (Docling metadata + LLM enrichment
+ * response) for the dashboard's "View raw" tab.  Returned by
+ * GET /api/v1/knowledge/{id}/raw-output.  Null on 404 / auth failure.
+ */
+export async function apiGetDocumentRawOutput(id: string): Promise<DocumentRawOutput | null> {
+  try {
+    return await apiRequest<DocumentRawOutput>(`/api/v1/knowledge/${id}/raw-output`);
+  } catch {
+    return null;
+  }
+}
+
 export interface ProductDetailsDocument {
   id: string;
   fileName: string;
@@ -169,19 +182,168 @@ export interface KnowledgeDocument {
 }
 
 /**
- * Minimal document status snapshot.  Returned by GET /api/v1/knowledge/{id}/status
+ * Per-stage entry in the document ingest log.  The dashboard's
+ * ProcessingStepper renders one row per stage, so the user can see
+ * exactly where the pipeline is (or where it failed) without a
+ * server-log round-trip.
+ */
+export interface IngestStageError {
+  stage: string;
+  source: 'ai-engine' | 'groq' | 'gliner' | 'dotnet' | 'unknown';
+  httpStatus: number | null;
+  message: string;
+  model: string | null;
+  at: string;
+}
+
+export interface IngestStage {
+  key: 'uploaded' | 'extracting' | 'chunking' | 'embedding' | 'indexed' | 'entityextraction' | 'enriching';
+  label: string;
+  status: 'pending' | 'running' | 'done' | 'failed' | 'skipped';
+  startedAt: string | null;
+  finishedAt: string | null;
+  detail: string | null;
+  error: IngestStageError | null;
+}
+
+/**
+ * Live progress of the LLM enrichment pass.  Populated as each page
+ * completes (the .NET handler writes a new row to the
+ * EnrichmentProgressJson jsonb column on every page result), so the
+ * dashboard polls (every ~1.5s) see real-time counts and per-page
+ * status during a long enrichment run.
+ */
+export interface EnrichmentPageStatus {
+  page: number;
+  status:
+    | 'pending'
+    | 'ok'
+    | 'no_products'
+    | 'missing_key'
+    | 'http_4xx'
+    | 'http_5xx'
+    | 'timeout'
+    | 'connection_error'
+    | 'parse_error'
+    | 'unknown';
+  model: string | null;
+  durationMs: number;
+  error: string | null;
+  finishedAt: string | null;
+  /** 0 = clean first-try. 1+ = at least one rate-limit retry was needed. */
+  retryCount: number;
+}
+
+export interface EnrichmentProgress {
+  total: number;
+  completed: number;     // pages with status ok | no_products
+  failed: number;        // pages with any other status
+  inFlight: number;      // pages still being processed by the AI engine
+  pages: EnrichmentPageStatus[];
+}
+
+/**
+ * Document status snapshot.  Returned by GET /api/v1/knowledge/{id}/status
  * for the ProcessingStepper to poll without re-fetching chunks/entities.
+ *
+ * The dashboard polls every 1.5s during processing; the server returns
+ * stages[] + lastError + enrichmentProgress as in-row jsonb on the same
+ * SELECT, so the cost is one row + a jsonb read.
  */
 export interface DocumentStatus {
   id: string;
+  mode: 'fast' | 'structured';
   processingStatus: string;
   enrichmentStatus: string | null;
   chunkCount: number;
   entityCount: number;
+  /** UTC timestamp of the most recent stage transition.  Used by the
+   *  dashboard to distinguish "stuck" (>30s since last update) from
+   *  "still running".  null for legacy rows. */
+  lastUpdatedAt: string | null;
+  stages: IngestStage[];
+  lastError: IngestStageError | null;
+  /** Live LLM enrichment progress.  null until enrichment starts. */
+  enrichmentProgress: EnrichmentProgress | null;
+}
+
+/**
+ * Raw AI-engine output for a document.  Returned by
+ * GET /api/v1/knowledge/{id}/raw-output.  Powers the dashboard's
+ * "View raw" tab so the user can see what Docling produced and what
+ * the LLM generated without re-running anything.
+ */
+export interface DocumentRawOutput {
+  id: string;
+  fileName: string;
+  mode: 'fast' | 'structured';
+  rawOutput: {
+    docling?: {
+      page_count: number;
+      convert_ms: number;
+      chunk_ms: number;
+      model_load_ms: number | null;
+      warnings: string[];
+    };
+    enrichment?: {
+      document_id: string;
+      page_count: number;
+      enrichment_ms: number;
+      products_total: number;
+      failure_count: number;
+      model: string | null;
+      pages: Array<{
+        page: number;
+        page_type: string;
+        products: Array<{
+          name: string;
+          category: string | null;
+          headline: string | null;
+          key_features: string[];
+          pricing: string | null;
+          best_for: string | null;
+          differentiators: string[];
+          raw_claims: string[];
+          chunk_text: string;
+        }>;
+        outcome: {
+          status: 'ok' | 'no_products' | 'missing_key' | 'http_4xx' | 'http_5xx' | 'timeout' | 'connection_error' | 'parse_error' | 'unknown';
+          model: string | null;
+          duration_ms: number;
+          error: string | null;
+        } | null;
+      }>;
+      stage_outcomes: Array<{
+        page: number;
+        outcome: {
+          status: string;
+          model: string | null;
+          duration_ms: number;
+          error: string | null;
+        } | null;
+      }>;
+    };
+  } | null;
+}
+
+export interface KnowledgeChunkDetail {
+  id: string;
+  chunkIndex: number;
+  text: string;
+  tokenCount: number;
+  /** "fast" | "structured" | "enriched".  Used by the chunks tab to
+   *  group rows by source. */
+  source?: 'fast' | 'structured' | 'enriched';
+  sectionHeading: string | null;
+  chunkType: string;
+  pageHint: number;
+  /** Raw MetadataJson from the server (string-encoded jsonb).  Null
+   *  for fast-mode chunks. */
+  metadata: string | null;
 }
 
 export interface KnowledgeDocumentDetail extends KnowledgeDocument {
-  chunks: { id: string; chunkIndex: number; text: string; tokenCount: number }[];
+  chunks: KnowledgeChunkDetail[];
   entities: { id: string; entityText: string; entityType: string; confidence: number }[];
 }
 

@@ -91,6 +91,20 @@ public class CallPilotDbContext : DbContext
             entity.Property(d => d.ProcessingStatus).HasMaxLength(200).IsRequired();
             entity.Property(d => d.EnrichmentStatus).HasMaxLength(50);
             entity.Property(d => d.StoragePath).HasMaxLength(1000);
+            // Per-stage ingest log (jsonb) — see KnowledgeDocument.RecordStage* methods.
+            entity.Property(d => d.StagesJson).HasColumnType("jsonb");
+            // Most recent failure across all stages (jsonb).  Cheap read for
+            // the dashboard "Errors" tab so it doesn't have to traverse
+            // StagesJson for every poll.
+            entity.Property(d => d.LastErrorJson).HasColumnType("jsonb");
+            // Last response from the AI engine (jsonb) — Docling metadata +
+            // LLM enrichment response.  Powers the dashboard "View raw" tab.
+            entity.Property(d => d.RawOutputJson).HasColumnType("jsonb");
+            // Live enrichment progress (jsonb) — updated by the background
+            // enrichment task after each page completes.  Powers the
+            // "X/Y pages, Z failed" count on the stepper and the
+            // per-page breakdown on the Enrichment pages tab.
+            entity.Property(d => d.EnrichmentProgressJson).HasColumnType("jsonb");
             entity.HasQueryFilter(d => d.DeletedAt == null);
         });
 
@@ -98,11 +112,22 @@ public class CallPilotDbContext : DbContext
         {
             entity.HasKey(c => c.Id);
             entity.HasIndex(c => c.DocumentId);
-            entity.HasIndex(c => new { c.DocumentId, c.ChunkIndex }).IsUnique();
+            // Non-unique (DocumentId, ChunkIndex) so the enrichment
+            // pass can use a generous baseIndex offset to avoid racing
+            // with still-pending deletes on the same row.  The unique
+            // constraint here was originally added for fast-mode
+            // (Docnet) chunks which always arrive in order; structured
+            // mode now does a 2-phase replace (delete Docling chunks,
+            // insert product cards) and PostgreSQL's per-row unique
+            // check can collide with still-queued deletes.
+            entity.HasIndex(c => new { c.DocumentId, c.ChunkIndex });
             entity.Property(c => c.Text).HasColumnType("text").IsRequired();
             entity.Property(c => c.SectionHeading).HasMaxLength(500);
             entity.Property(c => c.ChunkType).HasMaxLength(50).IsRequired().HasDefaultValue("paragraph");
             entity.Property(c => c.MetadataJson).HasColumnType("jsonb");
+            // Where the chunk came from: "fast" | "structured" | "enriched".
+            // Used by the dashboard Chunks tab to split the list.
+            entity.Property(c => c.Source).HasMaxLength(16).IsRequired().HasDefaultValue("fast");
             // GIN index on the JSONB metadata so structured filters (e.g.
             // metadata->>'section_heading') stay fast as the table grows.
             entity.HasIndex(c => c.MetadataJson).HasMethod("gin");

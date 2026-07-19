@@ -26,7 +26,7 @@ public class StructuredIngestClient
         _logger = logger;
     }
 
-    public async Task<List<TextChunk>?> IngestAsync(Guid documentId, string fileName, byte[] pdfBytes, CancellationToken ct = default)
+    public async Task<StructuredIngestResult?> IngestAsync(Guid documentId, string fileName, byte[] pdfBytes, CancellationToken ct = default)
     {
         var client = _httpClientFactory.CreateClient("AiEngine");
         client.Timeout = TimeSpan.FromMinutes(5); // Docling can take 1-3 min on a 20-page PDF
@@ -88,7 +88,37 @@ public class StructuredIngestClient
                 BuildMetadataJson(c)));
             runningOffset += c.Text.Length + 1;
         }
-        return chunks;
+
+        // Surface the AI engine's "docling" block (page count, convert
+        // timings, model-load time) so the upload handler can stash it
+        // for the dashboard's "View raw" tab.
+        var doclingMeta = payload.Docling is { } d
+            ? new DoclingMetadata
+            {
+                PageCount = d.GetValueOrDefault("page_count") is System.Text.Json.JsonElement pcEl
+                            && pcEl.ValueKind == System.Text.Json.JsonValueKind.Number
+                            && pcEl.TryGetInt32(out var pc) ? pc : 0,
+                ConvertMs = d.GetValueOrDefault("convert_ms") is System.Text.Json.JsonElement cvEl
+                            && cvEl.ValueKind == System.Text.Json.JsonValueKind.Number
+                            && cvEl.TryGetInt32(out var cv) ? cv : 0,
+                ChunkMs = d.GetValueOrDefault("chunk_ms") is System.Text.Json.JsonElement ckEl
+                          && ckEl.ValueKind == System.Text.Json.JsonValueKind.Number
+                          && ckEl.TryGetInt32(out var ck) ? ck : 0,
+                ModelLoadMs = d.GetValueOrDefault("model_load_ms") is System.Text.Json.JsonElement mlEl
+                              && mlEl.ValueKind == System.Text.Json.JsonValueKind.Number
+                              && mlEl.TryGetInt32(out var ml) ? ml : null,
+                Warnings = d.GetValueOrDefault("warnings") is System.Text.Json.JsonElement wEl
+                           && wEl.ValueKind == System.Text.Json.JsonValueKind.Array
+                    ? wEl.EnumerateArray().Select(x => x.GetString() ?? "").Where(s => s.Length > 0).ToList()
+                    : new List<string>(),
+            }
+            : null;
+
+        return new StructuredIngestResult
+        {
+            Chunks = chunks,
+            Docling = doclingMeta,
+        };
     }
 
     private static int EstimateTokenCount(string text) =>
@@ -120,6 +150,30 @@ public class StructuredIngestClient
         });
     }
 
+    // ── Public result type ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Output of <see cref="IngestAsync"/>.  Carries the chunks the
+    /// upload handler persists plus a small metadata block the
+    /// dashboard uses to show "Docling: N pages, Mms model load,
+    /// Kms convert" — surfaced via the
+    /// <c>KnowledgeDocument.RawOutputJson</c> jsonb column.
+    /// </summary>
+    public class StructuredIngestResult
+    {
+        public List<TextChunk> Chunks { get; set; } = new();
+        public DoclingMetadata? Docling { get; set; }
+    }
+
+    public class DoclingMetadata
+    {
+        public int PageCount { get; set; }
+        public int ConvertMs { get; set; }
+        public int ChunkMs { get; set; }
+        public int? ModelLoadMs { get; set; }   // null on warm calls
+        public List<string> Warnings { get; set; } = new();
+    }
+
     // ── Response DTOs (mirror engine/routers/ingest_router.py) ─────────────
 
     private sealed class IngestResponse
@@ -128,6 +182,7 @@ public class StructuredIngestClient
         [JsonPropertyName("size_bytes")] public long SizeBytes { get; set; }
         [JsonPropertyName("chunk_count")] public int ChunkCount { get; set; }
         [JsonPropertyName("extraction_ms")] public int ExtractionMs { get; set; }
+        [JsonPropertyName("docling")] public Dictionary<string, object>? Docling { get; set; }
         [JsonPropertyName("chunks")] public List<IngestChunk> Chunks { get; set; } = new();
     }
 
