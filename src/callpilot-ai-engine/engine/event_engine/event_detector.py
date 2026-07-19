@@ -10,17 +10,6 @@ PRICING_PATTERNS = [
     r"\b(annual|monthly|per\s+seat|per\s+user|license\s+(fee|cost))\b",
 ]
 
-BUYING_SIGNAL_PATTERNS = [
-    r"\b(need\s+this|want\s+this|interested|let.s\s+move\s+forward)\b",
-    r"\b(need\s+a\s+better|looking\s+for\s+(a\s+)?(better|new)|evaluating)\b",
-    r"\b(send\s+(me|us)\s+(pricing|a\s+proposal|a\s+quote))\b",
-    r"\b(when\s+can\s+we\s+start|how\s+soon|timeline|next\s+steps)\b",
-    r"\b(would\s+like\s+a\s+demo|schedule\s+a\s+(demo|call))\b",
-    r"\b(what\s+would\s+migration\s+look\s+like|how\s+does\s+onboarding\s+work)\b",
-    r"\b(sounds?\s+(good|great|interesting|promising|exactly\s+what))\b",
-    r"\b(this\s+is\s+(exactly|just)\s+what\s+we)\b",
-]
-
 OBJECTION_PATTERNS = {
     "Price": [r"\b(too\s+expensive|over\s+budget|can'?t\s+afford|costs?\s+too\s+much)\b"],
     "Security": [r"\b(security\s+concern|data\s+privacy|compliance|SOC2|GDPR|HIPAA)\b"],
@@ -83,18 +72,6 @@ class EventDetector:
                 }
         return None
 
-    def detect_buying_signals(self, text: str) -> list[dict]:
-        results = []
-        for pattern in BUYING_SIGNAL_PATTERNS:
-            if re.search(pattern, text, re.IGNORECASE):
-                results.append({
-                    "eventType": "PositiveBuyingSignal",
-                    "entityName": None,
-                    "confidence": 0.82,
-                })
-                break
-        return results
-
     def detect_objections(self, text: str) -> list[dict]:
         results = []
         for objection_type, patterns in OBJECTION_PATTERNS.items():
@@ -118,20 +95,6 @@ class EventDetector:
                 }
         return None
 
-    def detect_negative_signals(self, text: str) -> Optional[dict]:
-        negative_patterns = [
-            r"\b(not\s+interested|don'?t\s+need|not\s+for\s+us|not\s+a\s+fit)\b",
-            r"\b(happy\s+with\s+current|sticking\s+with|no\s+plans\s+to\s+switch)\b",
-        ]
-        for pattern in negative_patterns:
-            if re.search(pattern, text, re.IGNORECASE):
-                return {
-                    "eventType": "NegativeBuyingSignal",
-                    "entityName": None,
-                    "confidence": 0.80,
-                }
-        return None
-
     def detect_all(self, text: str) -> list[dict]:
         events: list[dict] = []
 
@@ -142,16 +105,11 @@ class EventDetector:
         if pricing:
             events.append(pricing)
 
-        events.extend(self.detect_buying_signals(text))
         events.extend(self.detect_objections(text))
 
         tech = self.detect_technical_questions(text)
         if tech:
             events.append(tech)
-
-        neg = self.detect_negative_signals(text)
-        if neg:
-            events.append(neg)
 
         for event in events:
             event["supportingTranscript"] = text

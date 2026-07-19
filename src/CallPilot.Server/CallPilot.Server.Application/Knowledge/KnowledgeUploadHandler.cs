@@ -86,6 +86,12 @@ public class KnowledgeUploadHandler
         }
         document.SetStoragePath(storagePath);
 
+        // Seed the full stage skeleton so the first /status poll already
+        // shows every row (rather than growing them as we go).  Each
+        // row starts as "pending" and is flipped to "running" / "done"
+        // / "failed" / "skipped" by the recorder as the pipeline moves.
+        SeedStageSkeleton(document, mode);
+
         _dbContext.KnowledgeDocuments.Add(document);
         await _dbContext.SaveChangesAsync();
 
@@ -132,6 +138,8 @@ public class KnowledgeUploadHandler
         // a reindex.  Write it before ProcessAsync so /status reflects the
         // new mode immediately.
         document.SetMode(mode.ToString().ToLowerInvariant());
+        // Wipe any prior stage log so the new run starts clean.
+        SeedStageSkeleton(document, mode);
         await _dbContext.SaveChangesAsync();
 
         using var fs = File.OpenRead(document.StoragePath);
@@ -141,10 +149,35 @@ public class KnowledgeUploadHandler
     }
 
     /// <summary>
+    /// Reset the per-stage log on <paramref name="document"/> to a
+    /// known-good skeleton.  Called from <see cref="UploadAsync"/> and
+    /// <see cref="ReindexAsync"/> so the dashboard's first poll already
+    /// has the full pipeline shape, with each stage marked
+    /// <c>pending</c>.
+    /// </summary>
+    private void SeedStageSkeleton(KnowledgeDocument document, IngestMode mode)
+    {
+        // Stages are appended by RecordStagePending which is a no-op if
+        // the key is already present, so this is idempotent for callers
+        // that re-enter (e.g. on reindex after a partial crash).
+        document.RecordStagePending("uploaded", "Uploaded");
+        document.RecordStagePending("extracting", mode == IngestMode.Structured ? "Extracting (Docling)" : "Extracting");
+        document.RecordStagePending("chunking", "Chunking");
+        document.RecordStagePending("embedding", "Embedding");
+        document.RecordStagePending("indexed", "Indexed");
+        document.RecordStagePending("entityextraction", "Entity extraction");
+        document.RecordStagePending("enriching", "LLM enrichment");
+    }
+
+    /// <summary>
     /// Shared extraction → chunking → embedding pipeline used by both upload and reindex.
     /// </summary>
     private async Task ProcessAsync(KnowledgeDocument document, Stream fileStream, IngestMode mode)
     {
+        var rec = new IngestStageRecorder(document, _dbContext, _logger);
+        rec.MarkRunning("uploaded", "Uploaded");
+        rec.MarkDone("uploaded");
+
         try
         {
             // Fast mode: keep the current path so existing PDF behavior doesn't
@@ -153,54 +186,53 @@ public class KnowledgeUploadHandler
             List<TextChunk> chunks;
             string? rawTextForEntityExtraction;
 
-            if (mode == IngestMode.Structured)
+            rec.MarkRunning("extracting",
+                mode == IngestMode.Structured ? "Extracting (Docling)" : "Extracting");
+            try
             {
-                (chunks, rawTextForEntityExtraction) = await ExtractStructuredAsync(document, fileStream);
+                if (mode == IngestMode.Structured)
+                {
+                    var structured = await ExtractStructuredAsync(document, fileStream, rec);
+                    chunks = structured.Chunks;
+                    rawTextForEntityExtraction = structured.RawText;
+                }
+                else
+                {
+                    var fast = await ExtractFastAsync(document, fileStream);
+                    chunks = fast.Chunks;
+                    rawTextForEntityExtraction = fast.RawText;
+                }
             }
-            else
+            catch (Exception)
             {
-                (chunks, rawTextForEntityExtraction) = await ExtractFastAsync(document, fileStream);
+                // Re-throw to the outer catch which marks the current
+                // stage failed with the full message.
+                throw;
             }
 
             if (chunks.Count == 0)
             {
+                rec.MarkDone("extracting", detail: "0 chunks produced");
+                rec.MarkSkipped("chunking", "No extractable text");
+                rec.MarkSkipped("embedding", "No extractable text");
+                rec.MarkSkipped("indexed", "No extractable text");
+                rec.MarkSkipped("entityextraction", "No extractable text");
+                rec.MarkSkipped("enriching", "No extractable text");
                 document.SetProcessingStatus("No extractable text found");
                 await _dbContext.SaveChangesAsync();
                 return;
             }
 
-            document.SetProcessingStatus("Embedding");
-            await _dbContext.SaveChangesAsync();
+            rec.MarkDone("extracting");
+            rec.MarkRunning("chunking");
+            rec.MarkDone("chunking", detail: $"{chunks.Count} chunks");
 
-            foreach (var chunk in chunks)
-            {
-                var knowledgeChunk = new KnowledgeChunk(
-                    chunk.DocumentId,
-                    chunk.ChunkIndex,
-                    chunk.Text,
-                    chunk.TokenCount,
-                    chunk.CharOffset,
-                    chunk.CharLength,
-                    sectionHeading: chunk.SectionHeading,
-                    chunkType: chunk.ChunkType,
-                    pageHint: chunk.PageHint,
-                    metadataJson: chunk.MetadataJson);
+            rec.MarkRunning("embedding", $"Embedding {chunks.Count} chunks");
+            await EmbedChunksAsync(document, chunks);
+            rec.MarkDone("embedding", detail: $"{chunks.Count} chunks embedded");
 
-                _dbContext.KnowledgeChunks.Add(knowledgeChunk);
-                await _dbContext.SaveChangesAsync();
-
-                var embedding = await _embeddingService.GenerateEmbeddingAsync(chunk.Text)
-                    ?? _embeddingService.GenerateLocalEmbedding(chunk.Text);
-
-                var embeddingEntity = new Embedding(
-                    knowledgeChunk.Id,
-                    embedding,
-                    "all-MiniLM-L6-v2");
-
-                _dbContext.Embeddings.Add(embeddingEntity);
-            }
-
-            await _dbContext.SaveChangesAsync();
+            rec.MarkRunning("indexed");
+            rec.MarkDone("indexed");
             document.SetProcessingStatus("Indexed");
             await _dbContext.SaveChangesAsync();
 
@@ -211,16 +243,17 @@ public class KnowledgeUploadHandler
             // ── Dynamic Entity Extraction (GLiNER, runs async — does not block) ──
             if (rawTextForEntityExtraction is not null)
             {
+                var docId = document.Id;
                 var textForEntities = rawTextForEntityExtraction;
                 _ = Task.Run(async () =>
                 {
                     try
                     {
-                        await ExtractAndStoreEntitiesAsync(document.Id, textForEntities);
+                        await ExtractAndStoreEntitiesAsync(docId, textForEntities);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Entity extraction skipped for {FileName}: {Message}", document.FileName, ex.Message);
+                        _logger.LogWarning(ex, "Entity extraction skipped for {DocId}: {Message}", docId, ex.Message);
                     }
                 });
             }
@@ -250,15 +283,85 @@ public class KnowledgeUploadHandler
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to process document {FileName}", document.FileName);
-            document.SetProcessingStatus($"Error: {ex.Message}");
-            await _dbContext.SaveChangesAsync();
+            // The detailed error is in the Stages log (jsonb) — the
+            // top-line pill is short and red so the document list
+            // doesn't overflow.
+            var src = "dotnet";
+            int? status = null;
+            var msg = ex.Message ?? "unknown failure";
+            // Trim a bit so a 500-char exception doesn't bloat the
+            // varchar(200) ProcessingStatus.  The full message is
+            // already in the stages log.
+            const int maxLen = 180;
+            if (msg.Length > maxLen) msg = msg[..maxLen] + "…";
+            document.SetProcessingStatus($"Failed: {msg}");
+            // Mark whichever stage we were on as failed.
+            var currentStage = rec.CurrentStageKey ?? "extracting";
+            rec.MarkFailed(currentStage, new IngestStageError(
+                Stage: currentStage, Source: src, HttpStatus: status,
+                Message: (ex.Message ?? ""), Model: null, At: DateTime.UtcNow));
+            try
+            {
+                await _dbContext.SaveChangesAsync();
+            }
+            catch (Exception saveEx)
+            {
+                _logger.LogWarning(saveEx, "Failed to persist error status for {FileName}", document.FileName);
+            }
         }
+    }
+
+    /// <summary>
+    /// Persist the <see cref="TextChunk"/> rows + their embeddings.
+    /// Touches the document's <c>UpdatedAt</c> every <c>HEARTBEAT_EVERY</c>
+    /// chunks so the dashboard can tell "stuck" from "still running".
+    /// </summary>
+    private async Task EmbedChunksAsync(KnowledgeDocument document, List<TextChunk> chunks)
+    {
+        const int HEARTBEAT_EVERY = 10;
+        for (int i = 0; i < chunks.Count; i++)
+        {
+            var chunk = chunks[i];
+            var knowledgeChunk = new KnowledgeChunk(
+                chunk.DocumentId,
+                chunk.ChunkIndex,
+                chunk.Text,
+                chunk.TokenCount,
+                chunk.CharOffset,
+                chunk.CharLength,
+                sectionHeading: chunk.SectionHeading,
+                chunkType: chunk.ChunkType,
+                pageHint: chunk.PageHint,
+                metadataJson: chunk.MetadataJson);
+
+            _dbContext.KnowledgeChunks.Add(knowledgeChunk);
+            await _dbContext.SaveChangesAsync();
+
+            var embedding = await _embeddingService.GenerateEmbeddingAsync(chunk.Text)
+                ?? _embeddingService.GenerateLocalEmbedding(chunk.Text);
+
+            var embeddingEntity = new Embedding(
+                knowledgeChunk.Id,
+                embedding,
+                "all-MiniLM-L6-v2");
+
+            _dbContext.Embeddings.Add(embeddingEntity);
+
+            if (i % HEARTBEAT_EVERY == 0)
+            {
+                // Heartbeat so a long embedding loop doesn't read as
+                // "stuck" in the dashboard.
+                document.Touch();
+                await _dbContext.SaveChangesAsync();
+            }
+        }
+        await _dbContext.SaveChangesAsync();
     }
 
     /// <summary>
     /// Fast extraction: Docnet.Core + paragraph-aware chunker, both in-process.
     /// </summary>
-    private async Task<(List<TextChunk> chunks, string? rawText)> ExtractFastAsync(
+    private async Task<(List<TextChunk> Chunks, string? RawText)> ExtractFastAsync(
         KnowledgeDocument document, Stream fileStream)
     {
         document.SetProcessingStatus("Extracting");
@@ -293,8 +396,8 @@ public class KnowledgeUploadHandler
     /// structured context ([chunk_type] section_heading) to each chunk so entity
     /// extraction can run with higher confidence than flat fast-mode text.
     /// </summary>
-    private async Task<(List<TextChunk> chunks, string? rawText)> ExtractStructuredAsync(
-        KnowledgeDocument document, Stream fileStream)
+    private async Task<(List<TextChunk> Chunks, string? RawText)> ExtractStructuredAsync(
+        KnowledgeDocument document, Stream fileStream, IngestStageRecorder rec)
     {
         document.SetProcessingStatus("Extracting (structured)");
         await _dbContext.SaveChangesAsync();
@@ -304,12 +407,30 @@ public class KnowledgeUploadHandler
         await fileStream.CopyToAsync(ms);
         var bytes = ms.ToArray();
 
-        var chunks = await _structuredIngest.IngestAsync(document.Id, document.FileName, bytes);
-        if (chunks is null || chunks.Count == 0)
+        var result = await _structuredIngest.IngestAsync(document.Id, document.FileName, bytes);
+        if (result is null || result.Chunks is null || result.Chunks.Count == 0)
             return ([], null);
 
+        // Stash the Docling metadata block for the dashboard's "View raw" tab.
+        if (result.Docling is not null)
+        {
+            document.SetRawOutput("docling", new
+            {
+                page_count = result.Docling.PageCount,
+                convert_ms = result.Docling.ConvertMs,
+                chunk_ms = result.Docling.ChunkMs,
+                model_load_ms = result.Docling.ModelLoadMs,
+                warnings = result.Docling.Warnings,
+            });
+            await _dbContext.SaveChangesAsync();
+            if (result.Docling.ModelLoadMs is int loadMs)
+            {
+                rec.UpdateDetail("extracting", $"Docling model load: {loadMs / 1000}s, {result.Docling.PageCount} pages");
+            }
+        }
+
         var sb = new System.Text.StringBuilder();
-        foreach (var chunk in chunks)
+        foreach (var chunk in result.Chunks)
         {
             sb.Append('[').Append(chunk.ChunkType).Append("] ");
             if (!string.IsNullOrWhiteSpace(chunk.SectionHeading))
@@ -317,7 +438,7 @@ public class KnowledgeUploadHandler
             sb.Append(chunk.Text).Append("\n\n");
         }
 
-        return (chunks, sb.ToString().Trim());
+        return (result.Chunks, sb.ToString().Trim());
     }
 
     public async Task<IReadOnlyList<KnowledgeDocument>> ListDocumentsAsync(Guid userId)
@@ -351,6 +472,9 @@ public class KnowledgeUploadHandler
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CallPilotDbContext>();
         var factory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
+        var rec = new IngestStageRecorder(await db.KnowledgeDocuments.FirstAsync(d => d.Id == documentId), db, _logger);
+
+        rec.MarkRunning("entityextraction");
 
         var client = factory.CreateClient("AiEngine");
         // 0.3 captures brand product names ("Apex 100", "Prodigy", "Liberty 500"…)
@@ -363,13 +487,23 @@ public class KnowledgeUploadHandler
 
         if (!response.IsSuccessStatusCode)
         {
+            var body = await response.Content.ReadAsStringAsync();
             _logger.LogWarning("GLiNER extraction returned {StatusCode}", response.StatusCode);
+            rec.MarkFailed("entityextraction", new IngestStageError(
+                Stage: "entityextraction", Source: "gliner",
+                HttpStatus: (int)response.StatusCode,
+                Message: $"GLiNER returned {response.StatusCode}: {body}"[..Math.Min(500, body.Length + 60)],
+                Model: null, At: DateTime.UtcNow));
             return;
         }
 
         var result = await response.Content.ReadFromJsonAsync<ExtractEntitiesResponse>();
         var entities = result?.Entities ?? [];
-        if (entities.Count == 0) return;
+        if (entities.Count == 0)
+        {
+            rec.MarkDone("entityextraction", detail: "0 entities");
+            return;
+        }
 
         foreach (var ent in entities)
         {
@@ -380,15 +514,20 @@ public class KnowledgeUploadHandler
         await db.SaveChangesAsync();
         _logger.LogInformation("GLiNER extracted {Count} entities from document {DocId}", entities.Count, documentId);
 
-        await RebuildTrieAsync(client, db);
+        rec.MarkDone("entityextraction", detail: $"{entities.Count} entities");
+
+        await RebuildTrieAsync(client, db, rec);
     }
 
     /// <summary>
     /// Background enrichment pass — fires after the upload response is already
-    /// returned to the client.  Calls the Python AI Engine
-    /// <c>/api/v1/documents/enrich</c> endpoint, replaces the original Docling
-    /// chunks for any page that yielded product cards, re-embeds the new
-    /// chunks, and updates <c>EnrichmentStatus</c>.
+    /// returned to the client.  Streams per-page results from the AI
+    /// Engine's <c>/api/v1/documents/enrich</c> endpoint, writing each
+    /// page's outcome to <c>EnrichmentProgressJson</c> as it arrives so
+    /// the dashboard polls (every ~1.5s) reflect progress in real time.
+    /// Replaces the original Docling chunks for any page that yielded
+    /// product cards, re-embeds the new chunks, and updates
+    /// <c>EnrichmentStatus</c>.
     ///
     /// Failures are non-fatal: if the LLM is unreachable, slow, or returns
     /// no products, the document keeps the original Docling chunks and
@@ -400,15 +539,19 @@ public class KnowledgeUploadHandler
         var db = scope.ServiceProvider.GetRequiredService<CallPilotDbContext>();
         var factory = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
         var embeddingService = scope.ServiceProvider.GetRequiredService<EmbeddingService>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<KnowledgeUploadHandler>>();
 
         var document = await db.KnowledgeDocuments
             .Include(d => d.Chunks)
             .FirstOrDefaultAsync(d => d.Id == documentId);
         if (document is null)
         {
-            _logger.LogWarning("enrich: document {DocId} not found, skipping", documentId);
+            logger.LogWarning("enrich: document {DocId} not found, skipping", documentId);
             return;
         }
+
+        var rec = new IngestStageRecorder(document, db, logger);
+        rec.MarkRunning("enriching");
 
         document.SetEnrichmentStatus("enriching");
         await db.SaveChangesAsync();
@@ -423,10 +566,11 @@ public class KnowledgeUploadHandler
 
         if (pageGroups.Count == 0)
         {
-            _logger.LogInformation(
+            logger.LogInformation(
                 "enrich: document {DocId} has no page-tagged chunks, skipping",
                 documentId);
             document.SetEnrichmentStatus("enrichment_failed");
+            rec.MarkSkipped("enriching", "No page-tagged chunks");
             await db.SaveChangesAsync();
             return;
         }
@@ -441,63 +585,199 @@ public class KnowledgeUploadHandler
             })
             .ToList();
 
-        EnrichmentClient.EnrichResponse? result = null;
+        var total = pageInputs.Count;
+        // Pre-initialize the per-page progress column with all pages
+        // "pending" so the dashboard's first poll already shows the
+        // total + a list of not-yet-attempted pages.  This is the
+        // "we know what we're about to do" snapshot; the in-flight
+        // counts start populating as the stream emits page results.
+        var pageProgress = pageInputs
+            .Select(p => new EnrichmentPageStatus(
+                Page: p.Page, Status: "pending",
+                Model: null, DurationMs: 0, Error: null,
+                FinishedAt: null))
+            .ToList();
+        document.SetEnrichmentProgress(new EnrichmentProgress(
+            Total: total, Completed: 0, Failed: 0,
+            InFlight: total, Pages: pageProgress));
+        rec.UpdateDetail("enriching", $"{total} page(s) queued");
+        await db.SaveChangesAsync();
+
+        // The stream of EnrichPageResult / EnrichSummary events.  We
+        // mutate the local `pageProgress` list as each page arrives
+        // and write the whole list back to the jsonb column so the
+        // dashboard can render it.  This is one DB write per page,
+        // ~1.5s polling latency — perfectly acceptable.
+        var collectedResults = new List<EnrichmentClient.EnrichPageResult>();
+        EnrichmentClient.EnrichSummary? summary = null;
+        int completed = 0, failed = 0, inFlight = total;
+        EnrichmentPageStatus? firstFailed = null;
+        Exception? streamException = null;
         try
         {
-            result = await _enrichmentClient.EnrichAsync(documentId, pageInputs);
+            await foreach (var evt in _enrichmentClient.EnrichStreamingAsync(documentId, pageInputs))
+            {
+                if (evt is EnrichmentClient.EnrichPageResult page)
+                {
+                    collectedResults.Add(page);
+                    var status = page.Outcome?.Status ?? "unknown";
+                    var ps = new EnrichmentPageStatus(
+                        Page: page.Page,
+                        Status: status,
+                        Model: page.Outcome?.Model,
+                        DurationMs: page.Outcome?.DurationMs ?? 0,
+                        Error: page.Outcome?.Error,
+                        FinishedAt: DateTime.UtcNow,
+                        RetryCount: page.Outcome?.RetryCount ?? 0);
+
+                    // Update the per-page slot.
+                    var idx = pageProgress.FindIndex(p => p.Page == page.Page);
+                    if (idx >= 0) pageProgress[idx] = ps;
+                    else pageProgress.Add(ps);
+
+                    // If a page needed retries, surface that in the
+                    // enriching stage detail so the user sees the
+                    // backoff in real time on the stepper row.
+                    var retries = page.Outcome?.RetryCount ?? 0;
+                    if (retries > 0)
+                    {
+                        rec.UpdateDetail("enriching",
+                            $"{completed}/{total} pages enriched, {failed} failed, {retries} retry on page {page.Page}");
+                    }
+
+                    if (status == "ok" || status == "no_products")
+                        completed++;
+                    else
+                    {
+                        failed++;
+                        firstFailed ??= ps;
+                    }
+                    inFlight = Math.Max(0, inFlight - 1);
+
+                    // Write the live progress + update the stage detail
+                    // so the dashboard's next poll (≤1.5s away) sees it.
+                    document.SetEnrichmentProgress(new EnrichmentProgress(
+                        Total: total, Completed: completed, Failed: failed,
+                        InFlight: inFlight,
+                        Pages: pageProgress.ToList()));
+                    rec.UpdateDetail("enriching",
+                        $"{completed}/{total} pages enriched, {failed} failed");
+                    await db.SaveChangesAsync();
+                }
+                else if (evt is EnrichmentClient.EnrichSummary s)
+                {
+                    summary = s;
+                }
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "enrich: AI Engine call failed for {DocId}", documentId);
+            streamException = ex;
+            logger.LogWarning(ex, "enrich: streaming call failed for {DocId}", documentId);
         }
 
-        if (result is null)
+        if (streamException is not null || (collectedResults.Count == 0 && summary is null))
         {
             document.SetEnrichmentStatus("enrichment_failed");
+            rec.MarkFailed("enriching", new IngestStageError(
+                Stage: "enriching", Source: "ai-engine", HttpStatus: null,
+                Message: streamException?.Message ?? "AI Engine /enrich returned no results (network/timeout/HTTP error)",
+                Model: null, At: DateTime.UtcNow));
             await db.SaveChangesAsync();
             return;
         }
+
+        // Stash the raw LLM response for the dashboard's "View raw" tab.
+        document.SetRawOutput("enrichment", new
+        {
+            document_id = documentId.ToString(),
+            page_count = total,
+            enrichment_ms = summary?.EnrichmentMs ?? 0,
+            products_total = summary?.ProductsTotal ?? collectedResults.Sum(p => p.Products.Count),
+            failure_count = summary?.FailureCount ?? failed,
+            model = pageProgress.FirstOrDefault(p => p.Model is not null)?.Model,
+            pages = collectedResults.Select(p => new
+            {
+                page = p.Page,
+                page_type = p.PageType,
+                products = p.Products.Select(prod => new
+                {
+                    name = prod.Name, category = prod.Category, headline = prod.Headline,
+                    key_features = prod.KeyFeatures, pricing = prod.Pricing,
+                    best_for = prod.BestFor, differentiators = prod.Differentiators,
+                    raw_claims = prod.RawClaims, chunk_text = prod.ChunkText,
+                }),
+                outcome = p.Outcome is null ? null : new
+                {
+                    status = p.Outcome.Status,
+                    model = p.Outcome.Model,
+                    duration_ms = p.Outcome.DurationMs,
+                    error = p.Outcome.Error,
+                    retry_count = p.Outcome.RetryCount,
+                },
+            }),
+        });
 
         // Apply per-page replacements: for each page that returned product
         // cards, delete the original Docling chunks and insert one product
         // card chunk per product.  Pages with no products keep their
         // original chunks untouched.
-        var client = factory.CreateClient("AiEngine");
         var newChunksAdded = 0;
         var chunksDeleted = 0;
         var allNewProductNames = new List<string>();
 
-        // Index existing chunks by id for cheap lookup + delete.
-        var existingChunks = await db.KnowledgeChunks
-            .Where(c => c.DocumentId == documentId)
-            .ToListAsync();
-
-        var existingByPage = existingChunks
-            .Where(c => c.PageHint > 0)
+        // Apply per-page replacements: for each page that returned
+        // product cards, delete the original Docling chunks and
+        // insert one product card chunk per product.  Pages with
+        // no products keep their original chunks untouched.
+        //
+        // We use a single SaveChanges per phase (deletes, then
+        // inserts) rather than interleaving, because PostgreSQL
+        // checks unique constraints per-row — an INSERT for an
+        // index that's still in a queued DELETE can collide.
+        var existingByPage = (await db.KnowledgeChunks
+            .Where(c => c.DocumentId == documentId && c.PageHint > 0)
+            .ToListAsync())
             .GroupBy(c => c.PageHint)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        foreach (var pageResult in result.Pages)
+        // Phase 1: deletes for pages that yielded products.
+        var pageResultsWithProducts = collectedResults
+            .Where(p => p.Products.Count > 0)
+            .ToList();
+        var chunksToDelete = pageResultsWithProducts
+            .Where(p => existingByPage.ContainsKey(p.Page))
+            .SelectMany(p => existingByPage[p.Page])
+            .ToList();
+        if (chunksToDelete.Count > 0)
         {
-            if (pageResult.Products.Count == 0) continue;
-            if (!existingByPage.TryGetValue(pageResult.Page, out var pageChunks)) continue;
+            // Cascade-delete the embeddings first.  No cascade at the
+            // DB level (Embeddings.ChunkId is a plain FK), so we
+            // have to do it manually.
+            var deleteIds = chunksToDelete.Select(c => c.Id).ToList();
+            var orphanEmbeddings = await db.Embeddings
+                .Where(e => deleteIds.Contains(e.ChunkId))
+                .ToListAsync();
+            db.Embeddings.RemoveRange(orphanEmbeddings);
+            db.KnowledgeChunks.RemoveRange(chunksToDelete);
+            chunksDeleted = chunksToDelete.Count;
+            await db.SaveChangesAsync();
+        }
 
-            // Delete the original Docling chunks for this page (and their
-            // embeddings via cascade).
-            foreach (var chunk in pageChunks)
-            {
-                var embeddings = await db.Embeddings
-                    .Where(e => e.ChunkId == chunk.Id)
-                    .ToListAsync();
-                db.Embeddings.RemoveRange(embeddings);
-                db.KnowledgeChunks.Remove(chunk);
-                chunksDeleted++;
-            }
-            existingChunks.RemoveAll(c => c.PageHint == pageResult.Page);
+        // Phase 2: inserts.  Compute baseIndex from the live DB
+        // (just flushed) so the unique constraint can't be violated
+        // by a still-pending change.  Add a 10,000-point offset so
+        // the new product cards never share an index with the
+        // no-product-page Docling chunks that survived the deletes.
+        var postDeleteMax = await db.KnowledgeChunks
+            .Where(c => c.DocumentId == documentId)
+            .Select(c => (int?)c.ChunkIndex)
+            .MaxAsync();
+        const int INDEX_OFFSET = 10_000;
+        var baseIndex = (postDeleteMax ?? -1) + 1 + INDEX_OFFSET;
 
-            // Insert one chunk per product, with the pre-rendered chunk text
-            // and the original EnrichedProduct JSON in MetadataJson.
-            var baseIndex = existingChunks.Count;
+        foreach (var pageResult in pageResultsWithProducts)
+        {
             for (int i = 0; i < pageResult.Products.Count; i++)
             {
                 var product = pageResult.Products[i];
@@ -511,22 +791,79 @@ public class KnowledgeUploadHandler
                     sectionHeading: product.Name,
                     chunkType: "product_card",
                     pageHint: pageResult.Page,
-                    metadataJson: SerializeProductMetadata(product, pageResult.PageType));
+                    metadataJson: SerializeProductMetadata(product, pageResult.PageType),
+                    source: "enriched");
                 db.KnowledgeChunks.Add(newChunk);
-                await db.SaveChangesAsync();
-
-                var embedding = await embeddingService.GenerateEmbeddingAsync(product.ChunkText)
-                    ?? embeddingService.GenerateLocalEmbedding(product.ChunkText);
-                db.Embeddings.Add(new Embedding(newChunk.Id, embedding, "all-MiniLM-L6-v2"));
                 newChunksAdded++;
                 allNewProductNames.Add(product.Name);
             }
         }
-
         await db.SaveChangesAsync();
-        _logger.LogInformation(
+        logger.LogInformation(
             "enrich: document {DocId} — added {Added} product card chunks, removed {Removed} Docling chunks",
             documentId, newChunksAdded, chunksDeleted);
+
+        // Now embed + persist the embedding rows for each new chunk.
+        // UpdatedAt is the timestamp we set right before the inserts, so
+        // any product_card created after that is one of ours.
+        var updatedAt = document.UpdatedAt ?? DateTime.UtcNow;
+        var newChunks = await db.KnowledgeChunks
+            .Where(c => c.DocumentId == documentId && c.ChunkType == "product_card"
+                && c.CreatedAt > updatedAt.AddSeconds(-1))
+            .ToListAsync();
+        foreach (var chunk in newChunks)
+        {
+            var embedding = await embeddingService.GenerateEmbeddingAsync(chunk.Text)
+                ?? embeddingService.GenerateLocalEmbedding(chunk.Text);
+            db.Embeddings.Add(new Embedding(chunk.Id, embedding, "all-MiniLM-L6-v2"));
+        }
+        await db.SaveChangesAsync();
+
+        // Register each LLM-confirmed product name as a DocumentEntity row
+        // so the live-call trie picks up brand products even when the
+        // post-enrichment GLiNER pass below misses them.  GLiNER's recall
+        // on brand-product spans (e.g. "Prodigy", "Apex 100") is a known
+        // cliff, but the LLM enrichment prompt *names* the product as part
+        // of each `EnrichedProductDto` — treat that as authoritative for
+        // entity-extraction purposes.  Idempotent: we check existing rows
+        // for the same document + entity_type and only insert names that
+        // are missing.  Confidence 0.95 outweighs GLiNER's 0.3 floor, so a
+        // brand product is never demoted by a low-confidence GLiNER hit
+        // when both paths find it.
+        if (allNewProductNames.Count > 0)
+        {
+            var normalizedNames = allNewProductNames
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Select(n => n.Trim().ToLowerInvariant())
+                .Distinct()
+                .ToList();
+
+            var existingNames = await db.DocumentEntities
+                .Where(e => e.DocumentId == documentId
+                            && e.EntityType == "product"
+                            && normalizedNames.Contains(e.EntityText))
+                .Select(e => e.EntityText)
+                .ToListAsync();
+
+            var existingSet = existingNames.ToHashSet();
+            var missingNames = normalizedNames
+                .Where(n => !existingSet.Contains(n))
+                .ToList();
+
+            if (missingNames.Count > 0)
+            {
+                foreach (var name in missingNames)
+                {
+                    db.DocumentEntities.Add(new DocumentEntity(
+                        documentId, null, name, "product", 0.95));
+                }
+                await db.SaveChangesAsync();
+                logger.LogInformation(
+                    "enrich: registered {Count} LLM-confirmed product entities for {DocId} ({Sample})",
+                    missingNames.Count, documentId,
+                    string.Join(", ", missingNames.Take(5)));
+            }
+        }
 
         // Re-run GLiNER on the new product card chunks so the live trie picks
         // up the brand product names.  This intentionally re-extracts over
@@ -543,10 +880,46 @@ public class KnowledgeUploadHandler
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "enrich: post-enrichment GLiNER pass failed for {DocId}", documentId);
+            // The post-enrichment GLiNER pass is best-effort: the
+            // document already has its product cards and entities
+            // from the main pipeline.  Don't let a re-extract
+            // failure mask a successful enrichment.
+            logger.LogWarning(ex, "enrich: post-enrichment GLiNER pass failed for {DocId}", documentId);
+            try
+            {
+                var entityRec = new IngestStageRecorder(document, db, logger);
+                entityRec.MarkFailed("entityextraction", new IngestStageError(
+                    Stage: "entityextraction", Source: "gliner", HttpStatus: null,
+                    Message: $"post-enrichment GLiNER re-extract failed: {ex.Message}"[..Math.Min(500, ex.Message.Length + 60)],
+                    Model: null, At: DateTime.UtcNow));
+            }
+            catch (Exception innerEx)
+            {
+                logger.LogWarning(innerEx, "enrich: failed to mark entityextraction as failed");
+            }
         }
 
-        document.SetEnrichmentStatus("enriched");
+        // Final stage transition.  If even one page had a real failure
+        // (status not in {ok, no_products}) we mark the stage failed so
+        // the dashboard renders a red row + surfaces the error body.
+        if (failed > 0 && firstFailed is not null)
+        {
+            rec.MarkFailed("enriching", new IngestStageError(
+                Stage: "enriching", Source: "groq",
+                HttpStatus: firstFailed.Status switch
+                {
+                    "http_4xx" => 400, "http_5xx" => 500, _ => null,
+                },
+                Message: firstFailed.Error ?? "one or more pages failed",
+                Model: firstFailed.Model, At: DateTime.UtcNow));
+            document.SetEnrichmentStatus("enrichment_failed");
+        }
+        else
+        {
+            rec.MarkDone("enriching",
+                detail: $"{total} pages, {summary?.ProductsTotal ?? completed} products, {failed} failed");
+            document.SetEnrichmentStatus("enriched");
+        }
         await db.SaveChangesAsync();
     }
 
@@ -577,7 +950,7 @@ public class KnowledgeUploadHandler
         return System.Text.Json.JsonSerializer.Serialize(dict);
     }
 
-    private static async Task RebuildTrieAsync(HttpClient client, CallPilotDbContext db)
+    private static async Task RebuildTrieAsync(HttpClient client, CallPilotDbContext db, IngestStageRecorder rec)
     {
         try
         {
@@ -587,12 +960,24 @@ public class KnowledgeUploadHandler
             var response = await client.PostAsJsonAsync("/api/v1/ai/trie/rebuild", new { entities });
             if (!response.IsSuccessStatusCode)
             {
-                // Best-effort; log is handled by caller
+                rec.UpdateDetail("entityextraction",
+                    $"trie rebuild failed: {response.StatusCode}");
+                var logger = rec.GetType()
+                    .GetField("_logger", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?
+                    .GetValue(rec) as ILogger;
+                logger?.LogWarning("trie rebuild returned {Status} for {Count} entities",
+                    response.StatusCode, entities.Count);
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Trie rebuild is best-effort; don't fail the ingest
+            // Trie rebuild is best-effort — log and surface the failure
+            // in the entityextraction stage row but don't fail the ingest.
+            rec.UpdateDetail("entityextraction", $"trie rebuild error: {ex.Message}");
+            var logger = rec.GetType()
+                .GetField("_logger", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?
+                .GetValue(rec) as ILogger;
+            logger?.LogWarning(ex, "trie rebuild failed");
         }
     }
 
@@ -626,5 +1011,64 @@ public class KnowledgeUploadHandler
         public string EntityType { get; set; } = "";
         [System.Text.Json.Serialization.JsonPropertyName("confidence")]
         public double Confidence { get; set; }
+    }
+
+    /// <summary>
+    /// Thin wrapper around <see cref="KnowledgeDocument"/>'s stage
+    /// mutators that handles SaveChanges + tracks the most recent
+    /// transition for error reporting.  Lives here as a nested type
+    /// because it has no callers outside this handler.
+    /// </summary>
+    private sealed class IngestStageRecorder
+    {
+        private readonly KnowledgeDocument _doc;
+        private readonly CallPilotDbContext _db;
+        private readonly ILogger _logger;
+
+        public IngestStageRecorder(KnowledgeDocument doc, CallPilotDbContext db, ILogger logger)
+        {
+            _doc = doc;
+            _db = db;
+            _logger = logger;
+        }
+
+        public string? CurrentStageKey { get; private set; }
+
+        public void MarkRunning(string key, string? label = null, string? detail = null)
+        {
+            _doc.RecordStageRunning(key, label ?? key, detail);
+            CurrentStageKey = key;
+            _db.SaveChanges();
+        }
+
+        public void MarkDone(string key, string? detail = null)
+        {
+            _doc.RecordStageDone(key, detail);
+            _db.SaveChanges();
+        }
+
+        public void MarkFailed(string key, IngestStageError err)
+        {
+            _doc.RecordStageFailed(key, err);
+            _logger.LogWarning(
+                "ingest stage failed: doc={DocId} stage={Key} source={Source} status={Http} msg={Msg}",
+                _doc.Id, key, err.Source, err.HttpStatus, err.Message);
+            _db.SaveChanges();
+        }
+
+        public void MarkSkipped(string key, string reason)
+        {
+            _doc.RecordStageSkipped(key, reason);
+            _db.SaveChanges();
+        }
+
+        public void UpdateDetail(string key, string detail)
+        {
+            // UpdateDetail doesn't transition the stage — just adds a note
+            // to the current entry.  Used for the Docling model-load
+            // timing and the trie-rebuild error note.
+            _doc.SetStageDetail(key, detail);
+            _db.SaveChanges();
+        }
     }
 }

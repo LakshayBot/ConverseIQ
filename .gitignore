@@ -65,3 +65,6 @@ uploads/
 .next/
 .playwright-mcp/
 *.png
+.claude/
+.agents/
+skills-lock.json

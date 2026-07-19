@@ -45,15 +45,6 @@ class TestRegexDetectors:
         event = self.detector.detect_pricing("Let's schedule a follow-up meeting.")
         assert event is None
 
-    def test_detect_buying_signal_need(self):
-        events = self.detector.detect_buying_signals("We need this by next quarter.")
-        assert len(events) >= 1
-        assert events[0]["eventType"] == "PositiveBuyingSignal"
-
-    def test_detect_buying_signal_demo(self):
-        events = self.detector.detect_buying_signals("Can you schedule a demo for our team?")
-        assert len(events) >= 1
-
     def test_detect_objection_price(self):
         events = self.detector.detect_objections("This solution is too expensive for our budget.")
         assert len(events) >= 1
@@ -75,12 +66,6 @@ class TestRegexDetectors:
     def test_detect_technical_kubernetes(self):
         event = self.detector.detect_technical_questions("Can this run on Kubernetes?")
         assert event is not None
-
-    def test_detect_negative_signal(self):
-        event = self.detector.detect_negative_signals("We're not interested in switching right now.")
-        assert event is not None
-        assert event["eventType"] == "NegativeBuyingSignal"
-
 
 class TestTrieEntityDetection:
     def setup_method(self):
@@ -151,12 +136,11 @@ class TestDetectAllComprehensive:
     def setup_method(self):
         self.detector = EventDetector()
 
-    def test_pricing_buying_tech(self):
+    def test_pricing_and_tech(self):
         text = "What is the pricing model? We need a better solution. Do you support SSO?"
         events = self.detector.detect_all(text)
         types = [e["eventType"] for e in events]
         assert "PricingQuestion" in types
-        assert "PositiveBuyingSignal" in types
         assert "TechnicalQuestion" in types
 
     def test_no_events_in_plain_text(self):

@@ -87,9 +87,6 @@ public class PromptBuilder
             "PricingQuestion" =>
                 "Address pricing concerns directly. Highlight ROI, flexible plans, and any current promotions. Be transparent about costs.",
 
-            "PositiveBuyingSignal" =>
-                "Reinforce the positive sentiment. Summarize key benefits discussed. Propose next steps like a demo or trial.",
-
             "Objection" =>
                 entityName is not null
                     ? $"Address the {entityName} objection with supporting evidence and case studies."
@@ -97,9 +94,6 @@ public class PromptBuilder
 
             "TechnicalQuestion" =>
                 "Provide a clear technical answer. Reference documentation, architecture diagrams, and technical whitepapers. Offer to connect with a solutions engineer.",
-
-            "NegativeBuyingSignal" =>
-                "Don't push. Ask clarifying questions to understand their concerns. Focus on building relationship rather than closing.",
 
             _ => "Listen actively and respond thoughtfully to the customer's needs.",
         };

@@ -99,10 +99,8 @@ public class RecommendationEngine
         {
             "CompetitorMentioned" => $"{evt.EntityName} comparison competitive advantages migration",
             "PricingQuestion" => "pricing plans cost licensing enterprise",
-            "PositiveBuyingSignal" => "case studies success stories customer testimonials",
             "Objection" => $"{evt.EntityName} objection handling competitive response",
             "TechnicalQuestion" => "technical documentation architecture security compliance",
-            "NegativeBuyingSignal" => "competitive landscape alternatives switching costs",
             _ => evt.SupportingTranscript
         };
     }
@@ -113,10 +111,8 @@ public class RecommendationEngine
         {
             "CompetitorMentioned" => $"{evt.EntityName ?? "Competitor"} Comparison",
             "PricingQuestion" => "Pricing Guidance",
-            "PositiveBuyingSignal" => "Next Steps",
             "Objection" => $"Addressing {evt.EntityName ?? "Objection"}",
             "TechnicalQuestion" => "Technical Reference",
-            "NegativeBuyingSignal" => "Relationship Guidance",
             _ => "Contextual Recommendation"
         };
     }
