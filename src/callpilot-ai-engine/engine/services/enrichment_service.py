@@ -2,31 +2,36 @@
 
 Sits between Docling extraction and the embedding/GLiNER pass.  Brochure copy
 is semantically thin ("enterprise-grade security", "blazing fast performance")
-and RAG cannot work with it.  This service hands each page to a local Ollama
-LLM (qwen2.5:1.5b by default), asks it to extract structured product
-intelligence cards, and returns them so the .NET handler can replace the
-thin Docling chunks with rich product-card chunks before embedding.
+and RAG cannot work with it.  This service hands each page to Groq's
+chat-completions API (llama-3.1-8b-instant by default) with
+``response_format={"type": "json_object"}`` so we always get valid JSON back,
+and asks the model to extract structured product intelligence cards.  The
+.NET handler replaces the thin Docling chunks with rich product-card chunks
+before embedding.
 
-The model choice (1.5b) is deliberate: the AI engine container co-hosts
-GLiNER, Whisper, and Nemotron, so a 3B+ LLM reliably OOM-kills the engine
-on modest hardware.  1.5B is the largest model that co-exists with the rest
-of the stack on 16 GB-class dev machines.  Switch to a larger model via
-ENRICHMENT_MODEL when running on a host with more headroom.
+Why Groq, not local Ollama: a 1.5B–3B local model on a 16 GB-class dev box
+takes 3–15 s per page, which is fine for one page but stacks into 10+ min
+for a 20-page brochure.  Groq's free tier responds in ~1 s and returns
+structured JSON reliably, so the same job finishes in a few seconds.
 
 Fail-open design
 ────────────────
-* If Ollama is unreachable, slow, or returns garbage, this function returns
-  ``[]`` and the caller keeps the original Docling chunks.  The upload
-  pipeline must NEVER block on a missing LLM.
-* Per-page timeout: 90 s via :func:`asyncio.wait_for`.  No retries — failed
-  pages are simply unenriched.  The whole job is wrapped in try/except so
-  nothing escapes back to the .NET caller; the document keeps the original
-  Docling chunks and the .NET side sets ``enrichment_failed``.
+* If Groq is unreachable, returns garbage, or the API key is missing, this
+  function returns ``[]`` and the caller keeps the original Docling chunks.
+  The upload pipeline must NEVER block on a missing LLM.
+* Per-page timeout: 30 s via :func:`asyncio.wait_for` (Groq is fast, 30 s is
+  generous; the Groq client's own timeout is also 30 s).  No retries —
+  failed pages are simply unenriched.  The whole job is wrapped in
+  try/except so nothing escapes back to the .NET caller; the document
+  keeps the original Docling chunks and the .NET side sets
+  ``enrichment_failed``.
 * Pages are processed concurrently — up to 3 in flight at any moment
   (``asyncio.gather`` + ``Semaphore(3)``) — so a 20-page document finishes
-  in roughly a third of the wall time of the old sequential loop, while
-  bounding memory and Ollama load.
-* JSON parse failures: log a warning, return ``[]``.
+  in roughly a third of the wall time of a sequential loop, while
+  bounding load on Groq's rate limiter.
+* JSON parse failures: log a warning, return ``[]``.  In practice
+  ``response_format={"type": "json_object"}`` makes this unreachable for
+  well-formed responses; the parser is kept as a defensive layer.
 
 The dataclass shape mirrors the prompt schema exactly so the .NET side can
 ``JsonSerializer.Deserialize<EnrichedProduct>(raw)`` straight from the prompt
@@ -39,7 +44,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 from dataclasses import dataclass, field, asdict
 from typing import Any, List, Optional
 
@@ -51,19 +55,38 @@ logger = logging.getLogger(__name__)
 # module — keeping this self-contained so the service can be tested in
 # isolation.
 
-def _get_base_url() -> str:
-    return os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+
+class _MissingGroqKey(RuntimeError):
+    """Raised when GROQ_API_KEY is not set in the environment.
+
+    Treated as a recoverable error by the fail-open wrapper in
+    :func:`enrich_page` — the page just gets an empty enrichment result
+    and the .NET side sets ``enrichment_failed``.  Surfaced as a distinct
+    type so the warning log makes the root cause obvious.
+    """
+
+
+def _get_groq_api_key() -> str:
+    # No default — a missing key is a deployment misconfiguration.  We
+    # raise a typed exception so the caller's fail-open wrapper can log
+    # "GROQ_API_KEY missing" specifically instead of a generic
+    # AuthenticationError, and so test setups that forget to set the
+    # env var get a clear failure.
+    key = os.getenv("GROQ_API_KEY")
+    if not key:
+        raise _MissingGroqKey(
+            "GROQ_API_KEY is not set — get a free key at console.groq.com "
+            "(no credit card required) and set it in the environment."
+        )
+    return key
 
 
 def _get_model() -> str:
-    return os.getenv("ENRICHMENT_MODEL", "qwen2.5:1.5b")
-
-
-def _get_timeout_s() -> float:
-    # 90s is the per-page ceiling enforced by asyncio.wait_for() in
-    # enrich_pages(); the httpx client's own timeout is kept in sync so
-    # we never have httpx firing first and masking the asyncio cap.
-    return float(os.getenv("ENRICHMENT_TIMEOUT_S", "90"))
+    # llama-3.1-8b-instant is Groq's free-tier default; fast, supports
+    # response_format={"type": "json_object"}, and good enough for the
+    # product-card extraction prompt.  Override via ENRICHMENT_MODEL
+    # (e.g. llama-3.3-70b-versatile for higher quality on dev keys).
+    return os.getenv("ENRICHMENT_MODEL", "llama-3.1-8b-instant")
 
 
 # ── Data shape ─────────────────────────────────────────────────────────────
@@ -172,14 +195,11 @@ def _build_prompt(page_text: str) -> str:
 
 # ── JSON extraction & parsing ──────────────────────────────────────────────
 
-# Strip leading/trailing markdown fences the LLM occasionally adds even
-# after being told not to.  Handles ```json ... ```, ``` ... ```, and
-# stray single backticks at the line edges.
-_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.MULTILINE)
-
-
-def _strip_markdown_fences(text: str) -> str:
-    return _FENCE_RE.sub("", text).strip()
+# Groq is called with response_format={"type": "json_object"} so the model
+# is forced to return a single JSON object — no markdown fences, no
+# preamble.  We still keep the defensive parser below in case the API
+# contract changes or a future model misbehaves; the call to
+# json.loads() should never fail in normal operation.
 
 
 def _parse_enrichment_response(raw: str) -> list[EnrichedProduct]:
@@ -191,11 +211,10 @@ def _parse_enrichment_response(raw: str) -> list[EnrichedProduct]:
     if not raw:
         return []
 
-    cleaned = _strip_markdown_fences(raw)
     try:
-        data = json.loads(cleaned)
+        data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        logger.warning("Enrichment JSON parse failed: %s; head=%r", exc, cleaned[:120])
+        logger.warning("Enrichment JSON parse failed: %s; head=%r", exc, raw[:120])
         return []
 
     if not isinstance(data, dict):
@@ -246,75 +265,80 @@ def _as_str_list(value: Any) -> List[str]:
     return [str(value)]
 
 
-# ── Ollama call ────────────────────────────────────────────────────────────
+# ── Groq call ──────────────────────────────────────────────────────────────
 
-# Use a shared httpx client so connection pooling works across pages of the
-# same document.  Lazy-instantiated.
-_httpx_client: Any = None
+# Use a shared AsyncGroq client so connection pooling works across pages of
+# the same document.  Lazy-instantiated so the module can be imported
+# without GROQ_API_KEY being set (the key is read at first call, not at
+# import time — lets the FastAPI app boot in environments where the
+# enrichment endpoint is disabled).
+_groq_client: Any = None
 
 
-def _get_httpx_client() -> Any:
-    global _httpx_client
-    if _httpx_client is None:
-        import httpx
-        _httpx_client = httpx.AsyncClient(timeout=_get_timeout_s())
-    return _httpx_client
+def _get_groq_client() -> Any:
+    global _groq_client
+    if _groq_client is None:
+        from groq import AsyncGroq
+        _groq_client = AsyncGroq(api_key=_get_groq_api_key())
+    return _groq_client
 
 
 async def aclose() -> None:
-    """Close the shared httpx client.  Call from FastAPI shutdown."""
-    global _httpx_client
-    if _httpx_client is not None:
-        await _httpx_client.aclose()
-        _httpx_client = None
+    """Close the shared Groq client.  Call from FastAPI shutdown."""
+    global _groq_client
+    if _groq_client is not None:
+        # AsyncGroq exposes an aclose() on its underlying httpx transport;
+        # the wrapper doesn't guarantee a public aclose, so guard with
+        # hasattr in case a future SDK version removes it.
+        if hasattr(_groq_client, "aclose"):
+            await _groq_client.aclose()
+        _groq_client = None
 
 
-async def _call_ollama(prompt: str) -> Optional[str]:
-    """POST to Ollama's /api/chat.  Returns the response message content or
-    ``None`` on any failure (timeout, connection error, non-2xx).
+async def _call_groq(prompt: str) -> Optional[str]:
+    """Call Groq's chat.completions API.  Returns the response content or
+    ``None`` on any failure (missing key, timeout, rate limit, non-2xx,
+    unexpected response shape).
 
-    Per spec: NO retries.  One shot per page.
+    Per spec: NO retries.  One shot per page.  ``response_format=json_object``
+    forces the model to return a single JSON object, so we don't need to
+    strip markdown fences.
     """
-    import httpx
-    client = _get_httpx_client()
-    url = f"{_get_base_url()}/api/chat"
-    payload = {
-        "model": _get_model(),
-        "messages": [{"role": "user", "content": prompt}],
-        "stream": False,
-        # Constrain output — a 3B model will ramble if you don't.
-        "options": {
-            "temperature": 0.1,
-            "num_predict": 2048,
-        },
-    }
     try:
-        resp = await client.post(url, json=payload)
-    except httpx.TimeoutException:
-        logger.warning("Ollama enrichment timed out after %.0fs", _get_timeout_s())
+        client = _get_groq_client()
+    except _MissingGroqKey as exc:
+        logger.warning("Groq enrichment: %s", exc)
         return None
-    except httpx.HTTPError as exc:
-        logger.warning("Ollama enrichment HTTP error: %s", exc)
+    except Exception as exc:  # noqa: BLE001 — fail-open
+        logger.warning("Groq client init failed: %s", exc)
         return None
 
-    if resp.status_code != 200:
-        logger.warning(
-            "Ollama enrichment returned %d: %s",
-            resp.status_code, resp.text[:200],
+    try:
+        response = await client.chat.completions.create(
+            model=_get_model(),
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            response_format={"type": "json_object"},
+            timeout=30,
         )
+    except Exception as exc:  # noqa: BLE001 — fail-open
+        # Covers the full Groq exception hierarchy (APIError, APIConnectionError,
+        # RateLimitError, APITimeoutError, BadRequestError on bad model name,
+        # etc.) plus any unexpected transport error.  All are fail-open:
+        # the page keeps its original Docling chunks.
+        logger.warning("Groq enrichment failed: %s", exc)
         return None
 
     try:
-        data = resp.json()
-    except json.JSONDecodeError:
-        logger.warning("Ollama enrichment: response is not JSON")
+        content = response.choices[0].message.content
+    except (AttributeError, IndexError, TypeError):
+        logger.warning("Groq enrichment: response has no message.content")
         return None
 
-    msg = data.get("message") or {}
-    content = msg.get("content")
-    if not isinstance(content, str):
-        logger.warning("Ollama enrichment: response has no message.content")
+    if not isinstance(content, str) or not content:
+        logger.warning("Groq enrichment: empty content in response")
         return None
+
     return content
 
 
@@ -324,38 +348,41 @@ async def enrich_page(page_text: str) -> list[EnrichedProduct]:
     """Run the enrichment LLM pass on a single page of brochure text.
 
     Returns the parsed list of :class:`EnrichedProduct`.  Returns ``[]`` on
-    any failure (Ollama down, parse error, empty content, unexpected
-    exception) — the caller keeps the original Docling chunks and the
-    pipeline continues.
+    any failure (Groq down, missing API key, parse error, empty content,
+    unexpected exception) — the caller keeps the original Docling chunks
+    and the pipeline continues.
 
-    Per spec: 90 s timeout, no retries.  Fail-open: every code path lands
+    Per spec: 30 s timeout, no retries.  Fail-open: every code path lands
     in ``[]`` so a single broken page never breaks the document.  The
     authoritative per-page cap is enforced at the ``enrich_pages`` level
-    via :func:`asyncio.wait_for`; the httpx client's own 90 s timeout here
+    via :func:`asyncio.wait_for`; the Groq client's own 30 s timeout here
     is a redundant safety net.
     """
     if not page_text or not page_text.strip():
         return []
     prompt = _build_prompt(page_text.strip())
     try:
-        raw = await _call_ollama(prompt)
+        raw = await _call_groq(prompt)
     except Exception as exc:  # noqa: BLE001 — fail-open, last line of defence
-        logger.warning("enrich_page: unexpected exception in _call_ollama: %s", exc)
+        logger.warning("enrich_page: unexpected exception in _call_groq: %s", exc)
         return []
     if raw is None:
-        return []  # already logged in _call_ollama
+        return []  # already logged in _call_groq
     return _parse_enrichment_response(raw)
 
 
 # ── Bulk helper used by the /api/v1/documents/enrich endpoint ─────────────
 
-# Per-page ceiling.  Kept in sync with the underlying httpx timeout above
-# (also 90s) so asyncio.wait_for() is the authoritative cap.
-PAGE_TIMEOUT_S: float = 90.0
+# Per-page ceiling.  Kept in sync with the Groq client's own timeout
+# (also 30s in ``_call_groq``) so asyncio.wait_for() is the authoritative
+# cap.  Groq is fast — typical page completes in ~1 s; 30 s is generous
+# headroom for rate-limit backoff or transient network blips.
+PAGE_TIMEOUT_S: float = 30.0
 
-# Concurrency cap.  Three in-flight enrichments cuts wall time roughly 3x
-# vs. the old sequential loop while keeping Ollama + httpx memory bounded
-# on the 16 GB-class dev machines the AI engine runs on.
+# Concurrency cap.  Three in-flight Groq requests keeps us well under
+# the free-tier rate limit (~30 req/min for llama-3.1-8b-instant) while
+# cutting wall time roughly 3x vs. a sequential loop.  Bump to 5 on a
+# paid key if needed.
 PAGE_CONCURRENCY: int = 3
 
 
