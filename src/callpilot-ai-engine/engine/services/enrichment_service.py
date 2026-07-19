@@ -3,16 +3,29 @@
 Sits between Docling extraction and the embedding/GLiNER pass.  Brochure copy
 is semantically thin ("enterprise-grade security", "blazing fast performance")
 and RAG cannot work with it.  This service hands each page to a local Ollama
-LLM (qwen2.5:3b by default), asks it to extract structured product
+LLM (qwen2.5:1.5b by default), asks it to extract structured product
 intelligence cards, and returns them so the .NET handler can replace the
 thin Docling chunks with rich product-card chunks before embedding.
+
+The model choice (1.5b) is deliberate: the AI engine container co-hosts
+GLiNER, Whisper, and Nemotron, so a 3B+ LLM reliably OOM-kills the engine
+on modest hardware.  1.5B is the largest model that co-exists with the rest
+of the stack on 16 GB-class dev machines.  Switch to a larger model via
+ENRICHMENT_MODEL when running on a host with more headroom.
 
 Fail-open design
 ────────────────
 * If Ollama is unreachable, slow, or returns garbage, this function returns
   ``[]`` and the caller keeps the original Docling chunks.  The upload
   pipeline must NEVER block on a missing LLM.
-* Per-page timeout: 60 s.  No retries — failed pages are simply unenriched.
+* Per-page timeout: 90 s via :func:`asyncio.wait_for`.  No retries — failed
+  pages are simply unenriched.  The whole job is wrapped in try/except so
+  nothing escapes back to the .NET caller; the document keeps the original
+  Docling chunks and the .NET side sets ``enrichment_failed``.
+* Pages are processed concurrently — up to 3 in flight at any moment
+  (``asyncio.gather`` + ``Semaphore(3)``) — so a 20-page document finishes
+  in roughly a third of the wall time of the old sequential loop, while
+  bounding memory and Ollama load.
 * JSON parse failures: log a warning, return ``[]``.
 
 The dataclass shape mirrors the prompt schema exactly so the .NET side can
@@ -22,6 +35,7 @@ output.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -42,11 +56,14 @@ def _get_base_url() -> str:
 
 
 def _get_model() -> str:
-    return os.getenv("ENRICHMENT_MODEL", "qwen2.5:3b")
+    return os.getenv("ENRICHMENT_MODEL", "qwen2.5:1.5b")
 
 
 def _get_timeout_s() -> float:
-    return float(os.getenv("ENRICHMENT_TIMEOUT_S", "60"))
+    # 90s is the per-page ceiling enforced by asyncio.wait_for() in
+    # enrich_pages(); the httpx client's own timeout is kept in sync so
+    # we never have httpx firing first and masking the asyncio cap.
+    return float(os.getenv("ENRICHMENT_TIMEOUT_S", "90"))
 
 
 # ── Data shape ─────────────────────────────────────────────────────────────
@@ -311,8 +328,11 @@ async def enrich_page(page_text: str) -> list[EnrichedProduct]:
     exception) — the caller keeps the original Docling chunks and the
     pipeline continues.
 
-    Per spec: 60 s timeout, no retries.  Fail-open: every code path lands
-    in ``[]`` so a single broken page never breaks the document.
+    Per spec: 90 s timeout, no retries.  Fail-open: every code path lands
+    in ``[]`` so a single broken page never breaks the document.  The
+    authoritative per-page cap is enforced at the ``enrich_pages`` level
+    via :func:`asyncio.wait_for`; the httpx client's own 90 s timeout here
+    is a redundant safety net.
     """
     if not page_text or not page_text.strip():
         return []
@@ -329,27 +349,93 @@ async def enrich_page(page_text: str) -> list[EnrichedProduct]:
 
 # ── Bulk helper used by the /api/v1/documents/enrich endpoint ─────────────
 
+# Per-page ceiling.  Kept in sync with the underlying httpx timeout above
+# (also 90s) so asyncio.wait_for() is the authoritative cap.
+PAGE_TIMEOUT_S: float = 90.0
+
+# Concurrency cap.  Three in-flight enrichments cuts wall time roughly 3x
+# vs. the old sequential loop while keeping Ollama + httpx memory bounded
+# on the 16 GB-class dev machines the AI engine runs on.
+PAGE_CONCURRENCY: int = 3
+
+
 async def enrich_pages(pages: list[dict]) -> list[dict]:
     """Enrich a batch of pages.  Each input dict: ``{"page": int, "text": str}``.
 
     Returns a list of dicts in the same shape as the input plus
     ``products`` (list of EnrichedProduct dicts) and ``page_type``.  Pages
-    where enrichment failed or returned no products have ``products = []``
-    and ``page_type = "other"`` — the .NET handler treats this as "keep
-    original Docling chunks for this page".
+    where enrichment failed, timed out, or returned no products have
+    ``products = []`` and ``page_type = "other"`` — the .NET handler treats
+    this as "keep original Docling chunks for this page".
+
+    Fire-and-forget semantics: the whole job is wrapped in try/except so
+    *nothing* propagates back to the .NET caller.  On any failure (catastrophic
+    exception, closed event loop, etc.) we return a clean empty result and
+    let the .NET side set ``enrichment_failed`` and exit.
     """
-    out: list[dict] = []
-    for p in pages:
+    semaphore = asyncio.Semaphore(PAGE_CONCURRENCY)
+
+    async def _enrich_one(p: dict) -> dict:
         page_no = p.get("page", 0)
         text = p.get("text", "")
-        try:
-            products = await enrich_page(text)
-        except Exception as exc:  # noqa: BLE001 — last-line-of-defence fail-open
-            logger.exception("enrich_page raised on page %d: %s", page_no, exc)
-            products = []
-        out.append({
-            "page": page_no,
-            "products": [prod.to_dict() for prod in products],
-            "page_type": products[0].page_type if products else "other",
-        })
+        async with semaphore:
+            try:
+                products = await asyncio.wait_for(
+                    enrich_page(text), timeout=PAGE_TIMEOUT_S
+                )
+            except asyncio.TimeoutError:
+                # Per-page cap hit — skip just this page, keep the original
+                # Docling chunks for it, and let the rest of the document
+                # finish.  A single slow page must never kill the job.
+                logger.warning(
+                    "enrich_page timed out after %.0fs on page %d — "
+                    "keeping original Docling chunks",
+                    PAGE_TIMEOUT_S, page_no,
+                )
+                products = []
+            except Exception as exc:  # noqa: BLE001 — fail-open
+                logger.exception(
+                    "enrich_page raised on page %d: %s — "
+                    "keeping original Docling chunks",
+                    page_no, exc,
+                )
+                products = []
+            return {
+                "page": page_no,
+                "products": [prod.to_dict() for prod in products],
+                "page_type": products[0].page_type if products else "other",
+            }
+
+    try:
+        # Run all pages through the semaphore with up to PAGE_CONCURRENCY
+        # in flight.  return_exceptions=True so one bad task can't break the
+        # gather — we still coerce any stray exception into an empty result
+        # below, matching the per-page fail-open contract.
+        tasks = [_enrich_one(p) for p in pages]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    except Exception as exc:  # noqa: BLE001 — last-line-of-defence
+        # gather(return_exceptions=True) shouldn't raise, but if anything
+        # catastrophic happens (event loop closed, CancelledError bubbling
+        # out, etc.) we still want to return a clean empty result so the
+        # .NET side can set enrichment_failed and exit.
+        logger.exception("enrich_pages catastrophic failure: %s", exc)
+        return [
+            {"page": p.get("page", 0), "products": [], "page_type": "other"}
+            for p in pages
+        ]
+
+    out: list[dict] = []
+    for p, r in zip(pages, results):
+        if isinstance(r, BaseException):
+            logger.exception(
+                "Unexpected exception for page %d: %s",
+                p.get("page", 0), r,
+            )
+            out.append({
+                "page": p.get("page", 0),
+                "products": [],
+                "page_type": "other",
+            })
+        else:
+            out.append(r)
     return out
