@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>CallPilot needs access to your microphone to capture live sales conversations for real-time transcription and intelligence.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>CallPilot needs screen recording permission to capture system audio during sales calls for transcription and intelligence.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>CallPilot needs permission to capture system audio output for live transcription and meeting intelligence.</string>
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+</dict>
+</plist>
