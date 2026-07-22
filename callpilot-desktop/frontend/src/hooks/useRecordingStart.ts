@@ -61,6 +61,39 @@ export function useRecordingStart(
     }
   }, []);
 
+  /**
+   * Resolve the actual device names to use for recording. If the caller hasn't
+   * picked anything yet (e.g. fresh out of onboarding), fall back to the OS
+   * defaults via the Rust backend. Without this, the start call passes `null`
+   * for both devices and the audio pipeline has nothing to capture from —
+   * which is why the mic button "does nothing" after onboarding.
+   */
+  const resolveDevices = useCallback(async (): Promise<{ micDevice: string | null; systemDevice: string | null }> => {
+    let micDevice = selectedDevices?.micDevice ?? null;
+    let systemDevice = selectedDevices?.systemDevice ?? null;
+
+    if (micDevice || systemDevice) {
+      return { micDevice, systemDevice };
+    }
+
+    // Nothing selected yet — pick OS defaults from the audio device list.
+    try {
+      const devices = await invoke<Array<{ name: string; device_type: string }>>('get_audio_devices');
+      console.log('[useRecordingStart] no devices selected, auto-resolving defaults from', devices.length, 'devices');
+
+      for (const d of devices) {
+        if (!micDevice && d.device_type === 'Input') micDevice = d.name;
+        if (!systemDevice && d.device_type === 'Output') systemDevice = d.name;
+      }
+
+      console.log('[useRecordingStart] auto-resolved →', { micDevice, systemDevice });
+    } catch (e) {
+      console.warn('[useRecordingStart] failed to auto-resolve devices:', e);
+    }
+
+    return { micDevice, systemDevice };
+  }, [selectedDevices]);
+
   // Check if any model is currently downloading
   const checkIfModelDownloading = useCallback(async (): Promise<boolean> => {
     try {
@@ -114,11 +147,15 @@ export function useRecordingStart(
       // Set STARTING status before initiating backend recording
       setStatus(RecordingStatus.STARTING, 'Initializing recording...');
 
+      // Resolve devices (auto-pick defaults if user hasn't selected any yet)
+      const { micDevice, systemDevice } = await resolveDevices();
+
       // Start the actual backend recording
       console.log('Starting backend recording with meeting:', randomTitle);
+      console.log('[useRecordingStart] using devices → mic =', micDevice, ', system =', systemDevice);
       await recordingService.startRecordingWithDevices(
-        selectedDevices?.micDevice || null,
-        selectedDevices?.systemDevice || null,
+        micDevice,
+        systemDevice,
         randomTitle
       );
       console.log('Backend recording started successfully');
@@ -141,7 +178,7 @@ export function useRecordingStart(
       // Re-throw so RecordingControls can handle device-specific errors
       throw error;
     }
-  }, [generateMeetingTitle, setMeetingTitle, setIsRecording, clearTranscripts, setIsMeetingActive, checkParakeetReady, checkIfModelDownloading, selectedDevices, showModal, setStatus]);
+  }, [generateMeetingTitle, setMeetingTitle, setIsRecording, clearTranscripts, setIsMeetingActive, checkParakeetReady, checkIfModelDownloading, selectedDevices, showModal, setStatus, resolveDevices]);
 
   // Check for autoStartRecording flag and start recording automatically
   useEffect(() => {
@@ -185,9 +222,10 @@ export function useRecordingStart(
             setStatus(RecordingStatus.STARTING, 'Initializing recording...');
 
             console.log('Auto-starting backend recording with meeting:', generatedMeetingTitle);
+            const { micDevice: autoMic, systemDevice: autoSys } = await resolveDevices();
             const result = await recordingService.startRecordingWithDevices(
-              selectedDevices?.micDevice || null,
-              selectedDevices?.systemDevice || null,
+              autoMic,
+              autoSys,
               generatedMeetingTitle
             );
             console.log('Auto-start backend recording result:', result);
@@ -228,6 +266,7 @@ export function useRecordingStart(
     checkIfModelDownloading,
     showModal,
     setStatus,
+    resolveDevices,
   ]);
 
   // Listen for direct recording trigger from sidebar when already on home page
@@ -272,9 +311,10 @@ export function useRecordingStart(
         setStatus(RecordingStatus.STARTING, 'Initializing recording...');
 
         console.log('Starting backend recording with meeting:', generatedMeetingTitle);
+        const { micDevice: dMic, systemDevice: dSys } = await resolveDevices();
         const result = await recordingService.startRecordingWithDevices(
-          selectedDevices?.micDevice || null,
-          selectedDevices?.systemDevice || null,
+          dMic,
+          dSys,
           generatedMeetingTitle
         );
         console.log('Backend recording result:', result);
@@ -317,6 +357,7 @@ export function useRecordingStart(
     checkIfModelDownloading,
     showModal,
     setStatus,
+    resolveDevices,
   ]);
 
   return {
