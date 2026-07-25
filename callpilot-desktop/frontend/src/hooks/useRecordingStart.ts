@@ -132,12 +132,16 @@ export function useRecordingStart(
    * later when the user has connectivity.
    */
   const mintMeetingId = useCallback(async (title: string): Promise<string> => {
+    console.log('[DIAG] mintMeetingId CALLED title=', title);
     try {
       const meeting = await createMeeting(title);
+      console.log('[DIAG] mintMeetingId createMeeting RESOLVED →', meeting.id);
       setSessionId(meeting.id);
+      console.log('[DIAG] mintMeetingId setSessionId fired for', meeting.id);
       console.log('[useRecordingStart] minted meeting', meeting.id, 'for', title);
       return meeting.id;
     } catch (e) {
+      console.error('[DIAG] mintMeetingId createMeeting THREW:', e);
       const fallback = crypto.randomUUID();
       setSessionId(fallback);
       console.warn(

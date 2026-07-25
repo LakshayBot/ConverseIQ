@@ -25,6 +25,12 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 const BASE_RECONNECT_MS = 500;
 const MAX_RECONNECT_MS = 8000;
 
+// Log every sessionId transition so we can see whether the prop arrived at all.
+// Mount/unmount markers let us confirm the hook instance isn't being thrown
+// away on every render.
+let _lastSeenSessionId: string | null | undefined = undefined;
+let _effectRunCount = 0;
+
 export function useIntelligenceStream(sessionId: string | null) {
   const [cards, setCards] = useState<IntelligenceCard[]>([]);
   const [connected, setConnected] = useState(false);
@@ -38,6 +44,20 @@ export function useIntelligenceStream(sessionId: string | null) {
   const [connectNonce, setConnectNonce] = useState(0);
 
   useEffect(() => {
+    _effectRunCount += 1;
+    if (sessionId !== _lastSeenSessionId) {
+      console.log(
+        '[DIAG] useIntelligenceStream prop CHANGED: was =',
+        JSON.stringify(_lastSeenSessionId),
+        'now =',
+        JSON.stringify(sessionId),
+        'effect run #',
+        _effectRunCount,
+      );
+      _lastSeenSessionId = sessionId;
+    } else {
+      console.log('[DIAG] useIntelligenceStream effect run (same sessionId=', JSON.stringify(sessionId), '), # ', _effectRunCount);
+    }
     console.log('[DIAG] useIntelligenceStream effect: sessionId =', JSON.stringify(sessionId), 'connectNonce =', connectNonce);
     if (!sessionId) {
       console.log('[DIAG] useIntelligenceStream: no sessionId, skipping WS open');
