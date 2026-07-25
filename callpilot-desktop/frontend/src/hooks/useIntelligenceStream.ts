@@ -36,7 +36,9 @@ export function useIntelligenceStream(sessionId: string | null) {
   const [connectNonce, setConnectNonce] = useState(0);
 
   useEffect(() => {
+    console.log('[DIAG] useIntelligenceStream effect: sessionId =', JSON.stringify(sessionId), 'connectNonce =', connectNonce);
     if (!sessionId) {
+      console.log('[DIAG] useIntelligenceStream: no sessionId, skipping WS open');
       setCards([]);
       setConnected(false);
       setError(null);
@@ -59,9 +61,10 @@ export function useIntelligenceStream(sessionId: string | null) {
     let socket: WebSocket | null = null;
     try {
       socket = new WebSocket(url);
+      console.log('[DIAG] WebSocket constructed, readyState =', socket.readyState, '(0=CONNECTING)');
     } catch (e: any) {
       // eslint-disable-next-line no-console
-      console.warn('[callpilot] intelligence WS construct failed', e?.message ?? e);
+      console.warn('[DIAG] WebSocket CONSTRUCT THREW:', e?.message ?? e);
       setError('Intelligence stream unavailable');
       setConnected(false);
       return;
@@ -72,7 +75,7 @@ export function useIntelligenceStream(sessionId: string | null) {
     socket.onopen = () => {
       if (cancelled) return;
       // eslint-disable-next-line no-console
-      console.log('[DIAG] intelligence WS OPEN', url);
+      console.log('[DIAG] intelligence WS OPEN readyState =', socket.readyState, '(1=OPEN)', url);
       setConnected(true);
       setError(null);
       reconnectAttemptRef.current = 0;
@@ -80,6 +83,8 @@ export function useIntelligenceStream(sessionId: string | null) {
 
     socket.onmessage = (ev) => {
       if (cancelled) return;
+      // eslint-disable-next-line no-console
+      console.log('[DIAG] intelligence WS MESSAGE raw =', typeof ev.data === 'string' ? ev.data.slice(0, 200) : '(binary)');
       try {
         // Discriminated union: control frames (ping/ready/pong) and card frames.
         const parsed = JSON.parse(ev.data) as
@@ -93,6 +98,8 @@ export function useIntelligenceStream(sessionId: string | null) {
           parsed &&
           (parsed.type === 'ping' || parsed.type === 'ready' || parsed.type === 'pong')
         ) {
+          // eslint-disable-next-line no-console
+          console.log('[DIAG] control frame ignored:', parsed.type);
           return;
         }
 
@@ -105,7 +112,11 @@ export function useIntelligenceStream(sessionId: string | null) {
         } else {
           cardSource = parsed as Partial<IntelligenceCard>;
         }
-        if (!cardSource || !cardSource.type || !cardSource.title) return;
+        if (!cardSource || !cardSource.type || !cardSource.title) {
+          // eslint-disable-next-line no-console
+          console.warn('[DIAG] card payload missing type/title; dropping:', cardSource);
+          return;
+        }
         const card: IntelligenceCard = {
           type: cardSource.type,
           title: cardSource.title,
@@ -113,6 +124,8 @@ export function useIntelligenceStream(sessionId: string | null) {
           severity: cardSource.severity ?? 'low',
           chunks: Array.isArray(cardSource.chunks) ? cardSource.chunks : [],
         };
+        // eslint-disable-next-line no-console
+        console.log('[DIAG] intelligence WS CARD added:', card.type, card.title);
         setCards((prev) => [card, ...prev].slice(0, 50));
       } catch (e) {
         // eslint-disable-next-line no-console
@@ -123,14 +136,14 @@ export function useIntelligenceStream(sessionId: string | null) {
     socket.onerror = (ev) => {
       if (cancelled) return;
       // eslint-disable-next-line no-console
-      console.warn('[callpilot] intelligence WS error', ev);
+      console.warn('[DIAG] intelligence WS onerror event:', ev);
       setError('Intelligence stream unavailable');
     };
 
     socket.onclose = (ev) => {
       if (cancelled) return;
       // eslint-disable-next-line no-console
-      console.log('[DIAG] intelligence WS CLOSE code=', ev?.code, 'reason=', ev?.reason);
+      console.log('[DIAG] intelligence WS CLOSE code=', ev?.code, 'reason=', ev?.reason, 'wasClean=', ev?.wasClean);
       setConnected(false);
       try { wsRef.current = null; } catch {}
 
