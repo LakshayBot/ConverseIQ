@@ -83,7 +83,22 @@ export interface MeetingSummary {
 
 export async function createMeeting(title?: string): Promise<MeetingSummary> {
   try {
-    return await authedApiCall<MeetingSummary>('POST', '/api/v1/meetings', { title: title ?? '' });
+    // The .NET POST /api/v1/meetings endpoint historically returned
+    // `{ meetingId, status }` — a different shape than the GET endpoint
+    // (`{ id, status, createdAt, ... }`). Normalize both into `MeetingSummary`
+    // so callers can rely on `.id` without crashing the live intelligence
+    // WebSocket (which is keyed off the meeting id).
+    const raw = await authedApiCall<Record<string, any>>('POST', '/api/v1/meetings', { title: title ?? '' });
+    const id = raw.id ?? raw.meetingId;
+    if (!id) {
+      throw new Error('createMeeting response missing both id and meetingId');
+    }
+    return {
+      id: String(id),
+      title: raw.title ?? title ?? 'Untitled session',
+      status: raw.status ?? 'Created',
+      createdAt: raw.createdAt ?? new Date().toISOString(),
+    };
   } catch (e) {
     warnStub('createMeeting');
     return {
