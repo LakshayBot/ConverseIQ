@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode, MutableRefObject } from 'react';
 import { Transcript, TranscriptUpdate } from '@/types';
 import { toast } from 'sonner';
-import { invoke } from '@tauri-apps/api/core';
+import { authedApiCall } from '@/lib/auth';
 import { useRecordingState } from './RecordingStateContext';
 import { transcriptService } from '@/services/transcriptService';
 import { recordingService } from '@/services/recordingService';
@@ -498,32 +498,30 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
       return sorted;
     });
 
-    // Fan final transcripts out to the AI engine's intelligence pipeline.
-    // The desktop's local Parakeet STT produces transcripts here — without
-    // this push the engine's event_detector never runs for desktop sessions
-    // (the .NET CLI agent does the same via SignalR; this is the desktop's
-    // equivalent). Best-effort: log on failure but never block the UI.
+    // Fan final transcripts out to the .NET Gateway via the same tested
+    // pipeline the .NET CLI agent's audio path uses: EventDetectionService
+    // runs detect_all() against the user's trie, persists the
+    // ConversationEvent, then broadcasts EventDetected + RecommendationGenerated
+    // to /hubs/desktop-agent subscribers. The desktop's @microsoft/signalr
+    // consumer (useIntelligenceStream) receives them. Best-effort: log on
+    // failure but never block the UI.
     if (!update.is_partial && update.text && update.text.trim().length > 0) {
       const meetingId = currentMeetingIdRef.current;
       if (meetingId) {
-        console.log('[DIAG] pushing final transcript to engine ingest:', { meetingId, len: update.text.length });
-        invoke('callpilot_engine_request', {
-          method: 'POST',
-          path: '/api/v1/ai/events/ingest',
-          body: JSON.stringify({
-            text: update.text,
-            session_id: meetingId,
-          }),
-        }).then((resp) => {
-          const delivered = (resp as any)?.delivered ?? 0;
-          if (delivered > 0) {
-            console.log('[DIAG] engine ingest broadcast', { delivered });
-          }
-        }).catch((err) => {
-          console.warn('[DIAG] engine ingest failed (non-fatal):', err);
-        });
+        console.log('[DIAG] pushing final transcript to /process:', { meetingId, len: update.text.length });
+        authedApiCall('POST', `/api/v1/meetings/${meetingId}/process`, { text: update.text })
+          .then((resp) => {
+            const events = (resp as any)?.events?.length ?? 0;
+            const recs = (resp as any)?.recommendations?.length ?? 0;
+            if (events || recs) {
+              console.log('[DIAG] /process resolved', { events, recs });
+            }
+          })
+          .catch((err) => {
+            console.warn('[DIAG] /process failed (non-fatal):', err);
+          });
       } else {
-        console.log('[DIAG] final transcript arrived but currentMeetingId is null — skipping engine ingest');
+        console.log('[DIAG] final transcript arrived but currentMeetingId is null — skipping /process');
       }
     }
   }, []);
