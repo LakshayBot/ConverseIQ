@@ -93,6 +93,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
 
         // Listen for recording-started event
         unlistenRecordingStarted = await recordingService.onRecordingStarted(async () => {
+          console.log('[DIAG] recording-started event RECEIVED from Rust');
           try {
             // Generate unique meeting ID
             const meetingId = `meeting-${Date.now()}`;

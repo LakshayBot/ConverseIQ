@@ -334,7 +334,7 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     meeting_id: Option<String>,
 ) -> Result<(), String> {
     info!(
-        "Starting recording with specific devices: mic={:?}, system={:?}, meeting={:?}, meeting_id={:?}",
+        "[DIAG] Rust start_recording_with_devices_and_meeting ENTERED: mic={:?}, system={:?}, meeting={:?}, meeting_id={:?}",
         mic_device_name, system_device_name, meeting_name, meeting_id
     );
 
@@ -481,6 +481,7 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     }
 
     // Emit success event
+    info!("[DIAG] Rust emitting recording-started event");
     app.emit("recording-started", serde_json::json!({
         "message": "Recording started with custom devices and parallel processing",
         "devices": [

@@ -151,13 +151,18 @@ export function useRecordingStart(
 
   // Handle manual recording start (from button click)
   const handleRecordingStart = useCallback(async () => {
+    console.log('[DIAG] useRecordingStart.handleRecordingStart entered');
     try {
       console.log('handleRecordingStart called - checking Parakeet model status');
 
       // Check if Parakeet transcription model is ready before starting
+      console.log('[DIAG] step=checkParakeetReady');
       const parakeetReady = await checkParakeetReady();
+      console.log('[DIAG] checkParakeetReady →', parakeetReady);
       if (!parakeetReady) {
+        console.log('[DIAG] model NOT ready — checking if download in progress');
         const isDownloading = await checkIfModelDownloading();
+        console.log('[DIAG] checkIfModelDownloading →', isDownloading);
         if (isDownloading) {
           toast.info('Model download in progress', {
             description: 'Please wait for the transcription model to finish downloading before recording.',
@@ -173,6 +178,7 @@ export function useRecordingStart(
           Analytics.trackButtonClick('start_recording_blocked_missing', 'home_page');
         }
         setStatus(RecordingStatus.IDLE);
+        console.log('[DIAG] bailing — model not ready, no recording started');
         return;
       }
 
@@ -186,21 +192,25 @@ export function useRecordingStart(
 
       // Mint a meeting against the .NET Gateway FIRST so the intelligence WS
       // opens against a real session from frame 1.
+      console.log('[DIAG] step=mintMeetingId title=', randomTitle);
       const meetingId = await mintMeetingId(randomTitle);
+      console.log('[DIAG] mintMeetingId resolved →', meetingId);
 
       // Resolve devices (auto-pick defaults if user hasn't selected any yet)
+      console.log('[DIAG] step=resolveDevices selectedDevices=', selectedDevices);
       const { micDevice, systemDevice } = await resolveDevices();
+      console.log('[DIAG] resolved → mic =', micDevice, ', system =', systemDevice);
 
       // Start the actual backend recording
+      console.log('[DIAG] step=recordingService.startRecordingWithDevices');
       console.log('Starting backend recording with meeting:', randomTitle, 'id:', meetingId);
-      console.log('[useRecordingStart] using devices → mic =', micDevice, ', system =', systemDevice);
       await recordingService.startRecordingWithDevices(
         micDevice,
         systemDevice,
         randomTitle,
         meetingId
       );
-      console.log('Backend recording started successfully');
+      console.log('[DIAG] recordingService.startRecordingWithDevices RESOLVED OK');
 
       // Update state after successful backend start
       // Note: RECORDING status will be set by RecordingStateContext event listener
@@ -211,9 +221,12 @@ export function useRecordingStart(
       Analytics.trackButtonClick('start_recording', 'home_page');
 
       // Show recording notification if enabled
+      console.log('[DIAG] step=showRecordingNotification');
       await showRecordingNotification();
+      console.log('[DIAG] handleRecordingStart COMPLETE');
     } catch (error) {
-      console.error('Failed to start recording:', error);
+      console.error('[DIAG] handleRecordingStart CAUGHT error:', error);
+      console.error('[DIAG] error name =', (error as any)?.name, 'message =', (error as any)?.message, 'stringified =', String(error));
       setStatus(RecordingStatus.ERROR, error instanceof Error ? error.message : 'Failed to start recording');
       setIsRecording(false); // Reset state on error
       Analytics.trackButtonClick('start_recording_error', 'home_page');

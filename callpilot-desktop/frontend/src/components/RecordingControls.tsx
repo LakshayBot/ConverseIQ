@@ -228,24 +228,31 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
    * the audio pipeline keeps running while the UI thinks it's idle.
    */
   const handleToggleRecording = useCallback(async () => {
-    if (isStarting || isValidatingModel) return;
+    console.log('[DIAG] mic button click — handleToggleRecording entered. isStarting=', isStarting, 'isValidatingModel=', isValidatingModel, 'isRecording=', isRecording);
+    if (isStarting || isValidatingModel) {
+      console.log('[DIAG] mic click ignored — busy (isStarting or isValidatingModel true)');
+      return;
+    }
 
     let backendRecording = false;
     try {
       backendRecording = await invoke<boolean>('is_recording');
+      console.log('[DIAG] is_recording probe →', backendRecording);
     } catch (e) {
-      console.warn('[RecordingControls] is_recording check failed:', e);
+      console.warn('[DIAG] is_recording probe FAILED:', e);
     }
     console.log('[RecordingControls] toggle: backend recording =', backendRecording, 'UI isRecording =', isRecording);
 
     if (backendRecording || isRecording) {
       // STOP: directly invoke the Rust stop command, then notify parent.
+      console.log('[DIAG] branch = STOP');
       Analytics.trackButtonClick('stop_recording', 'recording_controls');
       onStopInitiated?.();
       try {
         const dataDir = await appDataDir();
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
         await invoke('stop_recording', { args: { save_path: `${dataDir}/recording-${ts}.wav` } });
+        console.log('[DIAG] stop_recording invoke OK');
       } catch (e) {
         console.warn('[RecordingControls] stop_recording error (ignoring):', e);
       }
@@ -254,8 +261,16 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
       }
     } else {
       // START: delegate to existing handleStartRecording (validates models, starts pipeline).
+      console.log('[DIAG] branch = START → calling handleStartRecording()');
       Analytics.trackButtonClick('start_recording', 'recording_controls');
-      await handleStartRecording();
+      try {
+        await handleStartRecording();
+        console.log('[DIAG] handleStartRecording resolved OK');
+      } catch (e) {
+        console.error('[DIAG] handleStartRecording THREW:', e);
+        // Re-raise so React's error boundary / outer catch sees it.
+        throw e;
+      }
     }
   }, [isRecording, isStarting, isValidatingModel, onRecordingStop, onStopInitiated, handleStartRecording]);
 

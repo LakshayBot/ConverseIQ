@@ -81,12 +81,22 @@ export class RecordingService {
     meetingName: string,
     meetingId: string
   ): Promise<void> {
-    return invoke('start_recording_with_devices_and_meeting', {
-      mic_device_name: micDeviceName,
-      system_device_name: systemDeviceName,
-      meeting_name: meetingName,
-      meeting_id: meetingId,
-    });
+    console.log('[DIAG] recordingService.startRecordingWithDevices invoke →', { micDeviceName, systemDeviceName, meetingName, meetingId });
+    try {
+      const result = await invoke('start_recording_with_devices_and_meeting', {
+        mic_device_name: micDeviceName,
+        system_device_name: systemDeviceName,
+        meeting_name: meetingName,
+        meeting_id: meetingId,
+      });
+      console.log('[DIAG] recordingService.invoke RESOLVED →', result);
+      // Command returns void — discard the value and return undefined.
+      void result;
+      return;
+    } catch (e) {
+      console.error('[DIAG] recordingService.invoke REJECTED:', e, '\n  message:', (e as any)?.message, '\n  stringified:', String(e));
+      throw e;
+    }
   }
 
   /**
