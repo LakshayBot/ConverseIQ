@@ -137,23 +137,6 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
     }
   }, [onRecordingStart, isStarting, isValidatingModel, selectedDevices, meetingName, isRecording]);
 
-  /**
-   * Robust toggle: queries the backend's actual recording state before deciding
-   * whether to start or stop. Handles state-mismatch bugs where the React UI
-   * thinks the app is idle but the backend audio pipeline is still running
-   * (which can happen after a hot-reload, a crashed tab, or a missed event).
-   *
-   * The "stop" path is special: it must invoke the `stop_recording` Tauri
-   * command FIRST (so the backend actually stops the audio pipeline), then
-   * notify the parent for post-stop processing. The old wiring only called
-   * the parent hook — which never fired `stop_recording` — leaving the
-   * backend recording while the React state thought otherwise.
-   *
-   * Defined after `stopRecordingAction` so it's in scope; React hoists state
-   * but `useCallback` references resolve at call time.
-   */
-  // (moved below after stopRecordingAction is declared)
-
   const stopRecordingAction = useCallback(async () => {
     console.log('Executing stop recording...');
     try {
@@ -217,47 +200,6 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
     // Immediately trigger the stop action
     await stopRecordingAction();
   }, [isRecording, isStarting, isStopping, stopRecordingAction, onStopInitiated]);
-
-  /**
-   * Toggle recording by querying the backend's actual state first. This is
-   * the function wired to the main mic button so a single click always
-   * does the right thing — recovers from React/backend state mismatch.
-   *
-   * The "stop" path MUST call stopRecordingAction() (which invokes the Rust
-   * stop_recording command), NOT just the parent post-stop hook. Otherwise
-   * the audio pipeline keeps running while the UI thinks it's idle.
-   */
-  const handleToggleRecording = useCallback(async () => {
-    if (isStarting || isValidatingModel) return;
-
-    let backendRecording = false;
-    try {
-      backendRecording = await invoke<boolean>('is_recording');
-    } catch (e) {
-      console.warn('[RecordingControls] is_recording check failed:', e);
-    }
-    console.log('[RecordingControls] toggle: backend recording =', backendRecording, 'UI isRecording =', isRecording);
-
-    if (backendRecording || isRecording) {
-      // STOP: directly invoke the Rust stop command, then notify parent.
-      Analytics.trackButtonClick('stop_recording', 'recording_controls');
-      onStopInitiated?.();
-      try {
-        const dataDir = await appDataDir();
-        const ts = new Date().toISOString().replace(/[:.]/g, '-');
-        await invoke('stop_recording', { args: { save_path: `${dataDir}/recording-${ts}.wav` } });
-      } catch (e) {
-        console.warn('[RecordingControls] stop_recording error (ignoring):', e);
-      }
-      try { await onRecordingStop(true); } catch (e) {
-        console.warn('[RecordingControls] onRecordingStop error:', e);
-      }
-    } else {
-      // START: delegate to existing handleStartRecording (validates models, starts pipeline).
-      Analytics.trackButtonClick('start_recording', 'recording_controls');
-      await handleStartRecording();
-    }
-  }, [isRecording, isStarting, isValidatingModel, onRecordingStop, onStopInitiated, handleStartRecording]);
 
   const handlePauseRecording = useCallback(async () => {
     if (!isRecording || isPaused || isPausing) return;
@@ -451,7 +393,10 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
-                          onClick={handleToggleRecording}
+                          onClick={() => {
+                            Analytics.trackButtonClick?.('start_recording', 'recording_controls');
+                            handleStartRecording();
+                          }}
                           disabled={isStarting || isProcessing || isValidatingModel}
                           className={`w-12 h-12 flex items-center justify-center ${isStarting || isProcessing || isValidatingModel ? 'bg-gray-400' : 'bg-red-500 hover:bg-red-600'
                             } rounded-full text-white transition-colors relative`}
