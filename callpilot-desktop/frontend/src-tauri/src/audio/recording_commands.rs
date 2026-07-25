@@ -42,6 +42,12 @@ static IS_RECORDING: AtomicBool = AtomicBool::new(false);
 static RECORDING_MANAGER: Mutex<Option<RecordingManager>> = Mutex::new(None);
 static TRANSCRIPTION_TASK: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 
+// Server-issued meeting ID for the active recording session. Set on
+// `start_recording_with_devices_and_meeting` from the .NET Gateway's
+// `POST /api/v1/meetings` response and read by `get_recording_meeting_id`.
+// Cleared on stop.
+static RECORDING_MEETING_ID: Mutex<Option<String>> = Mutex::new(None);
+
 // Listener ID for proper cleanup - prevents microphone from staying active after recording stops
 static TRANSCRIPT_LISTENER_ID: Mutex<Option<tauri::EventId>> = Mutex::new(None);
 
@@ -311,20 +317,33 @@ pub async fn start_recording_with_devices<R: Runtime>(
     mic_device_name: Option<String>,
     system_device_name: Option<String>,
 ) -> Result<(), String> {
-    start_recording_with_devices_and_meeting(app, mic_device_name, system_device_name, None).await
+    start_recording_with_devices_and_meeting(app, mic_device_name, system_device_name, None, None).await
 }
 
-/// Start recording with specific devices and optional meeting name
+/// Start recording with specific devices and optional meeting name + ID.
+///
+/// `meeting_id` is the .NET Gateway's meeting ID returned by
+/// `POST /api/v1/meetings`. The frontend mints it synchronously before
+/// invoking this command so the intelligence WebSocket has the right
+/// session key from frame 1.
 pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     app: AppHandle<R>,
     mic_device_name: Option<String>,
     system_device_name: Option<String>,
     meeting_name: Option<String>,
+    meeting_id: Option<String>,
 ) -> Result<(), String> {
     info!(
-        "Starting recording with specific devices: mic={:?}, system={:?}, meeting={:?}",
-        mic_device_name, system_device_name, meeting_name
+        "Starting recording with specific devices: mic={:?}, system={:?}, meeting={:?}, meeting_id={:?}",
+        mic_device_name, system_device_name, meeting_name, meeting_id
     );
+
+    // Stash the meeting ID for downstream consumers (get_recording_meeting_id,
+    // recording-stopped payload, transcript writer). Clear any stale value first.
+    {
+        let mut id_slot = RECORDING_MEETING_ID.lock().unwrap();
+        *id_slot = meeting_id.clone();
+    }
 
     let engine_lifecycle_guard = super::common::acquire_engine_lifecycle_lock().await;
 
@@ -468,7 +487,9 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
             mic_device_name.unwrap_or_else(|| "Default Microphone".to_string()),
             system_device_name.unwrap_or_else(|| "Default System Audio".to_string())
         ],
-        "workers": 3
+        "workers": 3,
+        "meeting_id": meeting_id,
+        "meeting_name": meeting_name
     })).map_err(|e| e.to_string())?;
 
     // Update tray menu to reflect recording state
@@ -509,6 +530,12 @@ pub async fn stop_recording<R: Runtime>(
         let mut global_manager = RECORDING_MANAGER.lock().unwrap();
         global_manager.take()
     };
+
+    // Clear the stashed meeting ID — next recording will mint a fresh one.
+    {
+        let mut id_slot = RECORDING_MEETING_ID.lock().unwrap();
+        *id_slot = None;
+    }
 
     let stop_result = if let Some(mut manager) = manager_for_cleanup {
         // Use FORCE FLUSH to immediately process all accumulated audio - eliminates 30s delay!
@@ -954,6 +981,15 @@ pub async fn get_recording_meeting_name() -> Result<Option<String>, String> {
     } else {
         Ok(None)
     }
+}
+
+/// Get the server-issued meeting ID (from `POST /api/v1/meetings`) for the
+/// active recording session. Used by the frontend to re-attach to the
+/// correct intelligence stream after a page reload, mirroring
+/// `get_recording_meeting_name`.
+#[tauri::command]
+pub async fn get_recording_meeting_id() -> Result<Option<String>, String> {
+    Ok(RECORDING_MEETING_ID.lock().unwrap().clone())
 }
 
 // ============================================================================

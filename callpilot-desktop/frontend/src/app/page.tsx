@@ -14,7 +14,6 @@ import { SettingsModals } from './_components/SettingsModal';
 import { TranscriptPanel } from './_components/TranscriptPanel';
 import { IntelligencePanel } from '@/components/IntelligencePanel';
 import { useIntelligenceStream } from '@/hooks/useIntelligenceStream';
-import { createMeeting } from '@/lib/callpilotApi';
 import { useModalState } from '@/hooks/useModalState';
 import { useRecordingStateSync } from '@/hooks/useRecordingStateSync';
 import { useRecordingStart } from '@/hooks/useRecordingStart';
@@ -44,7 +43,7 @@ export default function Home() {
   const { setIsMeetingActive, isCollapsed: sidebarCollapsed, refetchMeetings } = useSidebar();
   const { modals, messages, showModal, hideModal } = useModalState(transcriptModelConfig);
   const { isRecordingDisabled, setIsRecordingDisabled } = useRecordingStateSync(isRecording, setIsRecordingState, setIsMeetingActive);
-  const { handleRecordingStart } = useRecordingStart(isRecording, setIsRecordingState, showModal);
+  const { handleRecordingStart, sessionId: hookSessionId } = useRecordingStart(isRecording, setIsRecordingState, showModal);
 
   // Get handleRecordingStop function and setIsStopping (state comes from global context)
   const { handleRecordingStop, setIsStopping } = useRecordingStop(
@@ -66,38 +65,18 @@ export default function Home() {
   const router = useRouter();
 
   // CallPilot — intelligence stream keyed by the current meeting id.
-  // We create (or look up) a meeting on the .NET Gateway when recording starts
-  // and use the returned id as the session id. Falls back to a local UUID if
-  // the Gateway is unreachable, so the WS still has a stable key for the
-  // duration of the session.
-  const [sessionId, setSessionId] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      const urlMeeting = new URLSearchParams(window.location.search).get('meeting');
-      if (urlMeeting) return urlMeeting;
-    }
-    return null;
-  });
-
-  // When recording starts (and we don't already have a session), mint one
-  // via the .NET Gateway so the intelligence WS targets a real session.
-  useEffect(() => {
-    let cancelled = false;
-    if (recordingState.isRecording && !sessionId) {
-      (async () => {
-        try {
-          const meeting = await createMeeting(meetingTitle || undefined);
-          if (!cancelled) setSessionId(meeting.id);
-        } catch (e) {
-          // Stub createMeeting already returns a UUID on failure — last-resort fallback.
-          if (!cancelled) setSessionId(crypto.randomUUID());
-        }
-      })();
-    }
-    if (!recordingState.isRecording && !sessionId) {
-      // Reset session id when fully idle so the next recording mints a fresh one.
-    }
-    return () => { cancelled = true; };
-  }, [recordingState.isRecording, sessionId, meetingTitle]);
+  //
+  // `useRecordingStart` mints the meeting against the .NET Gateway
+  // synchronously inside the start handler, so by the time `isRecording`
+  // flips true we already have a stable ID. The `?meeting=` URL query
+  // override is honored only as a fallback for deep-links from
+  // meeting-details (where no recording is started, but the user expects
+  // to see the same session's cards).
+  const deepLinkMeetingId = (() => {
+    if (typeof window === 'undefined') return null;
+    return new URLSearchParams(window.location.search).get('meeting');
+  })();
+  const sessionId = hookSessionId ?? deepLinkMeetingId;
 
   const { cards: intelligenceCards, connected: intelligenceConnected, error: intelligenceError } =
     useIntelligenceStream(sessionId);

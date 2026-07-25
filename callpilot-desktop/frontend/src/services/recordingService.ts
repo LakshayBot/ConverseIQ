@@ -60,21 +60,32 @@ export class RecordingService {
   }
 
   /**
-   * Start recording with device configuration and meeting name
+   * Start recording with device configuration, meeting name, and meeting ID.
+   *
+   * `meetingId` is the .NET Gateway's meeting ID (returned by
+   * `POST /api/v1/meetings`). It is threaded through to the audio pipeline
+   * metadata so downstream consumers (transcript writer, IndexedDB sync,
+   * etc.) can correlate local audio with the canonical server-side record,
+   * and so the intelligence WebSocket has the right session key from the
+   * first second of recording.
+   *
    * @param micDeviceName - Microphone device name (null for default)
    * @param systemDeviceName - System audio device name (null for none)
    * @param meetingName - Meeting name/title
+   * @param meetingId - Server-issued meeting ID (uuid)
    * @returns Promise<void>
    */
   async startRecordingWithDevices(
     micDeviceName: string | null,
     systemDeviceName: string | null,
-    meetingName: string
+    meetingName: string,
+    meetingId: string
   ): Promise<void> {
     return invoke('start_recording_with_devices_and_meeting', {
       mic_device_name: micDeviceName,
       system_device_name: systemDeviceName,
-      meeting_name: meetingName
+      meeting_name: meetingName,
+      meeting_id: meetingId,
     });
   }
 

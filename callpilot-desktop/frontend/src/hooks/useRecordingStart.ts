@@ -5,6 +5,7 @@ import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useRecordingState, RecordingStatus } from '@/contexts/RecordingStateContext';
 import { recordingService } from '@/services/recordingService';
+import { createMeeting } from '@/lib/callpilotApi';
 import Analytics from '@/lib/analytics';
 import { showRecordingNotification } from '@/lib/recordingNotification';
 import { toast } from 'sonner';
@@ -12,6 +13,13 @@ import { toast } from 'sonner';
 interface UseRecordingStartReturn {
   handleRecordingStart: () => Promise<void>;
   isAutoStarting: boolean;
+  /**
+   * Server-issued meeting ID for the active recording session. `null` when
+   * not recording. Mints synchronously inside the start handler — guaranteed
+   * to be set before `useIntelligenceStream` opens its WebSocket, so cards
+   * stream from the first second of the recording.
+   */
+  sessionId: string | null;
 }
 
 /**
@@ -31,6 +39,10 @@ export function useRecordingStart(
   showModal?: (name: 'modelSelector', message?: string) => void
 ): UseRecordingStartReturn {
   const [isAutoStarting, setIsAutoStarting] = useState(false);
+  // Server-issued meeting ID for the active session. `null` until the user
+  // starts recording. Stable across pause/resume/stop so the intelligence
+  // WebSocket and post-recording transcript writer share the same key.
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   const { clearTranscripts, setMeetingTitle } = useTranscripts();
   const { setIsMeetingActive } = useSidebar();
@@ -112,6 +124,31 @@ export function useRecordingStart(
     }
   }, []);
 
+  /**
+   * Synchronously mint a meeting against the .NET Gateway so the recording
+   * has a stable ID before any audio is captured or the intelligence WS opens.
+   * Falls back to a local UUID if the server is unreachable — the WS still
+   * has a stable key for the session and the transcript writer can re-link
+   * later when the user has connectivity.
+   */
+  const mintMeetingId = useCallback(async (title: string): Promise<string> => {
+    try {
+      const meeting = await createMeeting(title);
+      setSessionId(meeting.id);
+      console.log('[useRecordingStart] minted meeting', meeting.id, 'for', title);
+      return meeting.id;
+    } catch (e) {
+      const fallback = crypto.randomUUID();
+      setSessionId(fallback);
+      console.warn(
+        '[useRecordingStart] createMeeting failed, using local UUID',
+        fallback,
+        e,
+      );
+      return fallback;
+    }
+  }, []);
+
   // Handle manual recording start (from button click)
   const handleRecordingStart = useCallback(async () => {
     try {
@@ -147,16 +184,21 @@ export function useRecordingStart(
       // Set STARTING status before initiating backend recording
       setStatus(RecordingStatus.STARTING, 'Initializing recording...');
 
+      // Mint a meeting against the .NET Gateway FIRST so the intelligence WS
+      // opens against a real session from frame 1.
+      const meetingId = await mintMeetingId(randomTitle);
+
       // Resolve devices (auto-pick defaults if user hasn't selected any yet)
       const { micDevice, systemDevice } = await resolveDevices();
 
       // Start the actual backend recording
-      console.log('Starting backend recording with meeting:', randomTitle);
+      console.log('Starting backend recording with meeting:', randomTitle, 'id:', meetingId);
       console.log('[useRecordingStart] using devices → mic =', micDevice, ', system =', systemDevice);
       await recordingService.startRecordingWithDevices(
         micDevice,
         systemDevice,
-        randomTitle
+        randomTitle,
+        meetingId
       );
       console.log('Backend recording started successfully');
 
@@ -178,7 +220,7 @@ export function useRecordingStart(
       // Re-throw so RecordingControls can handle device-specific errors
       throw error;
     }
-  }, [generateMeetingTitle, setMeetingTitle, setIsRecording, clearTranscripts, setIsMeetingActive, checkParakeetReady, checkIfModelDownloading, selectedDevices, showModal, setStatus, resolveDevices]);
+  }, [generateMeetingTitle, setMeetingTitle, setIsRecording, clearTranscripts, setIsMeetingActive, checkParakeetReady, checkIfModelDownloading, selectedDevices, showModal, setStatus, resolveDevices, mintMeetingId]);
 
   // Check for autoStartRecording flag and start recording automatically
   useEffect(() => {
@@ -222,11 +264,14 @@ export function useRecordingStart(
             setStatus(RecordingStatus.STARTING, 'Initializing recording...');
 
             console.log('Auto-starting backend recording with meeting:', generatedMeetingTitle);
+            // Mint a meeting against the .NET Gateway before the WS opens.
+            const autoMeetingId = await mintMeetingId(generatedMeetingTitle);
             const { micDevice: autoMic, systemDevice: autoSys } = await resolveDevices();
             const result = await recordingService.startRecordingWithDevices(
               autoMic,
               autoSys,
-              generatedMeetingTitle
+              generatedMeetingTitle,
+              autoMeetingId
             );
             console.log('Auto-start backend recording result:', result);
 
@@ -267,6 +312,7 @@ export function useRecordingStart(
     showModal,
     setStatus,
     resolveDevices,
+    mintMeetingId,
   ]);
 
   // Listen for direct recording trigger from sidebar when already on home page
@@ -311,11 +357,14 @@ export function useRecordingStart(
         setStatus(RecordingStatus.STARTING, 'Initializing recording...');
 
         console.log('Starting backend recording with meeting:', generatedMeetingTitle);
+        // Mint a meeting against the .NET Gateway before the WS opens.
+        const dMeetingId = await mintMeetingId(generatedMeetingTitle);
         const { micDevice: dMic, systemDevice: dSys } = await resolveDevices();
         const result = await recordingService.startRecordingWithDevices(
           dMic,
           dSys,
-          generatedMeetingTitle
+          generatedMeetingTitle,
+          dMeetingId
         );
         console.log('Backend recording result:', result);
 
@@ -358,10 +407,12 @@ export function useRecordingStart(
     showModal,
     setStatus,
     resolveDevices,
+    mintMeetingId,
   ]);
 
   return {
     handleRecordingStart,
     isAutoStarting,
+    sessionId,
   };
 }

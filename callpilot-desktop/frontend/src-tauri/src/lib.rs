@@ -92,6 +92,7 @@ async fn start_recording<R: Runtime>(
         mic_device_name,
         system_device_name,
         meeting_name.clone(),
+        None, // meeting_id — tray-initiated recordings don't go through the .NET Gateway
     )
     .await
     {
@@ -324,6 +325,7 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
                 mic_device_name,
                 system_device_name,
                 meeting_name,
+                None, // meeting_id — UI-initiated without .NET Gateway mint
             )
             .await
         }
@@ -548,6 +550,7 @@ pub fn run() {
             // Reload sync commands (retrieve transcript history and meeting name)
             audio::recording_commands::get_transcript_history,
             audio::recording_commands::get_recording_meeting_name,
+            audio::recording_commands::get_recording_meeting_id,
             // Device monitoring commands (AirPods/Bluetooth disconnect/reconnect)
             audio::recording_commands::poll_audio_device_events,
             audio::recording_commands::get_reconnection_status,
