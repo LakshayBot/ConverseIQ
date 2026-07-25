@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text;
+using Microsoft.AspNetCore.SignalR;
 using CallPilot.Server.Api.Endpoints;
 using CallPilot.Server.Api.Hubs;
 using CallPilot.Server.Application.Authentication.Login;
@@ -45,7 +46,18 @@ var jwtSecret = builder.Configuration["Jwt:Secret"]!;
 // Declared up here so the JWT bearer `OnChallenge` event (below) can
 // reuse the same origin list without duplicating the literal.  See the
 // CORS comment near `AddCors` for the rationale.
-var corsAllowedOrigins = new[] { "http://localhost:3000" };
+//
+// Tauri origins are included so the desktop Tauri 2 webview can connect
+// to /hubs/desktop-agent — the SignalR `negotiate` HTTP call is subject to
+// CORS preflight, and Tauri 2's webview origin (`tauri://localhost`,
+// `http(s)://tauri.localhost`) is otherwise not in the allowlist.
+var corsAllowedOrigins = new[]
+{
+    "http://localhost:3000",       // Next.js dashboard
+    "tauri://localhost",           // Tauri 2 webview (Windows / Linux)
+    "http://tauri.localhost",      // Tauri 2 webview (macOS / iOS / Android)
+    "https://tauri.localhost",     // Tauri 2 webview (some platforms / dev)
+};
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -379,6 +391,7 @@ app.MapPost("/api/v1/meetings/{id:guid}/process", async (
     EventDetectionService eventDetector,
     RecommendationEngine recommendationEngine,
     MeetingDiagnosticsService diagnostics,
+    IHubContext<DesktopAgentHub> hubContext,
     ProcessTextRequest body) =>
 {
     var userIdClaim = user.FindFirst("userId")?.Value;
@@ -387,6 +400,14 @@ app.MapPost("/api/v1/meetings/{id:guid}/process", async (
     var text = body.text;
     if (string.IsNullOrWhiteSpace(text))
         return Results.BadRequest(new { error = "No text provided" });
+
+    // Broadcast events/recommendations to the same SignalR group the
+    // DesktopAgentHub uses (`meeting_{id}`), so any client joined to that
+    // meeting (desktop Tauri app, web dashboard, .NET CLI agent) sees the
+    // live cards. Payload shapes mirror DesktopAgentHub.ProcessTranscriptAsync
+    // (Hubs/DesktopAgentHub.cs:157-166, 183-192) so existing consumers work
+    // without changes.
+    var groupName = $"meeting_{id}";
 
     var events = await eventDetector.DetectEventsAsync(text);
     var persistedEvents = new List<object>();
@@ -400,7 +421,18 @@ app.MapPost("/api/v1/meetings/{id:guid}/process", async (
             id, evt.EventType, evt.EntityName, evt.Confidence,
             text.Length > 1000 ? text[..1000] : text);
         db.ConversationEvents.Add(conversationEvent);
+        await db.SaveChangesAsync();
         persistedEvents.Add(new { conversationEvent.Id, conversationEvent.EventType, conversationEvent.EntityName, conversationEvent.Confidence });
+
+        await hubContext.Clients.Group(groupName).SendAsync("EventDetected", new
+        {
+            conversationEvent.Id,
+            conversationEvent.EventType,
+            conversationEvent.EntityName,
+            conversationEvent.Confidence,
+            conversationEvent.DetectedAt,
+            supportingTranscript = conversationEvent.SupportingTranscript
+        });
 
         var rec = await recommendationEngine.GenerateRecommendationAsync(
             id, Guid.Parse(userIdClaim), conversationEvent);
@@ -408,11 +440,22 @@ app.MapPost("/api/v1/meetings/{id:guid}/process", async (
         {
             diagnostics.TrackRecommendation(id.ToString(), 0, "rule-based");
             db.Recommendations.Add(rec);
+            await db.SaveChangesAsync();
             recommendations.Add(new { rec.Id, rec.Type, rec.Title, rec.Summary, rec.Confidence, rec.References });
+
+            await hubContext.Clients.Group(groupName).SendAsync("RecommendationGenerated", new
+            {
+                rec.Id,
+                rec.Type,
+                rec.Title,
+                rec.Summary,
+                rec.Confidence,
+                rec.References,
+                rec.GeneratedAt
+            });
         }
     }
 
-    await db.SaveChangesAsync();
     return Results.Ok(new { events = persistedEvents, recommendations });
 }).RequireAuthorization();
 
