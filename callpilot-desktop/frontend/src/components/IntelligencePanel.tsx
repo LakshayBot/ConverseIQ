@@ -8,6 +8,9 @@ interface Props {
   cards: IntelligenceCard[];
   connected: boolean;
   error: string | null;
+  /** Current session ID — surfaced in the panel header so the user can see
+   *  whether one is active (and what to paste into DevTools if debugging). */
+  sessionId?: string | null;
 }
 
 const TYPE_META: Record<IntelligenceCard['type'], { icon: React.ReactNode; label: string }> = {
@@ -25,12 +28,48 @@ const SEVERITY_BORDER: Record<IntelligenceCard['severity'], string> = {
   low: 'border-l-blue-500',
 };
 
-export const IntelligencePanel: React.FC<Props> = ({ cards, connected, error }) => {
+export const IntelligencePanel: React.FC<Props> = ({ cards, connected, error, sessionId }) => {
+  // Small status pill that shows WS connection state + the active session id.
+  // Critical for debugging — without this the user can't tell whether the WS
+  // is even being opened (the empty state below all reads "Connecting…" or
+  // "Waiting for intelligence…" depending on connected).
+  const statusBadge = (() => {
+    if (error) {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 border border-red-200">
+          <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+          Offline
+        </span>
+      );
+    }
+    if (connected) {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 border border-emerald-200">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          Connected
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600 border border-gray-200">
+        <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" />
+        Connecting
+      </span>
+    );
+  })();
   if (error) {
     return (
       <div className="rounded-md border border-dashed border-gray-300 bg-white/60 p-4 text-sm text-gray-500">
-        <div className="font-medium text-gray-700">Intelligence stream offline</div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-medium text-gray-700">Intelligence stream offline</span>
+          {statusBadge}
+        </div>
         <div className="mt-1 text-xs">{error}. Check Settings → AI Engine URL.</div>
+        {sessionId && (
+          <div className="mt-2 text-[10px] text-gray-400 font-mono break-all">
+            session: {sessionId}
+          </div>
+        )}
       </div>
     );
   }
@@ -38,12 +77,24 @@ export const IntelligencePanel: React.FC<Props> = ({ cards, connected, error }) 
   if (!cards.length) {
     return (
       <div className="rounded-md border border-dashed border-gray-300 bg-white/60 p-4 text-sm text-gray-500">
-        <div className="font-medium text-gray-700">Waiting for intelligence…</div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-medium text-gray-700">
+            {connected ? 'Connected — waiting for intelligence…' : 'Waiting for intelligence…'}
+          </span>
+          {statusBadge}
+        </div>
         <div className="mt-1 text-xs">
           {connected
-            ? 'Connected to CallPilot. Competitors, objections, and product matches will surface here as the conversation unfolds.'
-            : 'Connecting to CallPilot AI engine…'}
+            ? 'Competitors, objections, and product matches will surface here as the conversation unfolds.'
+            : sessionId
+              ? 'Connecting to CallPilot AI engine…'
+              : 'Start a recording to open the intelligence stream.'}
         </div>
+        {sessionId && (
+          <div className="mt-2 text-[10px] text-gray-400 font-mono break-all">
+            session: {sessionId}
+          </div>
+        )}
       </div>
     );
   }

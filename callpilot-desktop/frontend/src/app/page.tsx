@@ -250,6 +250,7 @@ export default function Home() {
             cards={intelligenceCards}
             connected={intelligenceConnected}
             error={intelligenceError}
+            sessionId={sessionId}
           />
         </aside>
 
