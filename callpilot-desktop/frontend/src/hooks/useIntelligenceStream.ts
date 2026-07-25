@@ -1,33 +1,108 @@
-// useIntelligenceStream — opens a WebSocket to the CallPilot AI engine and
-// surfaces `IntelligenceCard` events for the live meeting view.
+// useIntelligenceStream — connects to the .NET Gateway's
+// /hubs/desktop-agent SignalR hub and surfaces `IntelligenceCard`
+// events for the live meeting view.
 //
-// URL pattern (per task spec): ws://<CALLPILOT_AI_ENGINE_URL>/ws/intelligence/{session_id}
+// SignalR protocol (matches `src/callpilot-dashboard/src/lib/signalr.ts`):
+//   Server → Client: "EventDetected"            (from /process broadcast)
+//   Server → Client: "RecommendationGenerated"  (from /process broadcast)
+//   Client → Server: "JoinMeeting"  <meetingId>   (subscribe to group)
 //
-// Engine protocol (routers/intelligence_router.py):
-//   Server → Client: { type: "ready",   session_id }
-//   Server → Client: { type: "ping",    ts: <unix_ms> }
-//   Server → Client: { type: "card",    card: <IntelligenceCard> }
-//   Client → Server: { type: "pong" }
+// Cards arrive with the same payload shape that the dashboard consumes
+// (see DesktopAgentHub.cs:157-166 and :183-192) — we map them to
+// `IntelligenceCard` for the panel.
 //
-// The hook now actually reconnects on abnormal close (was a no-op before —
-// the UI would stay "Connecting…" forever if the engine 404'd or rebooted).
+// NOTE: this previously opened a WebSocket to the Python engine's
+// /ws/intelligence/{session_id} endpoint (now removed). The .NET
+// Gateway is the single intelligence surface — both this desktop and
+// the web dashboard receive the same SignalR broadcasts.
 
 import { useEffect, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import {
-  DEFAULT_CALLPILOT_AI_ENGINE_URL,
-  normalizeWsBaseUrl,
-  SETTINGS_KEY_AI_ENGINE_URL,
-} from '@/lib/callpilot';
+  HubConnectionBuilder,
+  HubConnection,
+  HubConnectionState,
+  LogLevel,
+  HttpTransportType,
+} from '@microsoft/signalr';
+import { getCallPilotApiBaseUrl } from '@/lib/callpilotApi';
+import { authedApiCall } from '@/lib/auth';
 import type { IntelligenceCard } from '@/lib/callpilotApi';
 
 const MAX_CARDS_VISIBLE = 5;
-const MAX_RECONNECT_ATTEMPTS = 5;
-const BASE_RECONNECT_MS = 500;
-const MAX_RECONNECT_MS = 8000;
+const MAX_CARDS_STORED = 50;
 
-// Log every sessionId transition so we can see whether the prop arrived at all.
-// Mount/unmount markers let us confirm the hook instance isn't being thrown
-// away on every render.
+interface EventPayload {
+  id?: string;
+  eventType?: string;
+  entityName?: string | null;
+  confidence?: number;
+  detectedAt?: string;
+  category?: string | null;
+  supportingTranscript?: string | null;
+}
+
+interface RecommendationPayload {
+  id?: string;
+  type?: string;
+  title?: string;
+  summary?: string;
+  confidence?: number;
+  references?: string[] | null;
+  generatedAt?: string;
+}
+
+const CARD_TYPE_BY_EVENT: Record<string, IntelligenceCard['type']> = {
+  ProductMentioned: 'product_match',
+  CompetitorMentioned: 'competitor_detected',
+  Objection: 'objection',
+  PricingDiscussion: 'pricing_discussion',
+  PricingQuestion: 'pricing_discussion',
+  TechnicalQuestion: 'technical_question',
+};
+
+const CARD_TYPE_BY_REC: Record<string, IntelligenceCard['type']> = {
+  product_match: 'product_match',
+  competitor: 'competitor_detected',
+  objection: 'objection',
+  pricing: 'pricing_discussion',
+  technical: 'technical_question',
+};
+
+function severityFromConfidence(c: number | undefined): IntelligenceCard['severity'] {
+  const v = typeof c === 'number' ? c : 0;
+  if (v >= 0.9) return 'high';
+  if (v >= 0.7) return 'medium';
+  return 'low';
+}
+
+function cardFromEvent(p: EventPayload): IntelligenceCard | null {
+  const eventType = p.eventType ?? '';
+  const cardType = CARD_TYPE_BY_EVENT[eventType];
+  if (!cardType) return null;
+  const titleEntity = p.entityName ? `: ${p.entityName}` : '';
+  return {
+    type: cardType,
+    title: `${eventType}${titleEntity}`,
+    body: p.supportingTranscript ?? '',
+    severity: severityFromConfidence(p.confidence),
+    chunks: p.supportingTranscript ? [p.supportingTranscript] : [],
+  };
+}
+
+function cardFromRecommendation(p: RecommendationPayload): IntelligenceCard | null {
+  const recType = (p.type ?? '').toLowerCase();
+  const cardType = CARD_TYPE_BY_REC[recType] ?? 'product_match';
+  if (!p.title) return null;
+  return {
+    type: cardType,
+    title: p.title,
+    body: p.summary ?? '',
+    severity: severityFromConfidence(p.confidence),
+    chunks: Array.isArray(p.references) ? p.references : [],
+  };
+}
+
 let _lastSeenSessionId: string | null | undefined = undefined;
 let _effectRunCount = 0;
 
@@ -35,185 +110,147 @@ export function useIntelligenceStream(sessionId: string | null) {
   const [cards, setCards] = useState<IntelligenceCard[]>([]);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [wsUrl, setWsUrl] = useState<string | null>(null);
-  const [wsReadyState, setWsReadyState] = useState<number | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectAttemptRef = useRef(0);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Bumped on every (re)connect attempt so the connect effect re-runs.
-  const [connectNonce, setConnectNonce] = useState(0);
+  const [signalRUrl, setSignalRUrl] = useState<string | null>(null);
+  const [connectionState, setConnectionState] = useState<HubConnectionState | null>(null);
+  const connRef = useRef<HubConnection | null>(null);
 
   useEffect(() => {
+    const currentSessionId = sessionId;
+    let cancelled = false;
+
     _effectRunCount += 1;
-    if (sessionId !== _lastSeenSessionId) {
+    if (currentSessionId !== _lastSeenSessionId) {
       console.log(
         '[DIAG] useIntelligenceStream prop CHANGED: was =',
         JSON.stringify(_lastSeenSessionId),
         'now =',
-        JSON.stringify(sessionId),
+        JSON.stringify(currentSessionId),
         'effect run #',
         _effectRunCount,
       );
-      _lastSeenSessionId = sessionId;
+      _lastSeenSessionId = currentSessionId;
     } else {
-      console.log('[DIAG] useIntelligenceStream effect run (same sessionId=', JSON.stringify(sessionId), '), # ', _effectRunCount);
+      console.log(
+        '[DIAG] useIntelligenceStream effect run (same sessionId=',
+        JSON.stringify(currentSessionId),
+        '), # ',
+        _effectRunCount,
+      );
     }
-    console.log('[DIAG] useIntelligenceStream effect: sessionId =', JSON.stringify(sessionId), 'connectNonce =', connectNonce);
-    if (!sessionId) {
-      console.log('[DIAG] useIntelligenceStream: no sessionId, skipping WS open');
+
+    // Tear down any prior connection before re-attaching.
+    if (connRef.current) {
+      connRef.current.stop().catch(() => {});
+      connRef.current = null;
+    }
+
+    if (!currentSessionId) {
+      console.log('[DIAG] useIntelligenceStream: no sessionId, skipping SignalR open');
       setCards([]);
       setConnected(false);
       setError(null);
-      reconnectAttemptRef.current = 0;
+      setSignalRUrl(null);
+      setConnectionState(null);
       return;
     }
 
-    let cancelled = false;
-    let baseUrl = DEFAULT_CALLPILOT_AI_ENGINE_URL;
-    try {
-      const stored = localStorage.getItem(SETTINGS_KEY_AI_ENGINE_URL);
-      if (stored) baseUrl = stored;
-    } catch {}
-
-    const wsBase = normalizeWsBaseUrl(baseUrl).replace(/\/+$/, '');
-    const url = `${wsBase}/ws/intelligence/${encodeURIComponent(sessionId)}`;
-    // eslint-disable-next-line no-console
-    console.log('[DIAG] useIntelligenceStream connecting →', url);
-    setWsUrl(url);
-    setWsReadyState(0); // CONNECTING — set immediately so the debug strip reflects it
-
-    let socket: WebSocket | null = null;
-    try {
-      socket = new WebSocket(url);
-      console.log('[DIAG] WebSocket constructed, readyState =', socket.readyState, '(0=CONNECTING)');
-    } catch (e: any) {
-      // eslint-disable-next-line no-console
-      console.warn('[DIAG] WebSocket CONSTRUCT THREW:', e?.message ?? e);
-      setError('Intelligence stream unavailable');
-      setConnected(false);
-      setWsReadyState(3); // CLOSED
-      return;
-    }
-
-    wsRef.current = socket;
-
-    // Keep the debug strip's readyState in sync with the underlying socket.
-    // This fires on every transition (CONNECTING → OPEN, OPEN → CLOSING, …).
-    socket.addEventListener('open', () => setWsReadyState(socket.readyState));
-    socket.addEventListener('close', () => setWsReadyState(socket.readyState));
-    socket.addEventListener('error', () => setWsReadyState(socket.readyState));
-
-    socket.onopen = () => {
-      if (cancelled) return;
-      // eslint-disable-next-line no-console
-      console.log('[DIAG] intelligence WS OPEN readyState =', socket.readyState, '(1=OPEN)', url);
-      setConnected(true);
-      setError(null);
-      setWsReadyState(socket.readyState);
-      reconnectAttemptRef.current = 0;
-    };
-
-    socket.onmessage = (ev) => {
-      if (cancelled) return;
-      // eslint-disable-next-line no-console
-      console.log('[DIAG] intelligence WS MESSAGE raw =', typeof ev.data === 'string' ? ev.data.slice(0, 200) : '(binary)');
-      try {
-        // Discriminated union: control frames (ping/ready/pong) and card frames.
-        const parsed = JSON.parse(ev.data) as
-          | { type: 'ping' | 'ready' | 'pong'; ts?: number; session_id?: string }
-          | { type: 'card'; card: Partial<IntelligenceCard> }
-          | (Partial<IntelligenceCard> & { type?: undefined });
-
-        // Server keepalive — ignore. If the server ever starts requiring pongs,
-        // we'd reply here.
-        if (
-          parsed &&
-          (parsed.type === 'ping' || parsed.type === 'ready' || parsed.type === 'pong')
-        ) {
-          // eslint-disable-next-line no-console
-          console.log('[DIAG] control frame ignored:', parsed.type);
-          return;
-        }
-
-        // Card payload shape (matches server `broadcast_card`):
-        //   { type: "card", card: { type, title, body, severity, chunks } }
-        // Accept the bare-card shape too in case the server emits it flat.
-        let cardSource: Partial<IntelligenceCard> | undefined;
-        if (parsed && (parsed as { type?: string }).type === 'card') {
-          cardSource = (parsed as { card?: Partial<IntelligenceCard> }).card;
-        } else {
-          cardSource = parsed as Partial<IntelligenceCard>;
-        }
-        if (!cardSource || !cardSource.type || !cardSource.title) {
-          // eslint-disable-next-line no-console
-          console.warn('[DIAG] card payload missing type/title; dropping:', cardSource);
-          return;
-        }
-        const card: IntelligenceCard = {
-          type: cardSource.type,
-          title: cardSource.title,
-          body: cardSource.body ?? '',
-          severity: cardSource.severity ?? 'low',
-          chunks: Array.isArray(cardSource.chunks) ? cardSource.chunks : [],
-        };
-        // eslint-disable-next-line no-console
-        console.log('[DIAG] intelligence WS CARD added:', card.type, card.title);
-        setCards((prev) => [card, ...prev].slice(0, 50));
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn('[callpilot] bad intelligence card payload', e);
-      }
-    };
-
-    socket.onerror = (ev) => {
-      if (cancelled) return;
-      // eslint-disable-next-line no-console
-      console.warn('[DIAG] intelligence WS onerror event:', ev);
-      setError('Intelligence stream unavailable');
-    };
-
-    socket.onclose = (ev) => {
-      if (cancelled) return;
-      // eslint-disable-next-line no-console
-      console.log('[DIAG] intelligence WS CLOSE code=', ev?.code, 'reason=', ev?.reason, 'wasClean=', ev?.wasClean);
-      setConnected(false);
-      try { wsRef.current = null; } catch {}
-
-      // Clean unmount — don't retry, don't show "offline".
-      if (ev?.code === 1000) return;
-
-      // Surface failure so the UI doesn't stay stuck on "Connecting…".
-      setError((prev) => prev ?? 'Intelligence stream offline');
-
-      // Auto-reconnect with capped exponential backoff. After MAX_RECONNECT_ATTEMPTS
-      // give up until the sessionId changes (e.g. user starts a new meeting).
-      if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
-        // eslint-disable-next-line no-console
-        console.warn('[callpilot] intelligence WS giving up after', MAX_RECONNECT_ATTEMPTS, 'attempts');
+    (async () => {
+      const token = await invoke<string | null>('get_auth_access_token');
+      if (cancelled || !token) {
+        if (!token) setError('Not authenticated — please log in first');
+        setConnected(false);
         return;
       }
-      reconnectAttemptRef.current += 1;
-      const delay = Math.min(MAX_RECONNECT_MS, BASE_RECONNECT_MS * 2 ** reconnectAttemptRef.current);
-      // eslint-disable-next-line no-console
-      console.info(`[callpilot] intelligence WS reconnect in ${delay}ms (attempt ${reconnectAttemptRef.current})`);
-      reconnectTimerRef.current = setTimeout(() => {
+
+      const base = getCallPilotApiBaseUrl();
+      const url = `${base.replace(/\/+$/, '')}/hubs/desktop-agent`;
+      console.log('[DIAG] useIntelligenceStream connecting →', url);
+      setSignalRUrl(url);
+
+      const conn = new HubConnectionBuilder()
+        .withUrl(url, {
+          accessTokenFactory: () => token,
+          transport: HttpTransportType.WebSockets,
+        })
+        .withAutomaticReconnect()
+        .configureLogging(LogLevel.Information)
+        .build();
+
+      const addCard = (card: IntelligenceCard) => {
+        console.log('[DIAG] intelligence CARD added:', card.type, card.title);
+        setCards((prev) => [card, ...prev].slice(0, MAX_CARDS_STORED));
+      };
+
+      conn.on('EventDetected', (p: EventPayload) => {
+        const card = cardFromEvent(p);
+        if (card) addCard(card);
+      });
+
+      conn.on('RecommendationGenerated', (p: RecommendationPayload) => {
+        const card = cardFromRecommendation(p);
+        if (card) addCard(card);
+      });
+
+      const refreshState = () => {
         if (cancelled) return;
-        setConnectNonce((n) => n + 1);
-      }, delay);
-    };
+        setConnectionState(conn.state);
+        setConnected(conn.state === HubConnectionState.Connected);
+      };
+      conn.onclose(refreshState);
+      conn.onreconnecting(refreshState);
+      conn.onreconnected(async () => {
+        refreshState();
+        try {
+          await conn.invoke('JoinMeeting', currentSessionId);
+        } catch (e) {
+          console.warn('[callpilot] re-JoinMeeting failed', e);
+        }
+      });
+
+      try {
+        await conn.start();
+        if (cancelled) {
+          conn.stop().catch(() => {});
+          return;
+        }
+        refreshState();
+        await conn.invoke('JoinMeeting', currentSessionId);
+        console.log('[DIAG] intelligence SignalR CONNECTED, joined meeting', currentSessionId);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn('[DIAG] SignalR start failed:', msg);
+        setError(`SignalR: ${msg}`);
+        setConnected(false);
+        return;
+      }
+
+      connRef.current = conn;
+    })();
 
     return () => {
       cancelled = true;
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
-      try { socket?.close(1000, 'unmount'); } catch {}
-      wsRef.current = null;
+      const liveSessionId = currentSessionId;
+      const conn = connRef.current;
+      connRef.current = null;
+      if (!conn) return;
+      (async () => {
+        try {
+          if (conn.state === HubConnectionState.Connected) {
+            await conn.invoke('LeaveMeeting', liveSessionId);
+          }
+        } catch {}
+        try {
+          await conn.stop();
+        } catch {}
+      })();
     };
-  }, [sessionId, connectNonce]);
+  }, [sessionId]);
 
   const visible = cards.slice(0, MAX_CARDS_VISIBLE);
 
-  return { cards, visible, connected, error, wsUrl, wsReadyState };
+  return { cards, visible, connected, error, signalRUrl, connectionState };
 }
+
+// Re-export authedApiCall so adjacent call sites can colocate with the
+// hook without a second import statement.
+export { authedApiCall };
