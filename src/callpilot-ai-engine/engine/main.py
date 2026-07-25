@@ -193,6 +193,12 @@ if NEMOTRON_ENABLED:
 from engine.routers.ingest_router import router as ingest_router
 app.include_router(ingest_router)
 
+# Live intelligence WebSocket — desktop subscribes per session_id to receive
+# competitor / objection / pricing / technical-question / product-match
+# cards as the conversation unfolds. See routers/intelligence_router.py.
+from engine.routers.intelligence_router import router as intelligence_router
+app.include_router(intelligence_router)
+
 
 @app.get("/health")
 async def health():
