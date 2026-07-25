@@ -29,6 +29,8 @@ export function useIntelligenceStream(sessionId: string | null) {
   const [cards, setCards] = useState<IntelligenceCard[]>([]);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [wsUrl, setWsUrl] = useState<string | null>(null);
+  const [wsReadyState, setWsReadyState] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -57,6 +59,8 @@ export function useIntelligenceStream(sessionId: string | null) {
     const url = `${wsBase}/ws/intelligence/${encodeURIComponent(sessionId)}`;
     // eslint-disable-next-line no-console
     console.log('[DIAG] useIntelligenceStream connecting →', url);
+    setWsUrl(url);
+    setWsReadyState(0); // CONNECTING — set immediately so the debug strip reflects it
 
     let socket: WebSocket | null = null;
     try {
@@ -67,10 +71,17 @@ export function useIntelligenceStream(sessionId: string | null) {
       console.warn('[DIAG] WebSocket CONSTRUCT THREW:', e?.message ?? e);
       setError('Intelligence stream unavailable');
       setConnected(false);
+      setWsReadyState(3); // CLOSED
       return;
     }
 
     wsRef.current = socket;
+
+    // Keep the debug strip's readyState in sync with the underlying socket.
+    // This fires on every transition (CONNECTING → OPEN, OPEN → CLOSING, …).
+    socket.addEventListener('open', () => setWsReadyState(socket.readyState));
+    socket.addEventListener('close', () => setWsReadyState(socket.readyState));
+    socket.addEventListener('error', () => setWsReadyState(socket.readyState));
 
     socket.onopen = () => {
       if (cancelled) return;
@@ -78,6 +89,7 @@ export function useIntelligenceStream(sessionId: string | null) {
       console.log('[DIAG] intelligence WS OPEN readyState =', socket.readyState, '(1=OPEN)', url);
       setConnected(true);
       setError(null);
+      setWsReadyState(socket.readyState);
       reconnectAttemptRef.current = 0;
     };
 
@@ -183,5 +195,5 @@ export function useIntelligenceStream(sessionId: string | null) {
 
   const visible = cards.slice(0, MAX_CARDS_VISIBLE);
 
-  return { cards, visible, connected, error };
+  return { cards, visible, connected, error, wsUrl, wsReadyState };
 }
