@@ -30,7 +30,7 @@ export const IntelligencePanel: React.FC<Props> = ({ cards, connected, error }) 
     return (
       <div className="rounded-md border border-dashed border-gray-300 bg-white/60 p-4 text-sm text-gray-500">
         <div className="font-medium text-gray-700">Intelligence stream offline</div>
-        <div className="mt-1 text-xs">{error}. Cards will appear here once the CallPilot AI engine exposes the endpoint.</div>
+        <div className="mt-1 text-xs">{error}. Check Settings → AI Engine URL.</div>
       </div>
     );
   }
@@ -41,7 +41,7 @@ export const IntelligencePanel: React.FC<Props> = ({ cards, connected, error }) 
         <div className="font-medium text-gray-700">Waiting for intelligence…</div>
         <div className="mt-1 text-xs">
           {connected
-            ? 'Connected to CallPilot. Competitors, objections, and product matches will surface here.'
+            ? 'Connected to CallPilot. Competitors, objections, and product matches will surface here as the conversation unfolds.'
             : 'Connecting to CallPilot AI engine…'}
         </div>
       </div>

@@ -3,8 +3,14 @@
 //
 // URL pattern (per task spec): ws://<CALLPILOT_AI_ENGINE_URL>/ws/intelligence/{session_id}
 //
-// Until the AI engine exposes that endpoint, the hook logs a console warning
-// and returns an empty card list — the UI keeps rendering per the brief.
+// Engine protocol (routers/intelligence_router.py):
+//   Server → Client: { type: "ready",   session_id }
+//   Server → Client: { type: "ping",    ts: <unix_ms> }
+//   Server → Client: { type: "card",    card: <IntelligenceCard> }
+//   Client → Server: { type: "pong" }
+//
+// The hook now actually reconnects on abnormal close (was a no-op before —
+// the UI would stay "Connecting…" forever if the engine 404'd or rebooted).
 
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -15,6 +21,9 @@ import {
 import type { IntelligenceCard } from '@/lib/callpilotApi';
 
 const MAX_CARDS_VISIBLE = 5;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const BASE_RECONNECT_MS = 500;
+const MAX_RECONNECT_MS = 8000;
 
 export function useIntelligenceStream(sessionId: string | null) {
   const [cards, setCards] = useState<IntelligenceCard[]>([]);
@@ -23,6 +32,8 @@ export function useIntelligenceStream(sessionId: string | null) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped on every (re)connect attempt so the connect effect re-runs.
+  const [connectNonce, setConnectNonce] = useState(0);
 
   useEffect(() => {
     if (!sessionId) {
@@ -42,6 +53,8 @@ export function useIntelligenceStream(sessionId: string | null) {
 
     const wsBase = normalizeWsBaseUrl(baseUrl).replace(/\/+$/, '');
     const url = `${wsBase}/ws/intelligence/${encodeURIComponent(sessionId)}`;
+    // eslint-disable-next-line no-console
+    console.log('[DIAG] useIntelligenceStream connecting →', url);
 
     let socket: WebSocket | null = null;
     try {
@@ -58,6 +71,8 @@ export function useIntelligenceStream(sessionId: string | null) {
 
     socket.onopen = () => {
       if (cancelled) return;
+      // eslint-disable-next-line no-console
+      console.log('[DIAG] intelligence WS OPEN', url);
       setConnected(true);
       setError(null);
       reconnectAttemptRef.current = 0;
@@ -66,14 +81,37 @@ export function useIntelligenceStream(sessionId: string | null) {
     socket.onmessage = (ev) => {
       if (cancelled) return;
       try {
-        const parsed = JSON.parse(ev.data) as Partial<IntelligenceCard>;
-        if (!parsed || !parsed.type || !parsed.title) return;
+        // Discriminated union: control frames (ping/ready/pong) and card frames.
+        const parsed = JSON.parse(ev.data) as
+          | { type: 'ping' | 'ready' | 'pong'; ts?: number; session_id?: string }
+          | { type: 'card'; card: Partial<IntelligenceCard> }
+          | (Partial<IntelligenceCard> & { type?: undefined });
+
+        // Server keepalive — ignore. If the server ever starts requiring pongs,
+        // we'd reply here.
+        if (
+          parsed &&
+          (parsed.type === 'ping' || parsed.type === 'ready' || parsed.type === 'pong')
+        ) {
+          return;
+        }
+
+        // Card payload shape (matches server `broadcast_card`):
+        //   { type: "card", card: { type, title, body, severity, chunks } }
+        // Accept the bare-card shape too in case the server emits it flat.
+        let cardSource: Partial<IntelligenceCard> | undefined;
+        if (parsed && (parsed as { type?: string }).type === 'card') {
+          cardSource = (parsed as { card?: Partial<IntelligenceCard> }).card;
+        } else {
+          cardSource = parsed as Partial<IntelligenceCard>;
+        }
+        if (!cardSource || !cardSource.type || !cardSource.title) return;
         const card: IntelligenceCard = {
-          type: parsed.type,
-          title: parsed.title,
-          body: parsed.body ?? '',
-          severity: parsed.severity ?? 'low',
-          chunks: Array.isArray(parsed.chunks) ? parsed.chunks : [],
+          type: cardSource.type,
+          title: cardSource.title,
+          body: cardSource.body ?? '',
+          severity: cardSource.severity ?? 'low',
+          chunks: Array.isArray(cardSource.chunks) ? cardSource.chunks : [],
         };
         setCards((prev) => [card, ...prev].slice(0, 50));
       } catch (e) {
@@ -82,31 +120,41 @@ export function useIntelligenceStream(sessionId: string | null) {
       }
     };
 
-    socket.onerror = () => {
+    socket.onerror = (ev) => {
       if (cancelled) return;
       // eslint-disable-next-line no-console
-      console.warn('[callpilot] intelligence WS error — endpoint likely not yet exposed');
+      console.warn('[callpilot] intelligence WS error', ev);
       setError('Intelligence stream unavailable');
     };
 
     socket.onclose = (ev) => {
       if (cancelled) return;
+      // eslint-disable-next-line no-console
+      console.log('[DIAG] intelligence WS CLOSE code=', ev?.code, 'reason=', ev?.reason);
       setConnected(false);
-      // Auto-reconnect with simple exponential backoff capped at 8s — but only
-      // if the close wasn't a clean shutdown from our React unmount.
-      if (ev?.code !== 1000) {
-        reconnectAttemptRef.current = Math.min(reconnectAttemptRef.current + 1, 5);
-        const delay = Math.min(8000, 500 * 2 ** reconnectAttemptRef.current);
-        reconnectTimerRef.current = setTimeout(() => {
-          // Trigger a reconnect by nudging the session id state — simplest approach
-          // is to re-evaluate via the parent component; here we just no-op and let
-          // the next sessionId change drive the reconnect. To force reconnect now,
-          // close the old socket (already done) and rebuild by setting a temp ref.
-          // For simplicity, the next user action (start/stop) will reconnect.
-          // eslint-disable-next-line no-console
-          console.info(`[callpilot] intelligence WS will reconnect on next sessionId change (attempt ${reconnectAttemptRef.current})`);
-        }, delay);
+      try { wsRef.current = null; } catch {}
+
+      // Clean unmount — don't retry, don't show "offline".
+      if (ev?.code === 1000) return;
+
+      // Surface failure so the UI doesn't stay stuck on "Connecting…".
+      setError((prev) => prev ?? 'Intelligence stream offline');
+
+      // Auto-reconnect with capped exponential backoff. After MAX_RECONNECT_ATTEMPTS
+      // give up until the sessionId changes (e.g. user starts a new meeting).
+      if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
+        // eslint-disable-next-line no-console
+        console.warn('[callpilot] intelligence WS giving up after', MAX_RECONNECT_ATTEMPTS, 'attempts');
+        return;
       }
+      reconnectAttemptRef.current += 1;
+      const delay = Math.min(MAX_RECONNECT_MS, BASE_RECONNECT_MS * 2 ** reconnectAttemptRef.current);
+      // eslint-disable-next-line no-console
+      console.info(`[callpilot] intelligence WS reconnect in ${delay}ms (attempt ${reconnectAttemptRef.current})`);
+      reconnectTimerRef.current = setTimeout(() => {
+        if (cancelled) return;
+        setConnectNonce((n) => n + 1);
+      }, delay);
     };
 
     return () => {
@@ -118,7 +166,7 @@ export function useIntelligenceStream(sessionId: string | null) {
       try { socket?.close(1000, 'unmount'); } catch {}
       wsRef.current = null;
     };
-  }, [sessionId]);
+  }, [sessionId, connectNonce]);
 
   const visible = cards.slice(0, MAX_CARDS_VISIBLE);
 
