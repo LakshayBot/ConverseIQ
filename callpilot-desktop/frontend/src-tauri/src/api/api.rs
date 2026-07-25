@@ -1535,3 +1535,69 @@ pub async fn callpilot_api_request<R: Runtime>(
         }
     }
 }
+
+/// POST a JSON body to the CallPilot AI engine (`ws://…` base URL, served as
+/// plain HTTP for REST endpoints like `/api/v1/ai/events/ingest`). Mirrors
+/// `callpilot_api_request` but targets the engine instead of the .NET Gateway
+/// — required because the desktop's local Parakeet STT must push transcript
+/// text into the engine so the intelligence WS can fan out cards.
+#[tauri::command]
+pub async fn callpilot_engine_request<R: Runtime>(
+    app: AppHandle<R>,
+    method: String,
+    path: String,
+    body: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let engine_url = read_store_string(&app, "callpilot_ai_engine_url")
+        .unwrap_or_else(|| DEFAULT_CALLPILOT_AI_ENGINE_URL.to_string());
+    let base = engine_url
+        .replace("ws://", "http://")
+        .replace("wss://", "https://");
+    let url = format!("{}{}", base.trim_end_matches('/'), path);
+    log_debug!("callpilot_engine_request {} {}", method, url);
+
+    let client = reqwest::Client::new();
+    let mut request = match method.to_uppercase().as_str() {
+        "GET" => client.get(&url),
+        "POST" => client.post(&url),
+        "DELETE" => client.delete(&url),
+        "PUT" => client.put(&url),
+        other => return Err(format!("Unsupported method: {}", other)),
+    };
+    request = request.header("Content-Type", "application/json");
+    if let Some(json) = body {
+        request = request.body(json);
+    }
+
+    match request.timeout(std::time::Duration::from_secs(15)).send().await {
+        Ok(response) => {
+            let status = response.status().as_u16();
+            let text = response.text().await.unwrap_or_default();
+            if (200..300).contains(&status) {
+                if text.is_empty() {
+                    Ok(serde_json::json!({ "ok": true, "status": status }))
+                } else {
+                    match serde_json::from_str(&text) {
+                        Ok(v) => Ok(v),
+                        Err(_) => Ok(serde_json::json!({ "data": text })),
+                    }
+                }
+            } else {
+                Err(format!("HTTP {}: {}", status, text))
+            }
+        }
+        Err(e) => {
+            let msg = if e.is_timeout() {
+                "Engine request timed out".to_string()
+            } else if e.is_connect() {
+                format!(
+                    "Could not connect to engine at {}. Is the AI engine container running?",
+                    url
+                )
+            } else {
+                format!("Engine request failed: {}", e)
+            };
+            Err(msg)
+        }
+    }
+}

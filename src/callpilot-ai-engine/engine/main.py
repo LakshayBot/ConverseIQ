@@ -485,6 +485,93 @@ async def detect_events(request: dict):
     return {"events": events, "count": len(events)}
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# Session-scoped ingest — desktop callers have local STT (Parakeet/whisper)
+# and need to push the resulting transcript text into the engine so the
+# live intelligence stream (routers/intelligence_router.broadcast_card)
+# can fan out cards to subscribed desktop clients.
+#
+# Request:  {"text": "<transcript segment>", "session_id": "<uuid>"}
+# Side-effects:
+#   * runs the same detect_all() as the .NET Gateway uses
+#   * broadcasts each detected event as an IntelligenceCard to any
+#     websocket client subscribed via /ws/intelligence/{session_id}
+# ────────────────────────────────────────────────────────────────────────────
+@app.post("/api/v1/ai/events/ingest")
+async def detect_events_and_ingest(request: dict):
+    from engine.routers.intelligence_router import broadcast_card
+
+    text = (request.get("text") or "").strip()
+    session_id = (request.get("session_id") or "").strip()
+    speaker = request.get("speaker")  # optional — e.g. "rep" / "prospect"
+    if not text:
+        raise HTTPException(status_code=400, detail="No text provided")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="No session_id provided")
+
+    raw_events = _get_event_detector().detect_all(text)
+    if not raw_events:
+        return {"events": [], "count": 0, "delivered": 0}
+
+    # Map detector output → IntelligenceCard shape the desktop expects.
+    # Severity comes from confidence (>=0.9 high, >=0.7 medium, else low);
+    # chunks are the supporting transcript text + matched entity.
+    delivered_total = 0
+    for evt in raw_events:
+        confidence = float(evt.get("confidence") or 0.0)
+        severity = (
+            "high" if confidence >= 0.9 else
+            "medium" if confidence >= 0.7 else
+            "low"
+        )
+        title_bits = [str(evt.get("eventType") or "Event")]
+        entity = evt.get("entityName")
+        if entity:
+            title_bits.append(f"· {entity}")
+        title = " ".join(title_bits)
+
+        body = evt.get("supportingTranscript") or text
+        chunks = [body]
+        if entity:
+            chunks.append(f"Matched entity: {entity}")
+
+        # Translate detector event types to the desktop's IntelligenceCard.type
+        # enum (`competitor_detected`, `objection`, `product_match`,
+        # `pricing_discussion`, `technical_question`, `buying_signal`).
+        event_type = str(evt.get("eventType") or "").lower()
+        card_type_map = {
+            "competitormentioned": "competitor_detected",
+            "objection": "objection",
+            "pricingdiscussion": "pricing_discussion",
+            "pricingquestion": "pricing_discussion",
+            "technicalquestion": "technical_question",
+            "productmentioned": "product_match",
+        }
+        card_type = card_type_map.get(event_type, "objection")  # safe default
+
+        card = {
+            "type": card_type,
+            "title": title,
+            "body": body,
+            "severity": severity,
+            "chunks": chunks,
+            "speaker": speaker,
+            "confidence": confidence,
+            "event_type": evt.get("eventType"),
+            "entity_name": entity,
+        }
+        try:
+            delivered_total += await broadcast_card(session_id, card)
+        except Exception as exc:  # noqa: BLE001 — best-effort fan-out
+            logger.warning("broadcast_card failed for %s: %s", session_id, exc)
+
+    logger.info(
+        "ingested transcript for session=%s events=%d delivered=%d",
+        session_id, len(raw_events), delivered_total,
+    )
+    return {"events": raw_events, "count": len(raw_events), "delivered": delivered_total}
+
+
 @app.post("/api/v1/ai/embeddings")
 async def generate_embedding(request: dict):
     text = request.get("text", "")

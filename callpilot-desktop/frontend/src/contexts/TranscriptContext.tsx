@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode, MutableRefObject } from 'react';
 import { Transcript, TranscriptUpdate } from '@/types';
 import { toast } from 'sonner';
+import { invoke } from '@tauri-apps/api/core';
 import { useRecordingState } from './RecordingStateContext';
 import { transcriptService } from '@/services/transcriptService';
 import { recordingService } from '@/services/recordingService';
@@ -28,6 +29,10 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
   const [transcripts, setTranscripts] = useState<Transcript[]>([]);
   const [meetingTitle, setMeetingTitle] = useState('+ New Call');
   const [currentMeetingId, setCurrentMeetingId] = useState<string | null>(null);
+  // Mirror of currentMeetingId so the engine-ingest fire-and-forget call
+  // inside addTranscript sees the latest value without re-creating the
+  // callback on every state change.
+  const currentMeetingIdRef = useRef<string | null>(null);
 
   // Recording state context - provides backend-synced state
   const recordingState = useRecordingState();
@@ -92,19 +97,29 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
         await indexedDBService.init();
 
         // Listen for recording-started event
-        unlistenRecordingStarted = await recordingService.onRecordingStarted(async () => {
-          console.log('[DIAG] recording-started event RECEIVED from Rust');
+        unlistenRecordingStarted = await recordingService.onRecordingStarted(async (event: any) => {
+          console.log('[DIAG] recording-started event RECEIVED from Rust', event?.payload);
           try {
-            // Generate unique meeting ID
-            const meetingId = `meeting-${Date.now()}`;
+            // Prefer the server-issued meeting id (from the .NET Gateway
+            // POST /api/v1/meetings, threaded through RecordingControls →
+            // start_recording_with_devices_and_meeting). Falling back to a
+            // local timestamp breaks the intelligence WebSocket fan-out
+            // because the engine ingest posts under session_id and the
+            // panel subscribes under the .NET UUID — they have to match.
+            const meetingId =
+              event?.payload?.meeting_id ||
+              `meeting-${Date.now()}`;
             setCurrentMeetingId(meetingId);
+            currentMeetingIdRef.current = meetingId;
 
             // Store in sessionStorage as fallback for markMeetingAsSaved
             sessionStorage.setItem('indexeddb_current_meeting_id', meetingId);
             console.log('[Recording Started] 💾 IndexedDB meeting ID stored:', meetingId);
 
             // Get meeting name
-            const meetingName = await recordingService.getRecordingMeetingName();
+            const meetingName =
+              event?.payload?.meeting_name ||
+              (await recordingService.getRecordingMeetingName());
 
             // Use a better fallback that matches the backend's naming pattern
             const effectiveTitle = meetingName || `Meeting ${new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')}`;
@@ -482,6 +497,35 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
 
       return sorted;
     });
+
+    // Fan final transcripts out to the AI engine's intelligence pipeline.
+    // The desktop's local Parakeet STT produces transcripts here — without
+    // this push the engine's event_detector never runs for desktop sessions
+    // (the .NET CLI agent does the same via SignalR; this is the desktop's
+    // equivalent). Best-effort: log on failure but never block the UI.
+    if (!update.is_partial && update.text && update.text.trim().length > 0) {
+      const meetingId = currentMeetingIdRef.current;
+      if (meetingId) {
+        console.log('[DIAG] pushing final transcript to engine ingest:', { meetingId, len: update.text.length });
+        invoke('callpilot_engine_request', {
+          method: 'POST',
+          path: '/api/v1/ai/events/ingest',
+          body: JSON.stringify({
+            text: update.text,
+            session_id: meetingId,
+          }),
+        }).then((resp) => {
+          const delivered = (resp as any)?.delivered ?? 0;
+          if (delivered > 0) {
+            console.log('[DIAG] engine ingest broadcast', { delivered });
+          }
+        }).catch((err) => {
+          console.warn('[DIAG] engine ingest failed (non-fatal):', err);
+        });
+      } else {
+        console.log('[DIAG] final transcript arrived but currentMeetingId is null — skipping engine ingest');
+      }
+    }
   }, []);
 
   // Copy transcript to clipboard with recording-relative timestamps

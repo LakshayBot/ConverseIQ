@@ -593,6 +593,7 @@ pub fn run() {
             api::get_callpilot_api_url,
             api::set_callpilot_ai_engine_url,
             api::get_callpilot_ai_engine_url,
+            api::callpilot_engine_request,
             // Auth session commands
             auth::commands::set_auth_token,
             auth::commands::get_auth_access_token,
