@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, AlertTriangle, MessageCircle, ThumbsUp, Package, DollarSign, HelpCircle } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, AlertTriangle, MessageCircle, ThumbsUp, Package, DollarSign, HelpCircle, Bug } from 'lucide-react';
 import type { IntelligenceCard } from '@/lib/callpilotApi';
 
 interface Props {
@@ -11,6 +11,13 @@ interface Props {
   /** Current session ID — surfaced in the panel header so the user can see
    *  whether one is active (and what to paste into DevTools if debugging). */
   sessionId?: string | null;
+  /** Resolved WS URL — used in the debug strip so we can verify the URL the
+   *  hook actually opened against matches what the engine expects. */
+  wsUrl?: string | null;
+  /** WebSocket readyState (0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED).
+   *  Lets the user distinguish "stuck before connect" from "connected but
+   *  no cards yet" without opening DevTools. */
+  wsReadyState?: number | null;
 }
 
 const TYPE_META: Record<IntelligenceCard['type'], { icon: React.ReactNode; label: string }> = {
@@ -28,7 +35,47 @@ const SEVERITY_BORDER: Record<IntelligenceCard['severity'], string> = {
   low: 'border-l-blue-500',
 };
 
-export const IntelligencePanel: React.FC<Props> = ({ cards, connected, error, sessionId }) => {
+// Map WebSocket.readyState codes to human-readable labels. Surfaced in the
+// debug strip so the user can see *which* state the socket is stuck in.
+const READY_STATE_LABEL: Record<number, string> = {
+  0: 'CONNECTING',
+  1: 'OPEN',
+  2: 'CLOSING',
+  3: 'CLOSED',
+};
+
+const DebugStrip: React.FC<{
+  sessionId: string | null | undefined;
+  connected: boolean;
+  error: string | null;
+  wsUrl: string | null | undefined;
+  wsReadyState: number | null | undefined;
+}> = ({ sessionId, connected, error, wsUrl, wsReadyState }) => {
+  const readyLabel = wsReadyState != null ? READY_STATE_LABEL[wsReadyState] ?? `STATE(${wsReadyState})` : 'n/a';
+  return (
+    <details className="mt-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-[11px] font-mono text-gray-700">
+      <summary className="flex items-center gap-1 cursor-pointer select-none text-gray-600">
+        <Bug className="w-3 h-3" />
+        <span>Intelligence WS debug</span>
+        <span className="ml-auto text-gray-400">{readyLabel}</span>
+      </summary>
+      <dl className="mt-2 grid grid-cols-[110px_1fr] gap-x-2 gap-y-1">
+        <dt className="text-gray-500">sessionId</dt>
+        <dd className="break-all">{sessionId ?? 'null'}</dd>
+        <dt className="text-gray-500">wsUrl</dt>
+        <dd className="break-all">{wsUrl ?? 'n/a'}</dd>
+        <dt className="text-gray-500">readyState</dt>
+        <dd>{wsReadyState ?? 'n/a'} ({readyLabel})</dd>
+        <dt className="text-gray-500">connected</dt>
+        <dd>{String(connected)}</dd>
+        <dt className="text-gray-500">error</dt>
+        <dd>{error ?? 'null'}</dd>
+      </dl>
+    </details>
+  );
+};
+
+export const IntelligencePanel: React.FC<Props> = ({ cards, connected, error, sessionId, wsUrl, wsReadyState }) => {
   // Small status pill that shows WS connection state + the active session id.
   // Critical for debugging — without this the user can't tell whether the WS
   // is even being opened (the empty state below all reads "Connecting…" or
@@ -70,6 +117,13 @@ export const IntelligencePanel: React.FC<Props> = ({ cards, connected, error, se
             session: {sessionId}
           </div>
         )}
+        <DebugStrip
+          sessionId={sessionId}
+          connected={connected}
+          error={error}
+          wsUrl={wsUrl}
+          wsReadyState={wsReadyState}
+        />
       </div>
     );
   }
@@ -95,6 +149,13 @@ export const IntelligencePanel: React.FC<Props> = ({ cards, connected, error, se
             session: {sessionId}
           </div>
         )}
+        <DebugStrip
+          sessionId={sessionId}
+          connected={connected}
+          error={error}
+          wsUrl={wsUrl}
+          wsReadyState={wsReadyState}
+        />
       </div>
     );
   }

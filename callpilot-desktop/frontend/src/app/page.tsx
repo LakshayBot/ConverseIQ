@@ -78,7 +78,7 @@ export default function Home() {
   })();
   const sessionId = hookSessionId ?? deepLinkMeetingId;
 
-  const { cards: intelligenceCards, connected: intelligenceConnected, error: intelligenceError } =
+  const { cards: intelligenceCards, connected: intelligenceConnected, error: intelligenceError, wsUrl: intelligenceWsUrl, wsReadyState: intelligenceReadyState } =
     useIntelligenceStream(sessionId);
 
   useEffect(() => {
@@ -251,6 +251,8 @@ export default function Home() {
             connected={intelligenceConnected}
             error={intelligenceError}
             sessionId={sessionId}
+            wsUrl={intelligenceWsUrl}
+            wsReadyState={intelligenceReadyState}
           />
         </aside>
 
