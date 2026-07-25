@@ -1470,12 +1470,16 @@ pub async fn callpilot_test_connection<R: Runtime>(
 /// Works around the fact that Tauri's webview blocks cross-origin fetch() to
 /// Docker-localhost endpoints. The frontend calls `invoke('callpilot_api_request', ...)`
 /// instead of `fetch(...)`.
+///
+/// If `auth_token` is supplied, attaches `Authorization: Bearer <token>` so the call
+/// can reach protected endpoints (meetings, knowledge, providers, …).
 #[tauri::command]
 pub async fn callpilot_api_request<R: Runtime>(
     app: AppHandle<R>,
     method: String,
     path: String,
     body: Option<String>,
+    auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let server_url = get_server_address(&app).await?;
     let url = format!("{}{}", server_url.trim_end_matches('/'), path);
@@ -1491,6 +1495,12 @@ pub async fn callpilot_api_request<R: Runtime>(
     };
 
     request = request.header("Content-Type", "application/json");
+
+    if let Some(token) = auth_token {
+        if !token.is_empty() {
+            request = request.header("Authorization", format!("Bearer {}", token));
+        }
+    }
 
     if let Some(json) = body {
         request = request.body(json);

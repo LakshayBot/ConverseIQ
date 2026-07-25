@@ -9,6 +9,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { DEFAULT_CALLPILOT_API_URL, SETTINGS_KEY_API_URL } from './callpilot';
+import { authedApiCall as authedApiCallImpl } from './auth';
 
 let apiBaseUrl: string = DEFAULT_CALLPILOT_API_URL;
 
@@ -24,7 +25,8 @@ export function getCallPilotApiBaseUrl(): string {
 
 /**
  * Low-level proxy: sends a REST call through the Rust backend (reqwest),
- * bypassing CORS entirely.
+ * bypassing CORS entirely. No Authorization header — use `authedApiCall` for
+ * protected endpoints.
  */
 async function apiCall(
   method: string,
@@ -32,9 +34,26 @@ async function apiCall(
   body?: unknown,
 ): Promise<any> {
   const json = body ? JSON.stringify(body) : undefined;
-  const result = await invoke<any>('callpilot_api_request', { method, path, body: json ?? null });
+  const result = await invoke<any>('callpilot_api_request', {
+    method,
+    path,
+    body: json ?? null,
+    authToken: null,
+  });
   // The Rust command returns the parsed JSON body on 2xx, or throws on error.
   return result;
+}
+
+/**
+ * Re-export the auth-aware variant from `./auth`. Protected endpoints (anything
+ * beyond `/api/v1/auth/*`) go through this so the bearer header is attached.
+ */
+async function authedApiCall<T = any>(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  return authedApiCallImpl<T>(method, path, body);
 }
 
 function warnStub(name: string): void {
@@ -42,25 +61,14 @@ function warnStub(name: string): void {
 }
 
 // ===== Auth (matches .NET /api/v1/auth/*) =====
+//
+// Login / register / logout live in `./auth.ts` (which also persists tokens
+// and handles session restoration). Re-export the raw response shape here
+// for callers that already import from this module.
 
-export interface LoginResponse {
-  accessToken: string;
-  refreshToken: string;
-  accessTokenExpiresAt: string;
-  refreshTokenExpiresAt: string;
-}
+export type { AuthSession } from './auth';
 
-export async function login(email: string, password: string): Promise<LoginResponse> {
-  return apiCall('POST', '/api/v1/auth/login', { email, password });
-}
-
-export async function register(email: string, password: string): Promise<{ id: string; email: string; createdAt: string }> {
-  return apiCall('POST', '/api/v1/auth/register', { email, password, confirmPassword: password });
-}
-
-export async function logout(refreshToken: string): Promise<void> {
-  return apiCall('POST', '/api/v1/auth/logout', { refreshToken });
-}
+export { login, register, logout } from './auth';
 
 // ===== Meetings =====
 
@@ -75,7 +83,7 @@ export interface MeetingSummary {
 
 export async function createMeeting(title?: string): Promise<MeetingSummary> {
   try {
-    return await apiCall('POST', '/api/v1/meetings', { title: title ?? '' });
+    return await authedApiCall<MeetingSummary>('POST', '/api/v1/meetings', { title: title ?? '' });
   } catch (e) {
     warnStub('createMeeting');
     return {
@@ -89,7 +97,7 @@ export async function createMeeting(title?: string): Promise<MeetingSummary> {
 
 export async function listMeetings(): Promise<MeetingSummary[]> {
   try {
-    return await apiCall('GET', '/api/v1/meetings');
+    return await authedApiCall<MeetingSummary[]>('GET', '/api/v1/meetings');
   } catch (e) {
     warnStub('listMeetings');
     return [];
@@ -98,7 +106,7 @@ export async function listMeetings(): Promise<MeetingSummary[]> {
 
 export async function deleteMeeting(meetingId: string): Promise<void> {
   try {
-    await apiCall('DELETE', `/api/v1/meetings/${meetingId}`);
+    await authedApiCall('DELETE', `/api/v1/meetings/${meetingId}`);
   } catch (e) {
     warnStub('deleteMeeting');
   }
@@ -120,7 +128,7 @@ export interface TranscriptSegment {
 
 export async function getTranscripts(meetingId: string): Promise<TranscriptSegment[]> {
   try {
-    return await apiCall('GET', `/api/v1/meetings/${meetingId}/transcripts`);
+    return await authedApiCall<TranscriptSegment[]>('GET', `/api/v1/meetings/${meetingId}/transcripts`);
   } catch (e) {
     warnStub('getTranscripts');
     return [];
@@ -129,7 +137,7 @@ export async function getTranscripts(meetingId: string): Promise<TranscriptSegme
 
 export async function postTranscriptText(meetingId: string, text: string): Promise<void> {
   try {
-    await apiCall('POST', `/api/v1/meetings/${meetingId}/process`, { text });
+    await authedApiCall('POST', `/api/v1/meetings/${meetingId}/process`, { text });
   } catch (e) {
     warnStub('postTranscriptText');
   }

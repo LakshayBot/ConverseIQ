@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, XCircle, Loader2, Save } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, Save, LogOut } from 'lucide-react';
 import {
   DEFAULT_CALLPILOT_API_URL,
   DEFAULT_CALLPILOT_AI_ENGINE_URL,
@@ -14,6 +14,8 @@ import {
 } from '@/lib/callpilot';
 import { persistApiUrl, persistAiEngineUrl, setCallPilotApiBaseUrl, testConnection } from '@/lib/callpilotApi';
 import { Switch } from '@/components/ui/switch';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from 'sonner';
 
 function readStored(key: string, fallback: string): string {
   if (typeof window === 'undefined') return fallback;
@@ -39,6 +41,9 @@ export const CallPilotServerSettings: React.FC = () => {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<null | { ok: boolean; message: string }>(null);
   const [saveState, setSaveState] = useState<'idle' | 'saved'>('idle');
+  const [signingOut, setSigningOut] = useState(false);
+
+  const { session, logout } = useAuth();
 
   useEffect(() => {
     setApiUrl(readStored(SETTINGS_KEY_API_URL, DEFAULT_CALLPILOT_API_URL));
@@ -74,6 +79,23 @@ export const CallPilotServerSettings: React.FC = () => {
     await persistAiEngineUrl(aiEngineUrl);
     setSaveState('saved');
     setTimeout(() => setSaveState('idle'), 1500);
+  };
+
+  const onSignOut = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await logout();
+      toast.success('Signed out');
+      // AuthGate will unmount the shell on the next render — no router needed.
+    } catch (e) {
+      console.error('[settings] sign out failed:', e);
+      toast.error('Could not sign out', {
+        description: 'The local session was cleared. Try again if the issue persists.',
+      });
+    } finally {
+      setSigningOut(false);
+    }
   };
 
   const wsPreview = `${normalizeWsBaseUrl(aiEngineUrl).replace(/\/+$/, '')}/ws/intelligence/{session_id}`;
@@ -157,6 +179,32 @@ export const CallPilotServerSettings: React.FC = () => {
           >
             <Switch checked={showSpeakerLabels} onCheckedChange={setShowSpeakerLabels} />
           </SettingRow>
+        </div>
+      </section>
+
+      {/* Account */}
+      <section>
+        <h2 className="text-lg font-semibold text-gray-900">Account</h2>
+        <div className="mt-4 flex items-center justify-between gap-4 rounded-md border border-gray-200 bg-white px-4 py-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-gray-800">Signed in as</div>
+            <div className="text-xs text-gray-500 truncate">
+              {session?.email ?? 'Not signed in'}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onSignOut}
+            disabled={!session || signingOut}
+            className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {signingOut ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <LogOut className="w-4 h-4" />
+            )}
+            Sign out
+          </button>
         </div>
       </section>
 

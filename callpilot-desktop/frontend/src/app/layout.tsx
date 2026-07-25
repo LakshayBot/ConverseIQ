@@ -17,6 +17,8 @@ import { OllamaDownloadProvider } from '@/contexts/OllamaDownloadContext'
 import { TranscriptProvider } from '@/contexts/TranscriptContext'
 import { ConfigProvider, useConfig } from '@/contexts/ConfigContext'
 import { OnboardingProvider } from '@/contexts/OnboardingContext'
+import { AuthProvider, useAuth } from '@/contexts/AuthContext'
+import { LoginScreen } from '@/components/auth/LoginScreen'
 import { OnboardingFlow } from '@/components/onboarding'
 import { loadBetaFeatures } from '@/types/betaFeatures'
 import { DownloadProgressToastProvider } from '@/components/shared/DownloadProgressToast'
@@ -59,6 +61,35 @@ function ConditionalImportDialog({
       preselectedFile={importFilePath}
     />
   );
+}
+
+/**
+ * Decides what to render at the top of the app shell based on the auth +
+ * onboarding state machines. Renders one of:
+ *   - <LoginScreen />            when the user is signed out
+ *   - <OnboardingFlow />         when the user is signed in but hasn't finished
+ *                                the model-download / permission onboarding
+ *   - the children (sidebar + main) once both are clear
+ *   - nothing while auth is still restoring on cold launch
+ *
+ * Lives at module scope so the function identity is stable across
+ * RootLayout re-renders.
+ */
+function AuthGate({
+  showOnboarding,
+  onOnboardingComplete,
+  children,
+}: {
+  showOnboarding: boolean;
+  onOnboardingComplete: () => void;
+  children: React.ReactNode;
+}) {
+  const { status } = useAuth();
+
+  if (status === 'loading') return null;
+  if (status === 'unauthenticated') return <LoginScreen />;
+  if (showOnboarding) return <OnboardingFlow onComplete={onOnboardingComplete} />;
+  return <>{children}</>;
 }
 
 // export { metadata } from './metadata'
@@ -126,6 +157,10 @@ export default function RootLayout({
       unlisten.then(fn => fn());
     };
   }, [showOnboarding]);
+  // Auth is enforced one level up: <AuthGate> hides the entire app shell until
+  // the user is signed in, so the tray can never reach this listener while
+  // unauthenticated. The `showOnboarding` check above is the only guard needed
+  // here — no `useAuth()` import required.
 
   // Handle file drop for audio import
   const handleFileDrop = useCallback((paths: string[]) => {
@@ -233,48 +268,51 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${sourceSans3.variable} font-sans antialiased`}>
-        <AnalyticsProvider>
-          <RecordingStateProvider>
-            <TranscriptProvider>
-              <ConfigProvider>
-                <OllamaDownloadProvider>
-                  <OnboardingProvider>
-                    <UpdateCheckProvider>
-                      <SidebarProvider>
-                        <TooltipProvider>
-                          <RecordingPostProcessingProvider>
-                            <ImportDialogProvider onOpen={handleOpenImportDialog}>
-                              {/* Download progress toast provider - listens for background downloads */}
-                              <DownloadProgressToastProvider />
+        <AuthProvider>
+          <AnalyticsProvider>
+            <RecordingStateProvider>
+              <TranscriptProvider>
+                <ConfigProvider>
+                  <OllamaDownloadProvider>
+                    <OnboardingProvider>
+                      <UpdateCheckProvider>
+                        <SidebarProvider>
+                          <TooltipProvider>
+                            <RecordingPostProcessingProvider>
+                              <ImportDialogProvider onOpen={handleOpenImportDialog}>
+                                {/* Download progress toast provider - listens for background downloads */}
+                                <DownloadProgressToastProvider />
 
-                              {/* Show onboarding or main app */}
-                              {showOnboarding ? (
-                                <OnboardingFlow onComplete={handleOnboardingComplete} />
-                              ) : (
-                                <div className="flex">
-                                  <Sidebar />
-                                  <MainContent>{children}</MainContent>
-                                </div>
-                              )}
-                              {/* Import audio overlay and dialog */}
-                              <ImportDropOverlay visible={showDropOverlay} />
-                              <ConditionalImportDialog
-                                showImportDialog={showImportDialog}
-                                handleImportDialogClose={handleImportDialogClose}
-                                importFilePath={importFilePath}
-                              />
-                            </ImportDialogProvider>
-                          </RecordingPostProcessingProvider>
-                        </TooltipProvider>
-                      </SidebarProvider>
-                    </UpdateCheckProvider>
-                  </OnboardingProvider>
+                                {/* Auth-gated shell: login → onboarding → main app */}
+                                <AuthGate
+                                  showOnboarding={showOnboarding}
+                                  onOnboardingComplete={handleOnboardingComplete}
+                                >
+                                  <div className="flex">
+                                    <Sidebar />
+                                    <MainContent>{children}</MainContent>
+                                  </div>
+                                </AuthGate>
+                                {/* Import audio overlay and dialog */}
+                                <ImportDropOverlay visible={showDropOverlay} />
+                                <ConditionalImportDialog
+                                  showImportDialog={showImportDialog}
+                                  handleImportDialogClose={handleImportDialogClose}
+                                  importFilePath={importFilePath}
+                                />
+                              </ImportDialogProvider>
+                            </RecordingPostProcessingProvider>
+                          </TooltipProvider>
+                        </SidebarProvider>
+                      </UpdateCheckProvider>
+                    </OnboardingProvider>
 
-                </OllamaDownloadProvider>
-              </ConfigProvider>
-            </TranscriptProvider>
-          </RecordingStateProvider>
-        </AnalyticsProvider>
+                  </OllamaDownloadProvider>
+                </ConfigProvider>
+              </TranscriptProvider>
+            </RecordingStateProvider>
+          </AnalyticsProvider>
+        </AuthProvider>
 
         <Toaster position="bottom-center" richColors closeButton />
       </body>

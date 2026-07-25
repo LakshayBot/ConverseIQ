@@ -29,6 +29,7 @@ macro_rules! perf_trace {
 
 // Declare audio module
 pub mod api;
+pub mod auth;
 pub mod audio;
 pub mod config;
 pub mod console_utils;
@@ -589,6 +590,12 @@ pub fn run() {
             api::get_callpilot_api_url,
             api::set_callpilot_ai_engine_url,
             api::get_callpilot_ai_engine_url,
+            // Auth session commands
+            auth::commands::set_auth_token,
+            auth::commands::get_auth_access_token,
+            auth::commands::get_auth_session,
+            auth::commands::clear_auth_token,
+            auth::commands::refresh_access_token,
             audio::recording_preferences::get_recording_preferences,
             audio::recording_preferences::set_recording_preferences,
             audio::recording_preferences::get_default_recordings_folder_path,
