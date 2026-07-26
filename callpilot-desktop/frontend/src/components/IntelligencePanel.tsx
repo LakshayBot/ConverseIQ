@@ -1,23 +1,16 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, AlertTriangle, MessageCircle, ThumbsUp, Package, DollarSign, HelpCircle, Bug } from 'lucide-react';
-import { HubConnectionState } from '@microsoft/signalr';
+import React, { useState } from 'react';
+import { ChevronDown, ChevronRight, AlertTriangle, MessageCircle, ThumbsUp, Package, DollarSign, HelpCircle } from 'lucide-react';
 import type { IntelligenceCard } from '@/lib/callpilotApi';
 
 interface Props {
   cards: IntelligenceCard[];
   connected: boolean;
   error: string | null;
-  /** Current session ID — surfaced in the panel header so the user can see
-   *  whether one is active (and what to paste into DevTools if debugging). */
+  /** Current session ID — surfaced in the panel so the user can confirm the
+   *  active meeting at a glance. */
   sessionId?: string | null;
-  /** Resolved SignalR URL — used in the debug strip so we can verify the URL
-   *  the hook actually opened matches the .NET Gateway's hub route. */
-  signalRUrl?: string | null;
-  /** SignalR HubConnectionState — distinguishes "stuck before connect" from
-   *  "connected but no cards yet" without opening DevTools. */
-  connectionState?: HubConnectionState | null;
 }
 
 const TYPE_META: Record<IntelligenceCard['type'], { icon: React.ReactNode; label: string }> = {
@@ -35,83 +28,65 @@ const SEVERITY_BORDER: Record<IntelligenceCard['severity'], string> = {
   low: 'border-l-blue-500',
 };
 
-// Map SignalR HubConnectionState enum → human label. Surfaced in the debug
-// strip so the user can see *which* state the hub is stuck in.
-//   Disconnected=0, Connecting=1, Connected=2, Disconnecting=3, Reconnecting=4
-const CONN_STATE_LABEL: Record<HubConnectionState, string> = {
-  [HubConnectionState.Disconnected]: 'DISCONNECTED',
-  [HubConnectionState.Connecting]: 'CONNECTING',
-  [HubConnectionState.Connected]: 'CONNECTED',
-  [HubConnectionState.Disconnecting]: 'DISCONNECTING',
-  [HubConnectionState.Reconnecting]: 'RECONNECTING',
-};
-
-const DebugStrip: React.FC<{
-  sessionId: string | null | undefined;
-  connected: boolean;
-  error: string | null;
-  signalRUrl: string | null | undefined;
-  connectionState: HubConnectionState | null | undefined;
-}> = ({ sessionId, connected, error, signalRUrl, connectionState }) => {
-  const stateLabel = connectionState != null ? CONN_STATE_LABEL[connectionState] ?? `STATE(${connectionState})` : 'n/a';
+/**
+ * Small status pill that summarises the intelligence stream state.
+ *
+ * Three meaningful states:
+ *   - "Start transcribing" — no session yet. The panel is dormant until the
+ *     user clicks the mic. Tells the user *what action unlocks intelligence*.
+ *   - "Opening stream" — a session exists but SignalR is still negotiating.
+ *     Short-lived; surfaces the work being done without the dev-flavoured
+ *     "Connecting" copy.
+ *   - "Live" — connected; cards can arrive at any time.
+ *
+ * `error` short-circuits everything to a red "Offline" pill.
+ */
+const StatusPill: React.FC<{ connected: boolean; error: string | null; hasSession: boolean }> = ({
+  connected,
+  error,
+  hasSession,
+}) => {
+  if (error) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 border border-red-200">
+        <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+        Offline
+      </span>
+    );
+  }
+  if (connected) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 border border-emerald-200">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+        Live
+      </span>
+    );
+  }
+  if (hasSession) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+        Opening stream
+      </span>
+    );
+  }
   return (
-    <details className="mt-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-[11px] font-mono text-gray-700">
-      <summary className="flex items-center gap-1 cursor-pointer select-none text-gray-600">
-        <Bug className="w-3 h-3" />
-        <span>Intelligence SignalR debug</span>
-        <span className="ml-auto text-gray-400">{stateLabel}</span>
-      </summary>
-      <dl className="mt-2 grid grid-cols-[110px_1fr] gap-x-2 gap-y-1">
-        <dt className="text-gray-500">sessionId</dt>
-        <dd className="break-all">{sessionId ?? 'null'}</dd>
-        <dt className="text-gray-500">signalRUrl</dt>
-        <dd className="break-all">{signalRUrl ?? 'n/a'}</dd>
-        <dt className="text-gray-500">connState</dt>
-        <dd>{connectionState != null ? `${connectionState} (${stateLabel})` : 'n/a'}</dd>
-        <dt className="text-gray-500">connected</dt>
-        <dd>{String(connected)}</dd>
-        <dt className="text-gray-500">error</dt>
-        <dd>{error ?? 'null'}</dd>
-      </dl>
-    </details>
+    <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600 border border-gray-200">
+      <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+      Start transcribing
+    </span>
   );
 };
 
-export const IntelligencePanel: React.FC<Props> = ({ cards, connected, error, sessionId, signalRUrl, connectionState }) => {
-  // Small status pill that shows WS connection state + the active session id.
-  // Critical for debugging — without this the user can't tell whether the WS
-  // is even being opened (the empty state below all reads "Connecting…" or
-  // "Waiting for intelligence…" depending on connected).
-  const statusBadge = (() => {
-    if (error) {
-      return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 border border-red-200">
-          <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-          Offline
-        </span>
-      );
-    }
-    if (connected) {
-      return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 border border-emerald-200">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-          Connected
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600 border border-gray-200">
-        <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" />
-        Connecting
-      </span>
-    );
-  })();
+export const IntelligencePanel: React.FC<Props> = ({ cards, connected, error, sessionId }) => {
+  const hasSession = Boolean(sessionId);
+
   if (error) {
     return (
       <div className="rounded-md border border-dashed border-gray-300 bg-white/60 p-4 text-sm text-gray-500">
         <div className="flex items-center justify-between gap-2">
           <span className="font-medium text-gray-700">Intelligence stream offline</span>
-          {statusBadge}
+          <StatusPill connected={false} error={error} hasSession={hasSession} />
         </div>
         <div className="mt-1 text-xs">{error}. Check Settings → AI Engine URL.</div>
         {sessionId && (
@@ -119,45 +94,38 @@ export const IntelligencePanel: React.FC<Props> = ({ cards, connected, error, se
             session: {sessionId}
           </div>
         )}
-        <DebugStrip
-          sessionId={sessionId}
-          connected={connected}
-          error={error}
-          signalRUrl={signalRUrl}
-          connectionState={connectionState}
-        />
       </div>
     );
   }
 
   if (!cards.length) {
+    // Three meaningful copy variants:
+    //   1. No session yet   → "Start transcribing" (action prompt).
+    //   2. Session, not yet connected → "Opening stream" (in-progress).
+    //   3. Session, connected, no cards yet → "Live, listening" (reassurance).
+    const headline = !hasSession
+      ? 'Start transcribing to open the intelligence stream'
+      : connected
+        ? 'Live — listening for competitors, objections, and product matches'
+        : 'Opening intelligence stream…';
     return (
       <div className="rounded-md border border-dashed border-gray-300 bg-white/60 p-4 text-sm text-gray-500">
         <div className="flex items-center justify-between gap-2">
-          <span className="font-medium text-gray-700">
-            {connected ? 'Connected — waiting for intelligence…' : 'Waiting for intelligence…'}
-          </span>
-          {statusBadge}
+          <span className="font-medium text-gray-700">{headline}</span>
+          <StatusPill connected={connected} error={null} hasSession={hasSession} />
         </div>
         <div className="mt-1 text-xs">
-          {connected
-            ? 'Competitors, objections, and product matches will surface here as the conversation unfolds.'
-            : sessionId
-              ? 'Connecting to CallPilot AI engine…'
-              : 'Start a recording to open the intelligence stream.'}
+          {!hasSession
+            ? 'Cards appear here as soon as you start a recording and the call begins.'
+            : connected
+              ? 'Competitors, objections, and product matches will surface here as the conversation unfolds.'
+              : 'Connecting to the CallPilot AI engine — this usually takes a second.'}
         </div>
         {sessionId && (
           <div className="mt-2 text-[10px] text-gray-400 font-mono break-all">
             session: {sessionId}
           </div>
         )}
-        <DebugStrip
-          sessionId={sessionId}
-          connected={connected}
-          error={error}
-          signalRUrl={signalRUrl}
-          connectionState={connectionState}
-        />
       </div>
     );
   }
