@@ -313,7 +313,9 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     app.emit("recording-started", serde_json::json!({
         "message": "Recording started successfully with parallel processing",
         "devices": ["Default Microphone", "Default System Audio"],
-        "workers": 3
+        "workers": 3,
+        "meeting_id": meeting_id,
+        "meeting_name": meeting_name
     })).map_err(|e| e.to_string())?;
 
     // Update tray menu to reflect recording state
