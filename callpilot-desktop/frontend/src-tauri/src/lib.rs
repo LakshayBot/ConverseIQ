@@ -325,10 +325,14 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
                 meeting_name,
                 meeting_id
             );
-            audio::recording_commands::start_recording_with_devices_and_meeting(
+            // Use the meeting-name entry point so the underlying function
+            // resolves saved-preferred devices (preferred_mic_device /
+            // preferred_system_device) and falls back to system defaults
+            // via CPAL. Passing None,None to the devices entry point would
+            // skip resolution entirely and fail with
+            // "No audio streams could be created".
+            audio::recording_commands::start_recording_with_meeting_name(
                 app.clone(),
-                None,
-                None,
                 meeting_name,
                 meeting_id,
             )

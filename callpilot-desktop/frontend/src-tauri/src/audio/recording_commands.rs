@@ -73,18 +73,31 @@ pub struct TranscriptionStatus {
 
 /// Start recording with default devices
 pub async fn start_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    start_recording_with_meeting_name(app, None).await
+    start_recording_with_meeting_name(app, None, None).await
 }
 
-/// Start recording with default devices and optional meeting name
+/// Start recording with default devices, optional meeting name, and
+/// optional .NET Gateway meeting ID. Used when the user clicks record
+/// without selecting explicit devices — we resolve the saved-preferred
+/// devices (or system defaults) inside, and stash meeting_id so the
+/// recording-started payload carries the canonical UUID.
 pub async fn start_recording_with_meeting_name<R: Runtime>(
     app: AppHandle<R>,
     meeting_name: Option<String>,
+    meeting_id: Option<String>,
 ) -> Result<(), String> {
     info!(
-        "Starting recording with default devices, meeting: {:?}",
-        meeting_name
+        "Starting recording with default devices, meeting: {:?}, meeting_id: {:?}",
+        meeting_name, meeting_id
     );
+
+    // Stash meeting_id for downstream consumers (recording-started payload,
+    // get_recording_meeting_id). Mirrors what
+    // start_recording_with_devices_and_meeting does at line 344.
+    {
+        let mut id_slot = RECORDING_MEETING_ID.lock().unwrap();
+        *id_slot = meeting_id.clone();
+    }
 
     let engine_lifecycle_guard = super::common::acquire_engine_lifecycle_lock().await;
 
