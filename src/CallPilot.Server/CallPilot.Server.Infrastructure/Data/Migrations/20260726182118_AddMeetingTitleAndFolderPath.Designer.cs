@@ -3,6 +3,7 @@ using System;
 using CallPilot.Server.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CallPilot.Server.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(CallPilotDbContext))]
-    partial class CallPilotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260726182118_AddMeetingTitleAndFolderPath")]
+    partial class AddMeetingTitleAndFolderPath
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -289,9 +292,6 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
-
-                    b.Property<string>("SummaryJson")
-                        .HasColumnType("text");
 
                     b.Property<string>("Title")
                         .HasMaxLength(500)

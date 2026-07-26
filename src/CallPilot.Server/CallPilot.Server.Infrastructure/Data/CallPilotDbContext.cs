@@ -65,6 +65,9 @@ public class CallPilotDbContext : DbContext
             entity.HasIndex(m => m.UserId);
             entity.HasIndex(m => m.Status);
             entity.Property(m => m.Status).HasMaxLength(50).IsRequired();
+            entity.Property(m => m.Title).HasMaxLength(500);
+            entity.Property(m => m.FolderPath).HasMaxLength(1000);
+            entity.Property(m => m.SummaryJson).HasColumnType("text");
         });
 
         modelBuilder.Entity<TranscriptSegment>(entity =>

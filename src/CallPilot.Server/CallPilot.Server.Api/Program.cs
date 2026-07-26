@@ -359,14 +359,180 @@ app.MapGet("/api/v1/meetings", async (CallPilotDbContext db, ClaimsPrincipal use
         .Select(m => new
         {
             id = m.Id,
+            title = m.Title,
             status = m.Status,
             createdAt = m.CreatedAt,
             startedAt = m.StartedAt,
             endedAt = m.EndedAt,
+            folderPath = m.FolderPath,
         })
         .ToListAsync();
 
     return Results.Ok(meetings);
+}).RequireAuthorization();
+
+// ── Single meeting detail (replaces desktop SQLite api_get_meeting +
+//    api_get_meeting_metadata). Includes metadata but not transcripts —
+//    use /api/v1/meetings/{id}/transcripts for those.
+app.MapGet("/api/v1/meetings/{id:guid}", async (Guid id, CallPilotDbContext db, ClaimsPrincipal user) =>
+{
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null) return Results.Unauthorized();
+
+    var meeting = await db.Meetings
+        .Where(m => m.Id == id && m.UserId == Guid.Parse(userIdClaim))
+        .Select(m => new
+        {
+            id = m.Id,
+            title = m.Title,
+            status = m.Status,
+            createdAt = m.CreatedAt,
+            startedAt = m.StartedAt,
+            endedAt = m.EndedAt,
+            folderPath = m.FolderPath,
+            transcriptCount = db.TranscriptSegments.Count(ts => ts.MeetingId == m.Id),
+            eventCount = db.ConversationEvents.Count(e => e.MeetingId == m.Id),
+            recommendationCount = db.Recommendations.Count(r => r.MeetingId == m.Id)
+        })
+        .FirstOrDefaultAsync();
+
+    if (meeting is null) return Results.NotFound(new { error = "Meeting not found" });
+    return Results.Ok(meeting);
+}).RequireAuthorization();
+
+// ── Meeting summary — JSON blob generated client-side by the desktop and
+//    persisted here so it survives an app restart. The desktop polls this
+//    endpoint to detect when a summary it kicked off has finished. Replaces
+//    the desktop SQLite `summary_processes` table.
+app.MapGet("/api/v1/meetings/{id:guid}/summary", async (
+    Guid id,
+    CallPilotDbContext db,
+    ClaimsPrincipal user) =>
+{
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null) return Results.Unauthorized();
+
+    var meeting = await db.Meetings
+        .Where(m => m.Id == id && m.UserId == Guid.Parse(userIdClaim))
+        .Select(m => new { m.Id, m.SummaryJson })
+        .FirstOrDefaultAsync();
+    if (meeting is null) return Results.NotFound(new { error = "Meeting not found" });
+
+    if (string.IsNullOrEmpty(meeting.SummaryJson))
+    {
+        return Results.Ok(new { status = "idle", data = (object?)null });
+    }
+
+    try
+    {
+        var parsed = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(meeting.SummaryJson);
+        return Results.Ok(new { status = "completed", data = parsed });
+    }
+    catch
+    {
+        return Results.Ok(new { status = "completed", data = (object?)null });
+    }
+}).RequireAuthorization();
+
+app.MapPut("/api/v1/meetings/{id:guid}/summary", async (
+    Guid id,
+    CallPilotDbContext db,
+    ClaimsPrincipal user,
+    SummaryUpsertRequest body) =>
+{
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null) return Results.Unauthorized();
+
+    var meeting = await db.Meetings
+        .FirstOrDefaultAsync(m => m.Id == id && m.UserId == Guid.Parse(userIdClaim));
+    if (meeting is null) return Results.NotFound(new { error = "Meeting not found" });
+
+    meeting.SetSummaryJson(body.Status, body.Data is null ? null : System.Text.Json.JsonSerializer.Serialize(body.Data));
+    await db.SaveChangesAsync();
+    return Results.Ok(new { id, status = body.Status });
+}).RequireAuthorization();
+
+// ── Delete a meeting + cascade child rows. Replaces desktop SQLite
+//    api_delete_meeting. TranscriptSegments / ConversationEvents /
+//    Recommendations have ON DELETE CASCADE on MeetingId.
+app.MapDelete("/api/v1/meetings/{id:guid}", async (Guid id, CallPilotDbContext db, ClaimsPrincipal user) =>
+{
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null) return Results.Unauthorized();
+
+    var meeting = await db.Meetings
+        .FirstOrDefaultAsync(m => m.Id == id && m.UserId == Guid.Parse(userIdClaim));
+    if (meeting is null) return Results.NotFound(new { error = "Meeting not found" });
+
+    db.Meetings.Remove(meeting);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { id, deleted = true });
+}).RequireAuthorization();
+
+// ── Partial update — currently just the user-supplied title and folder
+//    path. Replaces desktop SQLite api_save_meeting_title.
+app.MapPatch("/api/v1/meetings/{id:guid}", async (
+    Guid id,
+    CallPilotDbContext db,
+    ClaimsPrincipal user,
+    MeetingUpdateRequest body) =>
+{
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null) return Results.Unauthorized();
+
+    var meeting = await db.Meetings
+        .FirstOrDefaultAsync(m => m.Id == id && m.UserId == Guid.Parse(userIdClaim));
+    if (meeting is null) return Results.NotFound(new { error = "Meeting not found" });
+
+    if (body.Title is not null) meeting.SetTitle(body.Title);
+    if (body.FolderPath is not null) meeting.SetFolderPath(body.FolderPath);
+    if (body.MarkEnded == true) meeting.End();
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new { id, title = meeting.Title, folderPath = meeting.FolderPath });
+}).RequireAuthorization();
+
+// ── Bulk-save final transcript segments for a meeting. Replaces desktop
+//    SQLite api_save_transcript. The desktop batches all finalised
+//    segments at end-of-recording and posts them in one call.
+app.MapPost("/api/v1/meetings/{id:guid}/transcripts", async (
+    Guid id,
+    CallPilotDbContext db,
+    ClaimsPrincipal user,
+    BulkTranscriptRequest body) =>
+{
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null) return Results.Unauthorized();
+
+    var meeting = await db.Meetings
+        .FirstOrDefaultAsync(m => m.Id == id && m.UserId == Guid.Parse(userIdClaim));
+    if (meeting is null) return Results.NotFound(new { error = "Meeting not found" });
+
+    // Existing segments get deleted first so re-saves (e.g., retranscription)
+    // are idempotent. Idempotent saves keep desktop retry logic simple.
+    var existing = db.TranscriptSegments.Where(ts => ts.MeetingId == id);
+    db.TranscriptSegments.RemoveRange(existing);
+
+    if (body.Segments is { Count: > 0 } segments)
+    {
+        var entities = segments.Select(s => new TranscriptSegment(
+            id,
+            s.Speaker ?? string.Empty,
+            s.Text,
+            s.Confidence,
+            s.StartOffset,
+            s.EndOffset,
+            s.IsFinal,
+            s.Sequence)).ToList();
+        db.TranscriptSegments.AddRange(entities);
+    }
+
+    if (body.Title is not null) meeting.SetTitle(body.Title);
+    if (body.FolderPath is not null) meeting.SetFolderPath(body.FolderPath);
+    if (body.MarkEnded == true) meeting.End();
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new { id, savedSegments = body.Segments?.Count ?? 0 });
 }).RequireAuthorization();
 
 app.MapGet("/api/v1/meetings/{id:guid}/transcripts", async (Guid id, CallPilotDbContext db) =>
@@ -536,6 +702,109 @@ app.MapGet("/internal/knowledge/entities", async (CallPilotDbContext db) =>
     return Results.Ok(new { entities, count = entities.Count });
 });
 
+// ── Transcript search (replaces desktop SQLite api_search_transcripts).
+//    ILIKE-based — simple, correct, and good enough for the desktop sidebar.
+//    Returns up to 50 results per query. Each hit carries the meeting id,
+//    title, and a 200-char match snippet (truncation is done client-side
+//    after the query because slice operators aren't allowed inside an
+//    expression tree).
+app.MapGet("/api/v1/search", async (
+    string? q,
+    int? limit,
+    CallPilotDbContext db,
+    ClaimsPrincipal user) =>
+{
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null) return Results.Unauthorized();
+    if (string.IsNullOrWhiteSpace(q)) return Results.Ok(Array.Empty<object>());
+
+    var max = Math.Clamp(limit ?? 50, 1, 200);
+    var pattern = $"%{q.Trim()}%";
+
+    var raw = await (
+        from ts in db.TranscriptSegments
+        join m in db.Meetings on ts.MeetingId equals m.Id
+        where m.UserId == Guid.Parse(userIdClaim)
+              && EF.Functions.ILike(ts.Text, pattern)
+        orderby ts.CreatedAt descending
+        select new
+        {
+            id = m.Id,
+            meetingId = m.Id,
+            title = m.Title ?? "Untitled session",
+            text = ts.Text,
+            timestamp = ts.CreatedAt
+        })
+        .Take(max)
+        .ToListAsync();
+
+    var hits = raw.Select(h => new
+    {
+        h.id,
+        meetingId = h.meetingId,
+        title = h.title,
+        text = h.text,
+        timestamp = h.timestamp,
+        matchContext = h.text.Length > 200 ? h.text[..200] + "…" : h.text
+    });
+
+    return Results.Ok(hits);
+}).RequireAuthorization();
+
+// ── Provider configuration (replaces desktop SQLite
+//    api_get_model_config / api_save_model_config /
+//    api_get_api_key / api_get_custom_openai_config /
+//    api_save_custom_openai_config / api_test_custom_openai_connection).
+//    Backed by the same ProviderConfiguration entity the existing
+//    CreateProviderHandler / ListProvidersHandler / DeleteProviderHandler
+//    already manage.
+app.MapGet("/api/v1/providers", async (CallPilotDbContext db, ClaimsPrincipal user) =>
+{
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null) return Results.Unauthorized();
+
+    var providers = await db.ProviderConfigurations
+        .Where(p => p.UserId == Guid.Parse(userIdClaim) && p.DeletedAt == null)
+        .Select(p => new
+        {
+            id = p.Id,
+            providerType = p.ProviderType,
+            model = p.Model,
+            endpoint = p.Endpoint,
+            temperature = p.Temperature,
+            maxTokens = p.MaxTokens,
+            timeoutSeconds = p.TimeoutSeconds,
+            isEnabled = p.IsEnabled
+        })
+        .ToListAsync();
+
+    return Results.Ok(providers);
+}).RequireAuthorization();
+
+app.MapGet("/api/v1/providers/{id:guid}/api-key", async (
+    Guid id,
+    CallPilotDbContext db,
+    ClaimsPrincipal user,
+    IApiKeyEncryptionService encryption) =>
+{
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null) return Results.Unauthorized();
+
+    var provider = await db.ProviderConfigurations
+        .FirstOrDefaultAsync(p => p.Id == id && p.UserId == Guid.Parse(userIdClaim) && p.DeletedAt == null);
+    if (provider is null) return Results.NotFound(new { error = "Provider not found" });
+
+    try
+    {
+        var plaintext = encryption.Decrypt(provider.EncryptedApiKey);
+        return Results.Ok(new { apiKey = plaintext });
+    }
+    catch
+    {
+        return Results.Ok(new { apiKey = "" });
+    }
+}).RequireAuthorization();
+
 // ── Internal LLM proxy (used by AI Engine for competitive intel) ────────────
 
 app.MapPost("/internal/llm/generate", async (
@@ -565,3 +834,30 @@ app.Run();
 
 public record GenerateRequest(string Prompt, string? MeetingId);
 public record ProcessTextRequest(string text);
+
+// DTOs for the desktop-migration endpoints. Kept as records so JSON
+// deserialisation follows the camelCase convention the desktop already
+// uses (meetingId, folderPath, markEnded, startOffset, etc.).
+public record MeetingUpdateRequest(
+    string? Title,
+    string? FolderPath,
+    bool? MarkEnded);
+
+public record BulkTranscriptRequest(
+    string? Title,
+    string? FolderPath,
+    bool? MarkEnded,
+    List<BulkTranscriptSegment>? Segments);
+
+public record BulkTranscriptSegment(
+    string Text,
+    string? Speaker,
+    double Confidence,
+    double StartOffset,
+    double EndOffset,
+    bool IsFinal,
+    int Sequence);
+
+public record SummaryUpsertRequest(
+    string Status,
+    object? Data);
