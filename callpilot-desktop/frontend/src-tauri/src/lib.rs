@@ -293,7 +293,7 @@ async fn start_recording_with_devices<R: Runtime>(
     start_recording_with_devices_and_meeting(app, mic_device_name, system_device_name, None, None).await
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 async fn start_recording_with_devices_and_meeting<R: Runtime>(
     app: AppHandle<R>,
     mic_device_name: Option<String>,
