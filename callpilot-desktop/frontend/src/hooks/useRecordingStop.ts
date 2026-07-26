@@ -257,10 +257,27 @@ export function useRecordingStop(
         });
 
         try {
+          // Pull the .NET meeting id that TranscriptContext stashed in
+          // sessionStorage when the recording-started event landed. Plumb
+          // it through to saveMeeting so the local SQLite row uses the
+          // SAME id that .NET ConversationEvents + Recommendations were
+          // persisted under during the live /process calls — otherwise the
+          // sidebar links to a phantom `meeting-<uuid>` and the
+          // meeting-details page's /events + /recommendations fetches 404.
+          // Fall back to whatever the rust side generates if the value is
+          // missing or still a local placeholder (meeting-<...>) that
+          // can't have any .NET events behind it.
+          const stashedMeetingId = sessionStorage.getItem('indexeddb_current_meeting_id');
+          const looksLikeDotNetGuid =
+            !!stashedMeetingId &&
+            !stashedMeetingId.startsWith('meeting-') &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(stashedMeetingId);
+
           const responseData = await storageService.saveMeeting(
             savedMeetingName || meetingTitle || 'New Meeting',  // PREFER savedMeetingName (backend source)
             freshTranscripts,
-            folderPath
+            folderPath,
+            looksLikeDotNetGuid ? stashedMeetingId : null,
           );
 
           const meetingId = responseData.meeting_id;

@@ -10,13 +10,24 @@ impl TranscriptsRepository {
     /// Saves a new meeting and its associated transcript segments.
     /// This function uses a transaction to ensure that either both the meeting
     /// and all its transcripts are saved, or none of them are.
+    ///
+    /// `meeting_id`: optional server-issued id (e.g. the .NET UUID returned by
+    /// `POST /api/v1/meetings`). When provided, the local SQLite row uses this
+    /// id verbatim so the sidebar's meeting id matches the id ConversationEvents
+    /// + Recommendations were persisted under on the .NET side. When omitted,
+    /// a local `meeting-<uuid>` is generated (legacy behaviour for recordings
+    /// where no .NET meeting was created — e.g. import-only flows).
     pub async fn save_transcript(
         pool: &SqlitePool,
         meeting_title: &str,
         transcripts: &[TranscriptSegment],
         folder_path: Option<String>,
+        meeting_id: Option<String>,
     ) -> Result<String, SqlxError> {
-        let meeting_id = format!("meeting-{}", Uuid::new_v4());
+        let meeting_id = match meeting_id {
+            Some(id) if !id.trim().is_empty() => id,
+            _ => format!("meeting-{}", Uuid::new_v4()),
+        };
 
         let mut conn = pool.acquire().await?;
         let mut transaction = conn.begin().await?;

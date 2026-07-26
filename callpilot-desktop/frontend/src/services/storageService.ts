@@ -34,17 +34,24 @@ export class StorageService {
    * @param meetingTitle - Title of the meeting
    * @param transcripts - Array of transcript segments
    * @param folderPath - Optional folder path for audio file
+   * @param meetingId - Optional server-issued id (e.g. .NET UUID). When provided,
+   *                    the local SQLite row uses this id verbatim so the sidebar's
+   *                    meeting id matches the id ConversationEvents +
+   *                    Recommendations were persisted under on the .NET side.
+   *                    When omitted, the Rust side generates a fresh local id.
    * @returns Promise with { meeting_id: string }
    */
   async saveMeeting(
     meetingTitle: string,
     transcripts: Transcript[],
-    folderPath: string | null
+    folderPath: string | null,
+    meetingId?: string | null,
   ): Promise<SaveMeetingResponse> {
     return invoke<SaveMeetingResponse>('api_save_transcript', {
       meetingTitle,
       transcripts,
       folderPath,
+      meetingId: meetingId ?? null,
     });
   }
 
