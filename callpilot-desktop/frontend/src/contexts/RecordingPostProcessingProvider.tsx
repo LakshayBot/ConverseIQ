@@ -52,7 +52,11 @@ export function RecordingPostProcessingProvider({ children }: { children: React.
     return () => {
       if (unlistenFn) {
         console.log('[RecordingPostProcessing] Cleaning up event listener');
-        unlistenFn();
+        try {
+          unlistenFn();
+        } catch (e) {
+          console.warn('[RecordingPostProcessing] unlisten threw (stale eventId, harmless):', e);
+        }
       }
     };
   }, [handleRecordingStop]);

@@ -120,7 +120,11 @@ export function useModalState(transcriptModelConfig?: TranscriptModelProps): Use
     return () => {
       console.log('Cleaning up chunk drop warning listener...');
       if (unlistenFn) {
-        unlistenFn();
+        try {
+          unlistenFn();
+        } catch (e) {
+          console.warn('chunk-drop unlisten threw (stale eventId, harmless):', e);
+        }
       }
     };
   }, [showModal]);
@@ -158,7 +162,11 @@ export function useModalState(transcriptModelConfig?: TranscriptModelProps): Use
     return () => {
       console.log('Cleaning up transcription error listener...');
       if (unlistenFn) {
-        unlistenFn();
+        try {
+          unlistenFn();
+        } catch (e) {
+          console.warn('transcription-error unlisten threw (stale eventId, harmless):', e);
+        }
       }
     };
   }, [showModal]);

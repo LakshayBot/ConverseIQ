@@ -415,8 +415,20 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
         console.log('🧹 CLEANUP: Cleared processing timer');
       }
       if (unlistenFn) {
-        unlistenFn();
-        console.log('🧹 CLEANUP: MAIN transcript listener cleaned up');
+        // Wrap unlisten in try/catch — Tauri 2's webview runtime throws
+        // "TypeError: undefined is not an object (evaluating
+        // 'listeners[eventId].handlerId')" when an unregister call hits
+        // a stale eventId (typical when the page reloads or the listener
+        // registration races with the cleanup). The error is harmless —
+        // the listener will eventually be GC'd — but it surfaces as an
+        // unhandled runtime error and breaks the React render. Swallow
+        // it here so the UI keeps working.
+        try {
+          unlistenFn();
+          console.log('🧹 CLEANUP: MAIN transcript listener cleaned up');
+        } catch (e) {
+          console.warn('🧹 CLEANUP: unlisten threw (stale eventId, harmless):', e);
+        }
       }
     };
   }, [currentMeetingId]); // Add currentMeetingId dependency

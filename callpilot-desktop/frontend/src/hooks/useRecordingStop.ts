@@ -112,7 +112,11 @@ export function useRecordingStop(
     return () => {
       console.log('Cleaning up recording stopped listener...');
       if (unlistenFn) {
-        unlistenFn();
+        try {
+          unlistenFn();
+        } catch (e) {
+          console.warn('recording-stopped unlisten threw (stale eventId, harmless):', e);
+        }
       }
     };
   }, [router]);
