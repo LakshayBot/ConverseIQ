@@ -51,12 +51,19 @@ var jwtSecret = builder.Configuration["Jwt:Secret"]!;
 // to /hubs/desktop-agent — the SignalR `negotiate` HTTP call is subject to
 // CORS preflight, and Tauri 2's webview origin (`tauri://localhost`,
 // `http(s)://tauri.localhost`) is otherwise not in the allowlist.
+//
+// `null` (the literal 4-character string) is the Origin header WebKit sends
+// for sandboxed loads from `tauri://localhost` on macOS — without it the
+// preflight comes back 204 with no `Access-Control-Allow-Origin` and the
+// browser silently drops the negotiate request as a CORS failure, surfacing
+// in the desktop as `TypeError: Load failed`.
 var corsAllowedOrigins = new[]
 {
     "http://localhost:3000",       // Next.js dashboard
     "tauri://localhost",           // Tauri 2 webview (Windows / Linux)
     "http://tauri.localhost",      // Tauri 2 webview (macOS / iOS / Android)
     "https://tauri.localhost",     // Tauri 2 webview (some platforms / dev)
+    "null",                        // WKWebView macOS sandboxed Origin
 };
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
