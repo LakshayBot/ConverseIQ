@@ -287,7 +287,10 @@ async fn start_recording_with_devices<R: Runtime>(
     mic_device_name: Option<String>,
     system_device_name: Option<String>,
 ) -> Result<(), String> {
-    start_recording_with_devices_and_meeting(app, mic_device_name, system_device_name, None).await
+    // No meeting_id available from this older wrapper — the canonical
+    // desktop path (useRecordingStart) goes through
+    // start_recording_with_devices_and_meeting directly with the .NET UUID.
+    start_recording_with_devices_and_meeting(app, mic_device_name, system_device_name, None, None).await
 }
 
 #[tauri::command]
@@ -296,36 +299,55 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
     mic_device_name: Option<String>,
     system_device_name: Option<String>,
     meeting_name: Option<String>,
+    meeting_id: Option<String>,
 ) -> Result<(), String> {
-    log_info!("🚀 CALLED start_recording_with_devices_and_meeting - Mic: {:?}, System: {:?}, Meeting: {:?}",
-             mic_device_name, system_device_name, meeting_name);
+    log_info!("🚀 CALLED start_recording_with_devices_and_meeting - Mic: {:?}, System: {:?}, Meeting: {:?}, MeetingID: {:?}",
+             mic_device_name, system_device_name, meeting_name, meeting_id);
 
     // Clone meeting_name for notification use later
     let meeting_name_for_notification = meeting_name.clone();
 
-    // Call the recording module functions that support meeting names
+    // Call the recording module functions that support meeting names.
+    //
+    // meeting_id is the .NET Gateway-issued UUID minted by the frontend
+    // before recording starts (useRecordingStart → createMeeting → POST
+    // /api/v1/meetings). Threading it through here means the Rust-recorded
+    // transcript-update events carry the canonical meeting id in their
+    // recording-started payload, which TranscriptContext uses as
+    // currentMeetingIdRef.current to issue POST /api/v1/meetings/{id}/process
+    // for final transcripts. Without forwarding this, the webview falls
+    // back to `meeting-${Date.now()}` and no /process call ever lands on
+    // a real .NET meeting row.
     let recording_result = match (mic_device_name.clone(), system_device_name.clone()) {
         (None, None) => {
             log_info!(
-                "No devices specified, starting with defaults and meeting: {:?}",
-                meeting_name
+                "No devices specified, starting with defaults and meeting: {:?} (id={:?})",
+                meeting_name,
+                meeting_id
             );
-            audio::recording_commands::start_recording_with_meeting_name(app.clone(), meeting_name)
-                .await
+            audio::recording_commands::start_recording_with_devices_and_meeting(
+                app.clone(),
+                None,
+                None,
+                meeting_name,
+                meeting_id,
+            )
+            .await
         }
         _ => {
             log_info!(
-                "Starting with specified devices: mic={:?}, system={:?}, meeting={:?}",
+                "Starting with specified devices: mic={:?}, system={:?}, meeting={:?}, id={:?}",
                 mic_device_name,
                 system_device_name,
-                meeting_name
+                meeting_name,
+                meeting_id
             );
             audio::recording_commands::start_recording_with_devices_and_meeting(
                 app.clone(),
                 mic_device_name,
                 system_device_name,
                 meeting_name,
-                None, // meeting_id — UI-initiated without .NET Gateway mint
+                meeting_id,
             )
             .await
         }

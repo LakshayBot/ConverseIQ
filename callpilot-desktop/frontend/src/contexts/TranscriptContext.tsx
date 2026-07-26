@@ -380,6 +380,23 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
 
           // Process buffer with minimal delay for immediate UI updates (serial workers = sequential order)
           processingTimer = setTimeout(processBufferedTranscripts, 10);
+
+          // ALSO fan the update out to the .NET Gateway so the same tested
+          // event-detection + SignalR broadcast pipeline the .NET CLI agent
+          // uses runs for desktop transcripts. addTranscript is idempotent
+          // on setTranscripts (text+timestamp dedup) and gates the actual
+          // /process POST behind `!update.is_partial && currentMeetingId`,
+          // so:
+          //   • partials: only the dedup-aware setTranscripts runs (no-op
+          //     against the buffered copy once processBufferedTranscripts
+          //     fires 10ms later) — no /process POST.
+          //   • finals: setTranscripts is again a no-op against the
+          //     buffered copy, AND POST /api/v1/meetings/{id}/process fires
+          //     so EventDetectionService → engine → SignalR broadcast runs.
+          // If currentMeetingIdRef.current is null (recording-started
+          // landed late), addTranscript logs and skips — the next final
+          // will succeed.
+          addTranscript(update);
         });
         console.log('✅ MAIN transcript listener setup complete');
       } catch (error) {
