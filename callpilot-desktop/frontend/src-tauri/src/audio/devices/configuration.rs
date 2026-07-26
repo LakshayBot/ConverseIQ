@@ -79,9 +79,22 @@ impl AudioDevice {
                 DeviceType::Output,
             )
         } else {
-            return Err(anyhow!(
-                "Device type (input/output) not specified in the name"
-            ));
+            // Lenient fallback: the name doesn't carry the (input)/(output)
+            // suffix the strict parser requires. CPAL/AVCaptureSession on
+            // macOS often return bare device names like "BlackHole 2ch"
+            // or "MacBook Air Microphone" without the explicit type tag,
+            // and the frontend's resolveDevices surfaces those verbatim.
+            // Default to Input since the most common caller is mic-device
+            // resolution; system-audio callers fall back through
+            // default_output_device() at the call site if needed. The
+            // device_type tag is only used for routing in stream.rs, so
+            // being wrong here is recoverable (it'd just mean the wrong
+            // device ends up selected) — but rejecting outright aborts
+            // the recording entirely with no useful recovery.
+            (
+                name.trim().to_string(),
+                DeviceType::Input,
+            )
         };
 
         Ok(AudioDevice::new(name, device_type))
