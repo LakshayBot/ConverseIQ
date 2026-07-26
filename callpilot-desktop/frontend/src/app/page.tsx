@@ -78,7 +78,7 @@ export default function Home() {
   })();
   const sessionId = hookSessionId ?? deepLinkMeetingId;
 
-  const { cards: intelligenceCards, connected: intelligenceConnected, error: intelligenceError, signalRUrl: intelligenceSignalRUrl, connectionState: intelligenceConnectionState } =
+  const { cards: intelligenceCards, connected: intelligenceConnected, error: intelligenceError } =
     useIntelligenceStream(sessionId);
 
   useEffect(() => {
@@ -232,12 +232,47 @@ export default function Home() {
         onLoadPreview={loadMeetingTranscripts}
       />
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 min-w-0">
+        {/* Transcript column. `relative` anchors the floating mic button so it
+           stays centered within THIS column on every viewport — independent of
+           the sidebar width and the right-side intelligence aside. The old
+           `fixed left-0 right-0 + hardcoded marginLeft` approach broke
+           centering whenever the sidebar collapsed or the aside width
+           changed. */}
+        <div className="relative flex-1 min-w-0">
           <TranscriptPanel
             isProcessingStop={isProcessingStop}
             isStopping={isStopping}
             showModal={showModal}
           />
+
+          {/* Recording controls — absolutely positioned inside the transcript
+             column so they stay horizontally centered between the sidebar
+             and the intelligence aside. `bottom-12` lifts the dock above
+             the transcript scroll edge; `left-0 right-0` plus
+             `justify-center` gives true center regardless of column width. */}
+          {(hasMicrophone || isRecording) &&
+            status !== RecordingStatus.PROCESSING_TRANSCRIPTS &&
+            status !== RecordingStatus.SAVING && (
+              <div className="pointer-events-none absolute bottom-12 left-0 right-0 z-10 flex justify-center">
+                <div className="pointer-events-auto">
+                  <RecordingControls
+                    isRecording={recordingState.isRecording}
+                    onRecordingStop={(callApi = true) => handleRecordingStop(callApi)}
+                    onRecordingStart={handleRecordingStart}
+                    onTranscriptReceived={() => { }} // Not actually used by RecordingControls
+                    onStopInitiated={() => setIsStopping(true)}
+                    barHeights={barHeights}
+                    onTranscriptionError={(message) => {
+                      showModal('errorAlert', message);
+                    }}
+                    isRecordingDisabled={isRecordingDisabled}
+                    isParentProcessing={isProcessingStop}
+                    selectedDevices={selectedDevices}
+                    meetingName={meetingTitle}
+                  />
+                </div>
+              </div>
+            )}
         </div>
         <aside className="hidden lg:flex w-[360px] flex-col gap-3 border-l border-gray-200 bg-gray-50 p-4 overflow-y-auto">
           <div className="flex items-baseline justify-between">
@@ -251,44 +286,8 @@ export default function Home() {
             connected={intelligenceConnected}
             error={intelligenceError}
             sessionId={sessionId}
-            signalRUrl={intelligenceSignalRUrl}
-            connectionState={intelligenceConnectionState}
           />
         </aside>
-
-        {/* Recording controls - only show when permissions are granted or already recording and not showing status messages */}
-        {(hasMicrophone || isRecording) &&
-          status !== RecordingStatus.PROCESSING_TRANSCRIPTS &&
-          status !== RecordingStatus.SAVING && (
-            <div className="fixed bottom-12 left-0 right-0 z-10">
-              <div
-                className="flex justify-center pl-8 transition-[margin] duration-300"
-                style={{
-                  marginLeft: sidebarCollapsed ? '4rem' : '16rem'
-                }}
-              >
-                <div className="w-2/3 max-w-[750px] flex justify-center">
-                  <div className="bg-white rounded-full shadow-lg flex items-center">
-                    <RecordingControls
-                      isRecording={recordingState.isRecording}
-                      onRecordingStop={(callApi = true) => handleRecordingStop(callApi)}
-                      onRecordingStart={handleRecordingStart}
-                      onTranscriptReceived={() => { }} // Not actually used by RecordingControls
-                      onStopInitiated={() => setIsStopping(true)}
-                      barHeights={barHeights}
-                      onTranscriptionError={(message) => {
-                        showModal('errorAlert', message);
-                      }}
-                      isRecordingDisabled={isRecordingDisabled}
-                      isParentProcessing={isProcessingStop}
-                      selectedDevices={selectedDevices}
-                      meetingName={meetingTitle}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
 
         {/* Status Overlays - Processing and Saving */}
         <StatusOverlays
