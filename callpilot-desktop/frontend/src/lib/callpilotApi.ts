@@ -197,3 +197,133 @@ export async function persistAiEngineUrl(url: string): Promise<void> {
     try { localStorage.setItem('callpilot_ai_engine_url', url); } catch {}
   }
 }
+
+// ===== Past meeting intelligence (events + recommendations) =====
+//
+// Used by the meeting-details view to reconstruct the intelligence cards the
+// user saw during the live recording. Mirrors the SignalR payload shape that
+// `useIntelligenceStream` consumes (EventDetected + RecommendationGenerated).
+
+export interface PastConversationEvent {
+  id: string;
+  eventType: string;
+  entityName: string | null;
+  confidence: number;
+  supportingTranscript: string;
+  detectedAt: string;
+}
+
+export interface PastRecommendation {
+  id: string;
+  type: string;
+  title: string;
+  summary: string;
+  confidence: number;
+  references: string[] | null;
+  triggerEvent: string | null;
+  provider: string | null;
+  model: string | null;
+  generatedAt: string;
+}
+
+export async function getEventsForMeeting(meetingId: string): Promise<PastConversationEvent[]> {
+  try {
+    return await authedApiCall<PastConversationEvent[]>(
+      'GET',
+      `/api/v1/meetings/${meetingId}/events`,
+    );
+  } catch (e) {
+    console.warn('[callpilot] getEventsForMeeting failed:', e);
+    return [];
+  }
+}
+
+export async function getRecommendationsForMeeting(meetingId: string): Promise<PastRecommendation[]> {
+  try {
+    return await authedApiCall<PastRecommendation[]>(
+      'GET',
+      `/api/v1/meetings/${meetingId}/recommendations`,
+    );
+  } catch (e) {
+    console.warn('[callpilot] getRecommendationsForMeeting failed:', e);
+    return [];
+  }
+}
+
+// Map eventType / type strings → IntelligenceCard type. Mirrors the
+// CARD_TYPE_BY_EVENT / CARD_TYPE_BY_REC tables in useIntelligenceStream.ts so
+// past meetings render the same card category as the live stream.
+const PAST_EVENT_TYPE_BY_CARD: Record<string, IntelligenceCard['type']> = {
+  ProductMentioned: 'product_match',
+  CompetitorMentioned: 'competitor_detected',
+  Objection: 'objection',
+  PricingDiscussion: 'pricing_discussion',
+  PricingQuestion: 'pricing_discussion',
+  TechnicalQuestion: 'technical_question',
+};
+
+const PAST_REC_TYPE_BY_CARD: Record<string, IntelligenceCard['type']> = {
+  product_match: 'product_match',
+  product: 'product_match',
+  competitor: 'competitor_detected',
+  objection: 'objection',
+  pricing: 'pricing_discussion',
+  technical: 'technical_question',
+};
+
+function severityFromConfidence(c: number | undefined): IntelligenceCard['severity'] {
+  const v = typeof c === 'number' ? c : 0;
+  if (v >= 0.9) return 'high';
+  if (v >= 0.7) return 'medium';
+  return 'low';
+}
+
+/**
+ * Build IntelligenceCards from a past meeting's persisted events + recommendations.
+ * Newest entries first (matches `MAX_CARDS_VISIBLE` ordering of the live panel).
+ * Dedupes by title so a recommendation paired with its triggering event doesn't
+ * show twice.
+ */
+export function buildPastIntelligenceCards(
+  events: PastConversationEvent[],
+  recommendations: PastRecommendation[],
+): IntelligenceCard[] {
+  const cards: IntelligenceCard[] = [];
+  const seenTitles = new Set<string>();
+
+  // Events first — chronological order, oldest at top.
+  for (const e of events) {
+    const cardType = PAST_EVENT_TYPE_BY_CARD[e.eventType];
+    if (!cardType) continue;
+    const titleEntity = e.entityName ? `: ${e.entityName}` : '';
+    const title = `${e.eventType}${titleEntity}`;
+    if (seenTitles.has(title)) continue;
+    seenTitles.add(title);
+    cards.push({
+      type: cardType,
+      title,
+      body: e.supportingTranscript ?? '',
+      severity: severityFromConfidence(e.confidence),
+      chunks: e.supportingTranscript ? [e.supportingTranscript] : [],
+    });
+  }
+
+  // Recommendations appended so they cluster naturally after their trigger event.
+  for (const r of recommendations) {
+    const recType = (r.type ?? '').toLowerCase();
+    const cardType = PAST_REC_TYPE_BY_CARD[recType] ?? 'product_match';
+    if (!r.title) continue;
+    if (seenTitles.has(r.title)) continue;
+    seenTitles.add(r.title);
+    cards.push({
+      type: cardType,
+      title: r.title,
+      body: r.summary ?? '',
+      severity: severityFromConfidence(r.confidence),
+      chunks: Array.isArray(r.references) ? r.references : [],
+    });
+  }
+
+  // Newest first to match live-panel ordering.
+  return cards.reverse();
+}
