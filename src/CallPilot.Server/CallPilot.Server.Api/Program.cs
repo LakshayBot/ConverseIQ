@@ -49,8 +49,13 @@ var jwtSecret = builder.Configuration["Jwt:Secret"]!;
 //
 // Tauri origins are included so the desktop Tauri 2 webview can connect
 // to /hubs/desktop-agent — the SignalR `negotiate` HTTP call is subject to
-// CORS preflight, and Tauri 2's webview origin (`tauri://localhost`,
-// `http(s)://tauri.localhost`) is otherwise not in the allowlist.
+// CORS preflight, and the webview origin is otherwise not in the allowlist.
+//
+// In dev mode (`pnpm tauri:dev`), the webview loads from the Next.js dev
+// server at http://localhost:3118 — that is the actual Origin header the
+// browser sends. In production builds (`tauri://localhost` and the
+// `http(s)://tauri.localhost` variants on macOS/iOS/Android), the webview
+// loads from the custom scheme instead.
 //
 // `null` (the literal 4-character string) is the Origin header WebKit sends
 // for sandboxed loads from `tauri://localhost` on macOS — without it the
@@ -60,9 +65,11 @@ var jwtSecret = builder.Configuration["Jwt:Secret"]!;
 var corsAllowedOrigins = new[]
 {
     "http://localhost:3000",       // Next.js dashboard
-    "tauri://localhost",           // Tauri 2 webview (Windows / Linux)
-    "http://tauri.localhost",      // Tauri 2 webview (macOS / iOS / Android)
-    "https://tauri.localhost",     // Tauri 2 webview (some platforms / dev)
+    "http://localhost:3118",       // Tauri 2 dev mode webview (Next.js dev server)
+    "http://127.0.0.1:3118",       // Tauri 2 dev mode (IPv4 loopback variant)
+    "tauri://localhost",           // Tauri 2 webview prod (Windows / Linux)
+    "http://tauri.localhost",      // Tauri 2 webview prod (macOS / iOS / Android)
+    "https://tauri.localhost",     // Tauri 2 webview prod (some platforms / dev)
     "null",                        // WKWebView macOS sandboxed Origin
 };
 
