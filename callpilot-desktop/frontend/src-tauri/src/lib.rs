@@ -318,44 +318,53 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
     // for final transcripts. Without forwarding this, the webview falls
     // back to `meeting-${Date.now()}` and no /process call ever lands on
     // a real .NET meeting row.
-    let recording_result = match (mic_device_name.clone(), system_device_name.clone()) {
+    // Resolve devices from preferences if both are None. We do this BEFORE
+    // dispatching to the recording function so the single device-aware
+    // entry point (`start_recording_with_devices_and_meeting`) is always
+    // the one that runs, regardless of whether the caller passed device
+    // names. This eliminates the previous (None, None) special-case branch
+    // that routed through `start_recording_with_meeting_name` — that
+    // function's emit payload didn't carry meeting_id in older builds, so
+    // any path through it surfaced the webview as meeting_id=null and
+    // TranscriptContext fell back to a `meeting-{Date.now()}` local id.
+    let (effective_mic, effective_system) = match (&mic_device_name, &system_device_name) {
         (None, None) => {
             log_info!(
-                "No devices specified, starting with defaults and meeting: {:?} (id={:?})",
-                meeting_name,
-                meeting_id
+                "No devices specified by caller, resolving from recording preferences"
             );
-            // Use the meeting-name entry point so the underlying function
-            // resolves saved-preferred devices (preferred_mic_device /
-            // preferred_system_device) and falls back to system defaults
-            // via CPAL. Passing None,None to the devices entry point would
-            // skip resolution entirely and fail with
-            // "No audio streams could be created".
-            audio::recording_commands::start_recording_with_meeting_name(
-                app.clone(),
-                meeting_name,
-                meeting_id,
-            )
-            .await
+            match audio::recording_preferences::load_recording_preferences(&app).await {
+                Ok(prefs) => (
+                    prefs.preferred_mic_device,
+                    prefs.preferred_system_device,
+                ),
+                Err(e) => {
+                    log_info!(
+                        "Failed to load recording preferences ({}), using empty devices",
+                        e
+                    );
+                    (None, None)
+                }
+            }
         }
-        _ => {
-            log_info!(
-                "Starting with specified devices: mic={:?}, system={:?}, meeting={:?}, id={:?}",
-                mic_device_name,
-                system_device_name,
-                meeting_name,
-                meeting_id
-            );
-            audio::recording_commands::start_recording_with_devices_and_meeting(
-                app.clone(),
-                mic_device_name,
-                system_device_name,
-                meeting_name,
-                meeting_id,
-            )
-            .await
-        }
+        _ => (mic_device_name.clone(), system_device_name.clone()),
     };
+
+    log_info!(
+        "Starting with resolved devices: mic={:?}, system={:?}, meeting={:?}, id={:?}",
+        effective_mic,
+        effective_system,
+        meeting_name,
+        meeting_id
+    );
+
+    let recording_result = audio::recording_commands::start_recording_with_devices_and_meeting(
+        app.clone(),
+        effective_mic,
+        effective_system,
+        meeting_name,
+        meeting_id,
+    )
+    .await;
 
     match recording_result {
         Ok(_) => {
