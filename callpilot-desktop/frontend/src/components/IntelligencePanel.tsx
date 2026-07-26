@@ -1,7 +1,20 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, AlertTriangle, MessageCircle, ThumbsUp, Package, DollarSign, HelpCircle } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  AlertTriangle,
+  MessageCircle,
+  ThumbsUp,
+  Package,
+  DollarSign,
+  HelpCircle,
+  Mic,
+  Sparkles,
+  Radio,
+  WifiOff,
+} from 'lucide-react';
 import type { IntelligenceCard } from '@/lib/callpilotApi';
 
 interface Props {
@@ -29,105 +42,122 @@ const SEVERITY_BORDER: Record<IntelligenceCard['severity'], string> = {
 };
 
 /**
- * Small status pill that summarises the intelligence stream state.
- *
- * Three meaningful states:
- *   - "Start transcribing" — no session yet. The panel is dormant until the
- *     user clicks the mic. Tells the user *what action unlocks intelligence*.
- *   - "Opening stream" — a session exists but SignalR is still negotiating.
- *     Short-lived; surfaces the work being done without the dev-flavoured
- *     "Connecting" copy.
- *   - "Live" — connected; cards can arrive at any time.
- *
- * `error` short-circuits everything to a red "Offline" pill.
+ * Visual state of the intelligence stream — drives both the empty-state card
+ * (icon, palette, copy) and the small pill in the top right. Centralising
+ * the four states here keeps the two surfaces in sync.
  */
-const StatusPill: React.FC<{ connected: boolean; error: string | null; hasSession: boolean }> = ({
-  connected,
-  error,
-  hasSession,
-}) => {
-  if (error) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 border border-red-200">
-        <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-        Offline
-      </span>
-    );
-  }
-  if (connected) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 border border-emerald-200">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-        Live
-      </span>
-    );
-  }
-  if (hasSession) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
-        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-        Opening stream
-      </span>
-    );
-  }
+type StreamState = 'idle' | 'opening' | 'live' | 'offline';
+
+interface StateMeta {
+  icon: React.ReactNode;
+  iconBg: string;
+  iconColor: string;
+  pill: { dot: string; bg: string; text: string; border: string; label: string };
+  title: string;
+  subtitle: string;
+}
+
+const STATE_META: Record<StreamState, StateMeta> = {
+  idle: {
+    icon: <Mic className="h-5 w-5" />,
+    iconBg: 'bg-slate-100',
+    iconColor: 'text-slate-500',
+    pill: { dot: 'bg-slate-400', bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200', label: 'Start transcribing' },
+    title: 'Start transcribing to open the intelligence stream',
+    subtitle: 'Cards will appear here as soon as you start a recording and the call begins.',
+  },
+  opening: {
+    icon: <Radio className="h-5 w-5 animate-pulse" />,
+    iconBg: 'bg-amber-50',
+    iconColor: 'text-amber-600',
+    pill: { dot: 'bg-amber-500 animate-pulse', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', label: 'Opening stream' },
+    title: 'Opening intelligence stream…',
+    subtitle: 'Connecting to the CallPilot AI engine — usually takes a second.',
+  },
+  live: {
+    icon: <Sparkles className="h-5 w-5" />,
+    iconBg: 'bg-emerald-50',
+    iconColor: 'text-emerald-600',
+    pill: { dot: 'bg-emerald-500', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', label: 'Live' },
+    title: 'Listening for intelligence',
+    subtitle: 'Competitors, objections, and product matches will surface here as the conversation unfolds.',
+  },
+  offline: {
+    icon: <WifiOff className="h-5 w-5" />,
+    iconBg: 'bg-red-50',
+    iconColor: 'text-red-600',
+    pill: { dot: 'bg-red-500', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', label: 'Offline' },
+    title: 'Intelligence stream offline',
+    subtitle: '', // filled by caller (includes the engine error text)
+  },
+};
+
+/**
+ * Reimagined empty-state card: centred, polished, icon-led. The previous
+ * dashed-border + inline-headline + side-pill layout wrapped the pill onto
+ * two lines and read as unfinished. This card uses a soft surface, a clear
+ * hierarchy (icon → title → subtitle → pill), and a whitespace-nowrap pill
+ * that always renders on one line.
+ */
+const EmptyState: React.FC<{
+  meta: StateMeta;
+  sessionId?: string | null;
+  subtitleOverride?: string;
+}> = ({ meta, sessionId, subtitleOverride }) => {
+  const { icon, iconBg, iconColor, pill, title } = meta;
+  const subtitle = subtitleOverride ?? meta.subtitle;
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600 border border-gray-200">
-      <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
-      Start transcribing
-    </span>
+    <div className="rounded-lg border border-gray-200 bg-white px-4 py-7 text-center shadow-sm">
+      <div
+        className={`mx-auto flex h-11 w-11 items-center justify-center rounded-full ${iconBg}`}
+      >
+        <div className={iconColor}>{icon}</div>
+      </div>
+      <p className="mt-3 text-sm font-semibold text-gray-900">{title}</p>
+      {subtitle && (
+        <p className="mt-1 text-xs leading-relaxed text-gray-500">{subtitle}</p>
+      )}
+      <span
+        className={`mt-3 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[10px] font-medium border ${pill.bg} ${pill.text} ${pill.border}`}
+      >
+        <span className={`h-1.5 w-1.5 rounded-full ${pill.dot}`} />
+        {pill.label}
+      </span>
+      {sessionId && (
+        <div className="mt-4 text-[10px] text-gray-400 font-mono break-all">
+          session: {sessionId}
+        </div>
+      )}
+    </div>
   );
 };
+
+/**
+ * Resolves the panel state from the props the page already tracks.
+ *   error   → 'offline'
+ *   connected → 'live'  (cards may still be empty until the first event)
+ *   hasSession but not connected → 'opening'
+ *   no session → 'idle'
+ */
+function resolveStreamState(connected: boolean, error: string | null, hasSession: boolean): StreamState {
+  if (error) return 'offline';
+  if (connected) return 'live';
+  if (hasSession) return 'opening';
+  return 'idle';
+}
 
 export const IntelligencePanel: React.FC<Props> = ({ cards, connected, error, sessionId }) => {
   const hasSession = Boolean(sessionId);
 
-  if (error) {
-    return (
-      <div className="rounded-md border border-dashed border-gray-300 bg-white/60 p-4 text-sm text-gray-500">
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-medium text-gray-700">Intelligence stream offline</span>
-          <StatusPill connected={false} error={error} hasSession={hasSession} />
-        </div>
-        <div className="mt-1 text-xs">{error}. Check Settings → AI Engine URL.</div>
-        {sessionId && (
-          <div className="mt-2 text-[10px] text-gray-400 font-mono break-all">
-            session: {sessionId}
-          </div>
-        )}
-      </div>
-    );
-  }
-
   if (!cards.length) {
-    // Three meaningful copy variants:
-    //   1. No session yet   → "Start transcribing" (action prompt).
-    //   2. Session, not yet connected → "Opening stream" (in-progress).
-    //   3. Session, connected, no cards yet → "Live, listening" (reassurance).
-    const headline = !hasSession
-      ? 'Start transcribing to open the intelligence stream'
-      : connected
-        ? 'Live — listening for competitors, objections, and product matches'
-        : 'Opening intelligence stream…';
-    return (
-      <div className="rounded-md border border-dashed border-gray-300 bg-white/60 p-4 text-sm text-gray-500">
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-medium text-gray-700">{headline}</span>
-          <StatusPill connected={connected} error={null} hasSession={hasSession} />
-        </div>
-        <div className="mt-1 text-xs">
-          {!hasSession
-            ? 'Cards appear here as soon as you start a recording and the call begins.'
-            : connected
-              ? 'Competitors, objections, and product matches will surface here as the conversation unfolds.'
-              : 'Connecting to the CallPilot AI engine — this usually takes a second.'}
-        </div>
-        {sessionId && (
-          <div className="mt-2 text-[10px] text-gray-400 font-mono break-all">
-            session: {sessionId}
-          </div>
-        )}
-      </div>
-    );
+    const state = resolveStreamState(connected, error, hasSession);
+    const meta = STATE_META[state];
+    // Offline gets the engine error message folded into the subtitle.
+    const subtitleOverride =
+      state === 'offline' && error
+        ? `${error}. Check Settings → AI Engine URL.`
+        : undefined;
+    return <EmptyState meta={meta} sessionId={sessionId} subtitleOverride={subtitleOverride} />;
   }
 
   return (
