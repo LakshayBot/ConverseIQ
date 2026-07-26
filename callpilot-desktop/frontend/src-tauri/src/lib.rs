@@ -357,14 +357,37 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
         meeting_id
     );
 
-    let recording_result = audio::recording_commands::start_recording_with_devices_and_meeting(
-        app.clone(),
-        effective_mic,
-        effective_system,
-        meeting_name,
-        meeting_id,
-    )
-    .await;
+    // If we resolved devices (preferences or caller-supplied), use the
+    // device-aware entry point that emits meeting_id in its
+    // recording-started payload. Otherwise (no preferences, no caller
+    // devices) fall back to the meeting-name entry point, which does the
+    // full CPAL default-device dance (preferred → default → error for
+    // mic, preferred → default → None for system). That function's emit
+    // was patched to also include meeting_id and meeting_name, so the
+    // webview sees the canonical UUID regardless of which path runs.
+    let recording_result = match (&effective_mic, &effective_system) {
+        (Some(_), _) | (_, Some(_)) => {
+            audio::recording_commands::start_recording_with_devices_and_meeting(
+                app.clone(),
+                effective_mic,
+                effective_system,
+                meeting_name,
+                meeting_id,
+            )
+            .await
+        }
+        (None, None) => {
+            log_info!(
+                "No resolved devices, falling back to default-device path"
+            );
+            audio::recording_commands::start_recording_with_meeting_name(
+                app.clone(),
+                meeting_name,
+                meeting_id,
+            )
+            .await
+        }
+    };
 
     match recording_result {
         Ok(_) => {
