@@ -4,15 +4,12 @@ import React, { useEffect, useState } from 'react';
 import { CheckCircle2, XCircle, Loader2, Save, LogOut } from 'lucide-react';
 import {
   DEFAULT_CALLPILOT_API_URL,
-  DEFAULT_CALLPILOT_AI_ENGINE_URL,
   SETTINGS_KEY_API_URL,
-  SETTINGS_KEY_AI_ENGINE_URL,
   SETTINGS_KEY_AUTO_START,
   SETTINGS_KEY_SAVE_LOCAL,
   SETTINGS_KEY_SHOW_SPEAKER_LABELS,
-  normalizeWsBaseUrl,
 } from '@/lib/callpilot';
-import { persistApiUrl, persistAiEngineUrl, setCallPilotApiBaseUrl, testConnection } from '@/lib/callpilotApi';
+import { persistApiUrl, setCallPilotApiBaseUrl, testConnection } from '@/lib/callpilotApi';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
@@ -33,7 +30,6 @@ function readBool(key: string, fallback: boolean): boolean {
 
 export const CallPilotServerSettings: React.FC = () => {
   const [apiUrl, setApiUrl] = useState(DEFAULT_CALLPILOT_API_URL);
-  const [aiEngineUrl, setAiEngineUrl] = useState(DEFAULT_CALLPILOT_AI_ENGINE_URL);
   const [autoStart, setAutoStart] = useState(false);
   const [saveLocal, setSaveLocal] = useState(true);
   const [showSpeakerLabels, setShowSpeakerLabels] = useState(true);
@@ -47,7 +43,6 @@ export const CallPilotServerSettings: React.FC = () => {
 
   useEffect(() => {
     setApiUrl(readStored(SETTINGS_KEY_API_URL, DEFAULT_CALLPILOT_API_URL));
-    setAiEngineUrl(readStored(SETTINGS_KEY_AI_ENGINE_URL, DEFAULT_CALLPILOT_AI_ENGINE_URL));
     setAutoStart(readBool(SETTINGS_KEY_AUTO_START, false));
     setSaveLocal(readBool(SETTINGS_KEY_SAVE_LOCAL, true));
     setShowSpeakerLabels(readBool(SETTINGS_KEY_SHOW_SPEAKER_LABELS, true));
@@ -69,14 +64,12 @@ export const CallPilotServerSettings: React.FC = () => {
   const onSave = async () => {
     try {
       localStorage.setItem(SETTINGS_KEY_API_URL, apiUrl);
-      localStorage.setItem(SETTINGS_KEY_AI_ENGINE_URL, aiEngineUrl);
       localStorage.setItem(SETTINGS_KEY_AUTO_START, autoStart ? 'true' : 'false');
       localStorage.setItem(SETTINGS_KEY_SAVE_LOCAL, saveLocal ? 'true' : 'false');
       localStorage.setItem(SETTINGS_KEY_SHOW_SPEAKER_LABELS, showSpeakerLabels ? 'true' : 'false');
     } catch {}
     setCallPilotApiBaseUrl(apiUrl);
     await persistApiUrl(apiUrl);
-    await persistAiEngineUrl(aiEngineUrl);
     setSaveState('saved');
     setTimeout(() => setSaveState('idle'), 1500);
   };
@@ -98,16 +91,14 @@ export const CallPilotServerSettings: React.FC = () => {
     }
   };
 
-  const wsPreview = `${normalizeWsBaseUrl(aiEngineUrl).replace(/\/+$/, '')}/ws/intelligence/{session_id}`;
-
   return (
     <div className="max-w-2xl space-y-8">
       {/* CallPilot Server */}
       <section>
         <h2 className="text-lg font-semibold text-gray-900">CallPilot Server</h2>
         <p className="text-sm text-gray-500 mt-1">
-          Point the desktop agent at your CallPilot .NET Gateway and AI engine.
-          The intelligence stream and meeting sync use these endpoints.
+          Point the desktop agent at your CallPilot .NET Gateway. The
+          intelligence stream and meeting sync use this endpoint.
         </p>
 
         <div className="mt-4 space-y-4">
@@ -121,20 +112,6 @@ export const CallPilotServerSettings: React.FC = () => {
               className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
             <p className="mt-1 text-xs text-gray-500">Used for /api/v1/auth/*, /api/v1/meetings/*, /api/v1/knowledge/*</p>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-gray-700">CallPilot AI Engine URL</label>
-            <input
-              type="text"
-              value={aiEngineUrl}
-              onChange={(e) => setAiEngineUrl(e.target.value)}
-              placeholder={DEFAULT_CALLPILOT_AI_ENGINE_URL}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              WebSocket endpoint. Cards stream in at <code className="bg-gray-100 px-1 rounded">{wsPreview}</code>
-            </p>
           </div>
 
           <div className="flex items-center gap-3">
