@@ -398,6 +398,30 @@ app.MapGet("/api/v1/meetings/{id:guid}/recommendations", async (Guid id, CallPil
     return Results.Ok(recommendations);
 });
 
+// Fetch persisted ConversationEvents for a past meeting so the desktop
+// meeting-details view can reconstruct the intelligence cards the user saw
+// during the live recording. Ordered by DetectedAt asc so the timeline reads
+// in conversation order (matches the SignalR broadcast order the desktop
+// originally consumed them in).
+app.MapGet("/api/v1/meetings/{id:guid}/events", async (Guid id, CallPilotDbContext db) =>
+{
+    var events = await db.ConversationEvents
+        .Where(e => e.MeetingId == id)
+        .OrderBy(e => e.DetectedAt)
+        .Select(e => new
+        {
+            e.Id,
+            e.EventType,
+            e.EntityName,
+            e.Confidence,
+            e.SupportingTranscript,
+            e.DetectedAt
+        })
+        .ToListAsync();
+
+    return Results.Ok(events);
+});
+
 app.MapPost("/api/v1/meetings/{id:guid}/process", async (
     Guid id,
     ClaimsPrincipal user,
