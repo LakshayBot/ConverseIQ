@@ -20,6 +20,7 @@ import { useRecordingStart } from '@/hooks/useRecordingStart';
 import { useRecordingStop } from '@/hooks/useRecordingStop';
 import { useTranscriptRecovery } from '@/hooks/useTranscriptRecovery';
 import { TranscriptRecovery } from '@/components/TranscriptRecovery';
+import { IdleMainPage } from './_components/IdleMainPage';
 import { indexedDBService } from '@/services/indexedDBService';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -239,11 +240,15 @@ export default function Home() {
            centering whenever the sidebar collapsed or the aside width
            changed. */}
         <div className="relative flex-1 min-w-0">
-          <TranscriptPanel
-            isProcessingStop={isProcessingStop}
-            isStopping={isStopping}
-            showModal={showModal}
-          />
+          {recordingState.isRecording || status === RecordingStatus.STARTING ? (
+            <TranscriptPanel
+              isProcessingStop={isProcessingStop}
+              isStopping={isStopping}
+              showModal={showModal}
+            />
+          ) : (
+            <IdleMainPage onStartRecording={handleRecordingStart} />
+          )}
 
           {/* Recording controls — absolutely positioned inside the transcript
              column so they stay horizontally centered between the sidebar
