@@ -11,7 +11,19 @@ interface RecordingStatusBarProps {
 export const RecordingStatusBar: React.FC<RecordingStatusBarProps> = ({ isPaused = false }) => {
   // Get recording duration from backend-synced context (in seconds)
   // Backend polls every 500ms, providing smooth updates
-  const { activeDuration, isRecording } = useRecordingState();
+  const { activeDuration, isRecording, status } = useRecordingState();
+
+  // Defensive: never render during a clean idle state. The parent
+  // (VirtualizedTranscriptView) gates this on the same condition, but a
+  // stray re-render or stale context value would otherwise show
+  // "Recording • 0:00" on every page load.
+  const sessionActive =
+    isRecording ||
+    isPaused ||
+    status === 'processing' ||
+    status === 'saving' ||
+    status === 'stopping';
+  if (!sessionActive) return null;
 
   // Display state synced from backend
   const [displaySeconds, setDisplaySeconds] = useState(0);

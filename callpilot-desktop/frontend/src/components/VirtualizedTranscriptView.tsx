@@ -283,6 +283,11 @@ export const VirtualizedTranscriptView: React.FC<{
   // change) but no animation runs.
   void enableStreaming;
 
+  // RecordingStatusBar must only render during an active session. It reads
+  // `isRecording` from RecordingStateContext internally, so without this
+  // gate the bar would show "Recording • 0:00" on every idle page-load.
+  const showStatusBar = isRecording || isPaused || isProcessing || isStopping;
+
   if (segments.length < VIRTUALIZATION_THRESHOLD) {
     return (
       <div
@@ -293,9 +298,7 @@ export const VirtualizedTranscriptView: React.FC<{
           renderItem(segment, index, segment === lastSegment)
         )}
         <div ref={loadMoreTriggerRef} />
-        <RecordingStatusBar
-          isPaused={isPaused}
-        />
+        {showStatusBar && <RecordingStatusBar isPaused={isPaused} />}
       </div>
     );
   }
@@ -332,9 +335,7 @@ export const VirtualizedTranscriptView: React.FC<{
         })}
       </div>
       <div ref={loadMoreTriggerRef} />
-      <RecordingStatusBar
-        isPaused={isPaused}
-      />
+      {showStatusBar && <RecordingStatusBar isPaused={isPaused} />}
     </div>
   );
 };

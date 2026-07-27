@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight as ChevronRightIcon, ChevronLeft, File, Settings, Calendar, StickyNote, Home, Trash2, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
 import type { CurrentMeeting } from '@/components/Sidebar/SidebarProvider';
@@ -499,8 +499,26 @@ const Sidebar: React.FC = () => {
     return (
       <TooltipProvider>
         <div className="flex flex-col items-center gap-1 px-2 pt-3">
-          <div className="pb-2">
+          {/* Collapsed-mode expand chevron: lives directly under the
+             brand mark so users have a clear affordance to re-open the rail. */}
+          <div className="pb-2 flex flex-col items-center gap-2">
             <Logo isCollapsed={isCollapsed} />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={toggleCollapse}
+                  aria-label="Expand sidebar"
+                  title="Expand sidebar"
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                >
+                  <ChevronRightIcon className="h-3.5 w-3.5" strokeWidth={2} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                <p>Expand sidebar</p>
+              </TooltipContent>
+            </Tooltip>
           </div>
 
           <Tooltip>
@@ -654,7 +672,7 @@ const Sidebar: React.FC = () => {
                 {isExpanded ? (
                   <ChevronDown className="w-4 h-4 text-gray-500" />
                 ) : (
-                  <ChevronRight className="w-4 h-4 text-gray-500" />
+                  <ChevronRightIcon className="w-4 h-4 text-gray-500" />
                 )}
               </div>
               {searchQuery && item.id === 'meetings' && isSearching && (
@@ -721,30 +739,31 @@ const Sidebar: React.FC = () => {
 
   return (
     <div className="fixed top-0 left-0 h-screen z-40">
-      {/* Floating collapse button — refined: smaller, slate-tinted, no hard shadow */}
-      <button
-        type="button"
-        onClick={toggleCollapse}
-        aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        className="absolute -right-3 top-20 z-50 flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-        style={{ transform: 'translateX(50%)' }}
-      >
-        {isCollapsed ? (
-          <ChevronRightCircle className="h-4 w-4" strokeWidth={1.75} />
-        ) : (
-          <ChevronLeftCircle className="h-4 w-4" strokeWidth={1.75} />
-        )}
-      </button>
-
+      {/* The collapse/expand chevron lives INSIDE the brand header row rather
+         than as a floating circle on the rail edge. This pairs the collapse
+         action with the titlebar it controls — the standard "minimize window"
+         pattern from macOS / Windows — and avoids competing visually with the
+         brand mark below it. */}
       <div
         className={`h-screen bg-white border-r border-slate-200 flex flex-col transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-64'
           }`}
       >
-        {/* Header — brand mark, hairline divider */}
+        {/* Header — brand mark + collapse chevron in a single row */}
         <div className="flex-shrink-0">
           {!isCollapsed && (
             <div className="px-3 pt-3 pb-3">
-              <Logo isCollapsed={isCollapsed} />
+              <div className="flex items-start justify-between gap-2">
+                <Logo isCollapsed={false} />
+                <button
+                  type="button"
+                  onClick={toggleCollapse}
+                  aria-label="Collapse sidebar"
+                  title="Collapse sidebar"
+                  className="mt-2 -mr-1 flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" strokeWidth={2} />
+                </button>
+              </div>
 
               {/* Search — refined: smaller placeholder, no shadow, slate border */}
               <div className="mt-3 relative">
