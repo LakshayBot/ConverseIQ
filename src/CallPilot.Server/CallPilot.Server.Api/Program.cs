@@ -12,6 +12,7 @@ using CallPilot.Server.Application.Providers.Create;
 using CallPilot.Server.Application.Providers.Delete;
 using CallPilot.Server.Application.Providers.List;
 using CallPilot.Server.Domain.Meetings;
+using CallPilot.Server.Domain.Providers;
 using CallPilot.Server.Infrastructure.AI;
 using CallPilot.Server.Infrastructure.Auth;
 using CallPilot.Server.Infrastructure.Data;
@@ -805,6 +806,75 @@ app.MapGet("/api/v1/providers/{id:guid}/api-key", async (
     }
 }).RequireAuthorization();
 
+// Upsert a provider config keyed by ProviderType (so the desktop's
+// "summary model" config — a single record per provider type — is
+// idempotent across re-saves). Replaces api_save_model_config +
+// api_save_custom_openai_config.
+app.MapPost("/api/v1/providers", async (
+    CallPilotDbContext db,
+    ClaimsPrincipal user,
+    IApiKeyEncryptionService encryption,
+    ProviderUpsertRequest body) =>
+{
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null) return Results.Unauthorized();
+    var userId = Guid.Parse(userIdClaim);
+
+    var encrypted = encryption.Encrypt(body.ApiKey ?? "");
+    var existing = await db.ProviderConfigurations
+        .FirstOrDefaultAsync(p => p.UserId == userId && p.ProviderType == body.ProviderType && p.DeletedAt == null);
+
+    if (existing is not null)
+    {
+        existing.Update(body.Model, body.Endpoint, encrypted, body.Temperature, body.MaxTokens, body.TimeoutSeconds);
+        await db.SaveChangesAsync();
+        return Results.Ok(new
+        {
+            id = existing.Id,
+            providerType = existing.ProviderType,
+            model = existing.Model,
+            endpoint = existing.Endpoint,
+            temperature = existing.Temperature,
+            maxTokens = existing.MaxTokens,
+            timeoutSeconds = existing.TimeoutSeconds
+        });
+    }
+
+    var provider = new ProviderConfiguration(
+        userId, body.ProviderType, body.Model, body.Endpoint, encrypted,
+        body.Temperature, body.MaxTokens, body.TimeoutSeconds);
+    db.ProviderConfigurations.Add(provider);
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        id = provider.Id,
+        providerType = provider.ProviderType,
+        model = provider.Model,
+        endpoint = provider.Endpoint,
+        temperature = provider.Temperature,
+        maxTokens = provider.MaxTokens,
+        timeoutSeconds = provider.TimeoutSeconds
+    });
+}).RequireAuthorization();
+
+app.MapDelete("/api/v1/providers/{id:guid}", async (
+    Guid id,
+    CallPilotDbContext db,
+    ClaimsPrincipal user) =>
+{
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null) return Results.Unauthorized();
+
+    var provider = await db.ProviderConfigurations
+        .FirstOrDefaultAsync(p => p.Id == id && p.UserId == Guid.Parse(userIdClaim) && p.DeletedAt == null);
+    if (provider is null) return Results.NotFound(new { error = "Provider not found" });
+
+    provider.MarkDeleted();
+    await db.SaveChangesAsync();
+    return Results.Ok(new { id, deleted = true });
+}).RequireAuthorization();
+
 // ── Internal LLM proxy (used by AI Engine for competitive intel) ────────────
 
 app.MapPost("/internal/llm/generate", async (
@@ -861,3 +931,12 @@ public record BulkTranscriptSegment(
 public record SummaryUpsertRequest(
     string Status,
     object? Data);
+
+public record ProviderUpsertRequest(
+    string ProviderType,
+    string Model,
+    string? Endpoint,
+    string? ApiKey,
+    double Temperature,
+    int MaxTokens,
+    int TimeoutSeconds);

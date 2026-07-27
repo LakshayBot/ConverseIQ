@@ -5,7 +5,6 @@ use log::{info, warn, error};
 use anyhow::Result;
 
 use crate::state::AppState;
-use crate::database::repositories::setting::SettingsRepository;
 
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -170,39 +169,29 @@ pub async fn reset_onboarding_status_cmd<R: Runtime>(
 #[tauri::command]
 pub async fn complete_onboarding<R: Runtime>(
     app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
+    _state: tauri::State<'_, AppState>,
     model: String,
 ) -> Result<(), String> {
     info!("Completing onboarding with builtin-ai model: {}", model);
 
-    // Step 1: Save model configuration to SQLite database FIRST
-    let pool = state.db_manager.pool();
+    // Step 1: Persist the transcript provider choice (desktop-local — STT
+    // selection is a UI preference, not a server-side config) into
+    // tauri-plugin-store. The summary LLM model is no longer persisted
+    // here — the .NET Gateway's ProviderConfigurations is the source of
+    // truth for LLM providers (and is created via the first Settings
+    // save after the user picks a provider).
 
-    // Onboarding always uses builtin-ai (local LLM)
-    if let Err(e) = SettingsRepository::save_model_config(
-        pool,
-        "builtin-ai",
-        &model,
-        "large-v3",
-        None,
-    ).await {
-        error!("Failed to save builtin-ai model config: {}", e);
-        return Err(format!("Failed to save builtin-ai model config: {}", e));
+    if let Ok(store) = app.store("transcript-config.json") {
+        store.set("provider", serde_json::Value::String("parakeet".to_string()));
+        store.set("model", serde_json::Value::String(crate::config::DEFAULT_PARAKEET_MODEL.to_string()));
+        let _ = store.save();
+        info!(
+            "Saved transcript provider choice: parakeet / {}",
+            crate::config::DEFAULT_PARAKEET_MODEL
+        );
     }
-    info!("Saved builtin-ai model config: model={}", model);
 
-    // Save transcription model config (parakeet provider) - always parakeet
-    if let Err(e) = SettingsRepository::save_transcript_config(
-        pool,
-        "parakeet",
-        crate::config::DEFAULT_PARAKEET_MODEL,
-    ).await {
-        error!("Failed to save transcription model config: {}", e);
-        return Err(format!("Failed to save transcription model config: {}", e));
-    }
-    info!("Saved transcription model config: provider=parakeet, model={}", crate::config::DEFAULT_PARAKEET_MODEL);
-
-    // Step 2: Only NOW mark onboarding as complete (after DB operations succeed)
+    // Step 2: Only NOW mark onboarding as complete (after store save succeeds)
     let mut status = load_onboarding_status(&app)
         .await
         .map_err(|e| format!("Failed to load onboarding status: {}", e))?;

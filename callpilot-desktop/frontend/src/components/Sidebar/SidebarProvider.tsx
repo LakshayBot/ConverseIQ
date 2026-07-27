@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Analytics from '@/lib/analytics';
-import { invoke } from '@tauri-apps/api/core';
+import { authedApiCall } from '@/lib/auth';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
 
 
@@ -86,10 +86,13 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const fetchMeetings = React.useCallback(async () => {
     if (serverAddress) {
       try {
-        const meetings = await invoke('api_get_meetings') as Array<{ id: string, title: string }>;
-        const transformedMeetings = meetings.map((meeting: any) => ({
+        const meetings = await authedApiCall<Array<{ id: string, title: string | null }>>(
+          'GET',
+          '/api/v1/meetings',
+        );
+        const transformedMeetings = meetings.map((meeting) => ({
           id: meeting.id,
-          title: meeting.title
+          title: meeting.title ?? 'Untitled session',
         }));
         setMeetings(transformedMeetings);
         Analytics.trackBackendConnection(true);
@@ -173,8 +176,10 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     try {
       setIsSearching(true);
 
-
-      const results = await invoke('api_search_transcripts', { query }) as TranscriptSearchResult[];
+      const results = await authedApiCall<TranscriptSearchResult[]>(
+        'GET',
+        `/api/v1/search?q=${encodeURIComponent(query.trim())}`,
+      );
       setSearchResults(results);
     } catch (error) {
       console.error('Error searching transcripts:', error);
@@ -219,9 +224,10 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       try {
-        const result = await invoke('api_get_summary', {
-          meetingId: meetingId,
-        }) as any;
+        const result = await authedApiCall<{ status: string; data?: any; error?: string }>(
+          'GET',
+          `/api/v1/meetings/${meetingId}/summary`,
+        );
 
         console.log(`📊 Polling update for ${meetingId}:`, result.status);
 

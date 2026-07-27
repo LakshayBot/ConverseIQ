@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { authedApiCall } from "@/lib/auth";
 import { Transcript, MeetingMetadata, PaginatedTranscriptsResponse, TranscriptSegmentData } from "@/types";
 
 const DEFAULT_PAGE_SIZE = 100;
@@ -69,16 +70,32 @@ export function usePaginatedTranscripts({
         offsetRef.current = 0;
     }, []);
 
-    // Load meeting metadata
+    // Load meeting metadata via the .NET Gateway (replaces the old
+    // Tauri `api_get_meeting_metadata` shortcut which read from local SQLite).
     const loadMetadata = useCallback(async (): Promise<MeetingMetadata | null> => {
         if (!meetingId) return null;
 
         try {
-            const data = await invoke<MeetingMetadata>('api_get_meeting_metadata', {
-                meetingId,
-            });
-            setMetadata(data);
-            return data;
+            const detail = await authedApiCall<{
+                id: string;
+                title: string | null;
+                status: string;
+                createdAt: string;
+                startedAt: string | null;
+                endedAt: string | null;
+                folderPath: string | null;
+                transcriptCount: number;
+            }>('GET', `/api/v1/meetings/${meetingId}`);
+
+            const meta: MeetingMetadata = {
+                id: detail.id,
+                title: detail.title ?? 'Untitled session',
+                created_at: detail.createdAt,
+                updated_at: detail.endedAt ?? detail.startedAt ?? detail.createdAt,
+                folder_path: detail.folderPath ?? undefined,
+            };
+            setMetadata(meta);
+            return meta;
         } catch (err) {
             console.error('Failed to load meeting metadata:', err);
             setError('Failed to load meeting details');
@@ -86,7 +103,10 @@ export function usePaginatedTranscripts({
         }
     }, [meetingId]);
 
-    // Load transcripts at specific offset
+    // Load transcripts at specific offset — fetches all segments in one shot
+    // since the .NET endpoint is not paginated server-side. For typical
+    // meeting sizes (<5k segments) this is fine; if a meeting ever exceeds
+    // this, we can add a `?offset=&limit=` query string later.
     const loadTranscriptsAtOffset = useCallback(async (
         offset: number,
         append: boolean = true
@@ -94,23 +114,37 @@ export function usePaginatedTranscripts({
         if (!meetingId) return [];
 
         try {
-            const response = await invoke<PaginatedTranscriptsResponse>(
-                'api_get_meeting_transcripts',
-                {
-                    meetingId,
-                    limit: DEFAULT_PAGE_SIZE,
-                    offset,
-                }
-            );
+            const rawSegments = await authedApiCall<Array<{
+                speaker: string;
+                text: string;
+                confidence: number;
+                isFinal: boolean;
+                sequence: number;
+                createdAt: string;
+                startOffset: number;
+                endOffset: number;
+            }>>('GET', `/api/v1/meetings/${meetingId}/transcripts`);
 
-            const newTranscripts = response.transcripts;
+            // Map .NET TranscriptSegment -> local Transcript shape used by
+            // the virtualised transcript view. The .NET response gives us
+            // ordered sequence numbers, so we use them as ids and ordering.
+            const newTranscripts: Transcript[] = rawSegments.map((s) => ({
+                id: String(s.sequence),
+                text: s.text,
+                timestamp: s.createdAt,
+                sequence_id: s.sequence,
+                is_partial: !s.isFinal,
+                confidence: s.confidence,
+                audio_start_time: s.startOffset,
+                audio_end_time: s.endOffset,
+                duration: s.endOffset - s.startOffset,
+                speaker: s.speaker,
+            }));
 
             if (append) {
                 setTranscripts(prev => {
-                    // Deduplicate by id
                     const existingIds = new Set(prev.map(t => t.id));
                     const uniqueNew = newTranscripts.filter(t => !existingIds.has(t.id));
-                    // Sort by audio_start_time
                     return [...prev, ...uniqueNew].sort((a, b) =>
                         (a.audio_start_time ?? 0) - (b.audio_start_time ?? 0)
                     );
@@ -119,8 +153,11 @@ export function usePaginatedTranscripts({
                 setTranscripts(newTranscripts);
             }
 
-            setHasMore(response.has_more);
-            setTotalCount(response.total_count);
+            // The .NET endpoint returns the full list — there's no server-side
+            // pagination, so we mark has_more=false once we've loaded everything
+            // and store the total count for the "Showing X of Y" footer.
+            setHasMore(false);
+            setTotalCount(rawSegments.length);
             offsetRef.current = offset + newTranscripts.length;
 
             return newTranscripts;
@@ -134,11 +171,9 @@ export function usePaginatedTranscripts({
     // Load next page with debounce protection
     const loadMore = useCallback(async () => {
         const now = Date.now();
-        // Debounce: require at least 100ms between calls
         if (now - lastLoadTimeRef.current < 100) {
             return;
         }
-
         if (isLoadingRef.current || !hasMore || !meetingId || isLoading) return;
 
         lastLoadTimeRef.current = now;
@@ -173,7 +208,6 @@ export function usePaginatedTranscripts({
             return;
         }
 
-        // Avoid reloading the same meeting
         if (loadedMeetingIdRef.current === meetingId) return;
         loadedMeetingIdRef.current = meetingId;
 
@@ -192,7 +226,6 @@ export function usePaginatedTranscripts({
         loadInitial();
     }, [meetingId, reset, loadMetadata, loadTranscriptsAtOffset]);
 
-    // Convert to segments (memoized)
     const segments = useMemo(() =>
         convertTranscriptsToSegments(transcripts),
         [transcripts]

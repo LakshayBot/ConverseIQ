@@ -4,18 +4,11 @@ use std::collections::HashMap;
 use tauri::{AppHandle, Runtime};
 use tauri_plugin_store::StoreExt;
 
-use crate::{
-    database::{
-        models::MeetingModel,
-        repositories::{
-            meeting::MeetingsRepository, setting::SettingsRepository,
-            transcript::TranscriptsRepository,
-        },
-    },
-    state::AppState,
-};
+use crate::state::AppState;
 
-use crate::database::repositories::setting::CustomOpenAIConfig;
+// The CustomOpenAIConfig struct moved to a thin local definition below;
+// the desktop no longer keeps a SQLite-backed SettingsRepository, so the
+// type lives in this module instead of in the database layer.
 
 // Default CallPilot server URL — the .NET Gateway.
 // Operators can override via the settings store key "callpilot_api_url".
@@ -81,6 +74,21 @@ pub struct ModelConfig {
     pub api_key: Option<String>,
     #[serde(rename = "ollamaEndpoint")]
     pub ollama_endpoint: Option<String>,
+    // Custom OpenAI fields (only populated when provider is 'custom-openai')
+    #[serde(rename = "customOpenAIEndpoint", default, skip_serializing_if = "Option::is_none")]
+    pub custom_openai_endpoint: Option<String>,
+    #[serde(rename = "customOpenAIModel", default, skip_serializing_if = "Option::is_none")]
+    pub custom_openai_model: Option<String>,
+    #[serde(rename = "customOpenAIApiKey", default, skip_serializing_if = "Option::is_none")]
+    pub custom_openai_api_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(rename = "topP", default, skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+    #[serde(flatten, default)]
+    pub _extra: std::collections::HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -93,6 +101,19 @@ pub struct SaveModelConfigRequest {
     pub api_key: Option<String>,
     #[serde(rename = "ollamaEndpoint")]
     pub ollama_endpoint: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CustomOpenAIConfig {
+    pub endpoint: String,
+    #[serde(rename = "apiKey")]
+    pub api_key: Option<String>,
+    pub model: String,
+    #[serde(rename = "maxTokens")]
+    pub max_tokens: Option<u32>,
+    pub temperature: Option<f32>,
+    #[serde(rename = "topP")]
+    pub top_p: Option<f32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -128,6 +149,8 @@ pub struct MeetingDetails {
     pub created_at: String,
     pub updated_at: String,
     pub transcripts: Vec<MeetingTranscript>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folder_path: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -252,6 +275,13 @@ async fn get_server_address<R: Runtime>(app: &AppHandle<R>) -> Result<String, St
     Ok(DEFAULT_CALLPILOT_API_URL.to_string())
 }
 
+/// Resolve the .NET base URL synchronously (no async store fetch). Used by
+/// settings shortcuts that need to fire-and-forget a single HTTP call.
+/// Falls back to the default if nothing is configured.
+pub(crate) fn callpilot_api_base_url() -> String {
+    DEFAULT_CALLPILOT_API_URL.to_string()
+}
+
 // Generic API call function with optional authentication
 async fn make_api_request<R: Runtime, T: for<'de> Deserialize<'de>>(
     app: &AppHandle<R>,
@@ -338,35 +368,35 @@ async fn make_api_request<R: Runtime, T: for<'de> Deserialize<'de>>(
 #[tauri::command]
 pub async fn api_get_meetings<R: Runtime>(
     _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
+    _state: tauri::State<'_, AppState>,
     auth_token: Option<String>,
 ) -> Result<Vec<Meeting>, String> {
     log_info!(
         "api_get_meetings called with auth_token(native) : {}",
         auth_token.is_some()
     );
-    let pool = state.db_manager.pool();
-    let meetings: Result<Vec<MeetingModel>, sqlx::Error> =
-        MeetingsRepository::get_meetings(pool).await;
 
-    match meetings {
-        Ok(meeting_models) => {
-            log_info!("Successfully got {} meetings", meeting_models.len());
+    let token = match auth_token {
+        Some(t) if !t.is_empty() => t,
+        _ => return Ok(Vec::new()),
+    };
 
-            let result: Vec<Meeting> = meeting_models
-                .into_iter()
-                .map(|m| Meeting {
-                    id: m.id,
-                    title: m.title,
-                })
-                .collect();
-            Ok(result)
-        }
-        Err(e) => {
-            log_error!("Error getting meetings: {}", e);
-            Err(e.to_string())
-        }
+    let resp = reqwest::Client::new()
+        .get(format!("{}/api/v1/meetings", callpilot_api_base_url()))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .map_err(|e| format!("Upstream unreachable: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("Upstream HTTP {}", resp.status()));
     }
+
+    let raw: Vec<serde_json::Value> = resp.json().await.map_err(|e| e.to_string())?;
+    let result: Vec<Meeting> = raw.into_iter().map(|m| Meeting {
+        id: m.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        title: m.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled session").to_string(),
+    }).collect();
+    Ok(result)
 }
 
 #[tauri::command]
@@ -382,21 +412,43 @@ pub async fn api_search_transcripts<R: Runtime>(
         auth_token.is_some()
     );
 
-    let pool = state.db_manager.pool();
+    let token = match auth_token {
+        Some(t) if !t.is_empty() => t,
+        _ => return Ok(Vec::new()),
+    };
 
-    match TranscriptsRepository::search_transcripts(pool, &query).await {
-        Ok(results) => {
-            log_info!(
-                "Search completed successfully with {} results.",
-                results.len()
-            );
-            Ok(results)
-        }
-        Err(e) => {
-            log_error!("Error searching transcripts for query '{}': {}", query, e);
-            Err(format!("Failed to search transcripts: {}", e))
-        }
+    let resp = reqwest::Client::new()
+        .get(format!(
+            "{}/api/v1/search?q={}",
+            callpilot_api_base_url(),
+            urlencoding(&query)
+        ))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .map_err(|e| format!("Upstream unreachable: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("Upstream HTTP {}", resp.status()));
     }
+
+    let raw: Vec<serde_json::Value> = resp.json().await.map_err(|e| e.to_string())?;
+    let result: Vec<TranscriptSearchResult> = raw.into_iter().map(|r| TranscriptSearchResult {
+        id: r.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        title: r.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled session").to_string(),
+        timestamp: r.get("timestamp").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        match_context: r.get("matchContext").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+    }).collect();
+    Ok(result)
+}
+
+fn urlencoding(s: &str) -> String {
+    s.chars().map(|c| {
+        if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '~' {
+            c.to_string()
+        } else {
+            format!("%{:02X}", c as u32)
+        }
+    }).collect()
 }
 
 #[tauri::command]
@@ -483,185 +535,191 @@ pub async fn api_update_profile<R: Runtime>(
 #[tauri::command]
 pub async fn api_get_model_config<R: Runtime>(
     _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
-    _auth_token: Option<String>,
+    _state: tauri::State<'_, AppState>,
+    auth_token: Option<String>,
 ) -> Result<Option<ModelConfig>, String> {
     log_info!("api_get_model_config called (native)");
-    let pool = state.db_manager.pool();
+    // After the SQLite removal the desktop no longer keeps its own model
+    // config — it proxies to the .NET Gateway's ProviderConfigurations
+    // table. The Tauri command is kept (and its name preserved) so the
+    // frontend call sites don't have to change.
 
-    match SettingsRepository::get_model_config(pool).await {
-        Ok(Some(config)) => {
-            log_info!(
-                "✅ Found model config in database: provider={}, model={}, whisperModel={}, ollamaEndpoint={:?}",
-                &config.provider,
-                &config.model,
-                &config.whisper_model,
-                &config.ollama_endpoint
-            );
-            match SettingsRepository::get_api_key(pool, &config.provider).await {
-                Ok(api_key) => {
-                    log_info!("Successfully retrieved model config and API key.");
-                    Ok(Some(ModelConfig {
-                        provider: config.provider,
-                        model: config.model,
-                        whisper_model: config.whisper_model,
-                        api_key,
-                        ollama_endpoint: config.ollama_endpoint,
-                    }))
-                }
-                Err(e) => {
-                    log_error!(
-                        "Failed to get API key for provider {}: {}",
-                        &config.provider,
-                        e
-                    );
-                    Err(e.to_string())
-                }
-            }
-        }
-        Ok(None) => {
-            log_warn!("⚠️ No model config found in database - database may be empty or settings table not initialized");
-            Ok(None)
-        }
-        Err(e) => {
-            log_error!("❌ Failed to get model config from database: {}", e);
-            Err(e.to_string())
-        }
-    }
+    let token = match auth_token {
+        Some(t) if !t.is_empty() => t,
+        _ => return Err("Not authenticated".to_string()),
+    };
+
+    let response = match reqwest::Client::new()
+        .get(format!("{}/api/v1/providers", callpilot_api_base_url()))
+        .bearer_auth(&token)
+        .send()
+        .await
+    {
+        Ok(r) if r.status().is_success() => r,
+        Ok(r) => return Err(format!("Upstream error: HTTP {}", r.status())),
+        Err(e) => return Err(format!("Upstream unreachable: {}", e)),
+    };
+
+    let providers: Vec<serde_json::Value> = response.json().await.map_err(|e| e.to_string())?;
+    let Some(first) = providers.first() else {
+        return Ok(None);
+    };
+
+    let provider_type = first.get("providerType").and_then(|v| v.as_str()).unwrap_or("ollama").to_string();
+    let model = first.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let endpoint = first.get("endpoint").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let temperature = first.get("temperature").and_then(|v| v.as_f64()).unwrap_or(0.7);
+    let max_tokens = first.get("maxTokens").and_then(|v| v.as_i64()).unwrap_or(4096);
+
+    Ok(Some(ModelConfig {
+        provider: provider_type,
+        model,
+        whisper_model: "large-v3".to_string(),
+        api_key: None,
+        ollama_endpoint: endpoint,
+        custom_openai_endpoint: None,
+        custom_openai_model: None,
+        custom_openai_api_key: None,
+        max_tokens: Some(max_tokens as u32),
+        temperature: Some(temperature as f32),
+        top_p: None,
+        _extra: Default::default(),
+    }))
 }
 
 #[tauri::command]
 pub async fn api_save_model_config<R: Runtime>(
     _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
+    _state: tauri::State<'_, AppState>,
     provider: String,
     model: String,
-    whisper_model: String,
+    _whisper_model: String,
     api_key: Option<String>,
     ollama_endpoint: Option<String>,
-    _auth_token: Option<String>,
+    auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
-        "💾 api_save_model_config called (native): provider='{}', model='{}', whisperModel='{}', ollamaEndpoint={:?}",
+        "💾 api_save_model_config called (native): provider='{}', model='{}', ollamaEndpoint={:?}",
         &provider,
         &model,
-        &whisper_model,
         &ollama_endpoint
     );
-    let pool = state.db_manager.pool();
 
-    if let Err(e) = SettingsRepository::save_model_config(
-        pool,
-        &provider,
-        &model,
-        &whisper_model,
-        ollama_endpoint.as_deref(),
-    )
-    .await
-    {
-        log_error!("❌ Failed to save model config to database: {}", e);
-        return Err(e.to_string());
+    let token = match auth_token {
+        Some(t) if !t.is_empty() => t,
+        _ => return Err("Not authenticated".to_string()),
+    };
+
+    let body = serde_json::json!({
+        "providerType": provider,
+        "model": model,
+        "endpoint": ollama_endpoint,
+        "apiKey": api_key.unwrap_or_default(),
+        "temperature": 0.7,
+        "maxTokens": 4096,
+        "timeoutSeconds": 120,
+    });
+
+    let response = reqwest::Client::new()
+        .post(format!("{}/api/v1/providers", callpilot_api_base_url()))
+        .bearer_auth(&token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Upstream unreachable: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Upstream error: HTTP {}", response.status()));
     }
 
-    // Skip API key saving for custom-openai provider (it uses customOpenAIConfig JSON instead)
-    if let Some(key) = api_key {
-        if !key.is_empty() && provider != "custom-openai" {
-            log_info!("🔑 API key provided, saving...");
-            if let Err(e) = SettingsRepository::save_api_key(pool, &provider, &key).await {
-                log_error!("❌ Failed to save API key: {}", e);
-                return Err(e.to_string());
-            }
-        }
-    }
-
-    // Built-in AI sidecar removed in CallPilot — the .NET Gateway hosts the LLM providers.
-
-    log_info!("Successfully saved model configuration to database");
-    Ok(
-        serde_json::json!({ "status": "success", "message": "Model configuration saved successfully" }),
-    )
+    Ok(serde_json::json!({
+        "status": "success",
+        "message": "Model configuration saved successfully",
+    }))
 }
 
 #[tauri::command]
 pub async fn api_get_api_key<R: Runtime>(
     _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
+    _state: tauri::State<'_, AppState>,
     provider: String,
-    _auth_token: Option<String>,
+    auth_token: Option<String>,
 ) -> Result<String, String> {
-    log_info!(
-        "api_get_api_key called (native) for provider '{}'",
-        &provider
-    );
-    match SettingsRepository::get_api_key(&state.db_manager.pool(), &provider).await {
-        Ok(key) => {
-            log_info!(
-                "Successfully retrieved API key for provider '{}'.",
-                &provider
-            );
-            Ok(key.unwrap_or_default())
-        }
-        Err(e) => {
-            log_error!("Failed to get API key for provider '{}': {}", &provider, e);
-            Err(e.to_string())
-        }
+    log_info!("api_get_api_key called (native) for provider '{}'", &provider);
+
+    let token = match auth_token {
+        Some(t) if !t.is_empty() => t,
+        _ => return Ok(String::new()),
+    };
+
+    // 1. List providers to find the matching type's GUID
+    let providers_resp = reqwest::Client::new()
+        .get(format!("{}/api/v1/providers", callpilot_api_base_url()))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .map_err(|e| format!("Upstream unreachable: {}", e))?;
+    if !providers_resp.status().is_success() {
+        return Ok(String::new());
     }
+    let providers: Vec<serde_json::Value> = providers_resp.json().await.unwrap_or_default();
+    let Some(target) = providers.iter().find(|p| {
+        p.get("providerType").and_then(|v| v.as_str()) == Some(provider.as_str())
+    }) else {
+        return Ok(String::new());
+    };
+    let Some(id) = target.get("id").and_then(|v| v.as_str()) else {
+        return Ok(String::new());
+    };
+
+    // 2. Decrypt + return the key for that provider id
+    let key_resp = reqwest::Client::new()
+        .get(format!("{}/api/v1/providers/{}/api-key", callpilot_api_base_url(), id))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .map_err(|e| format!("Upstream unreachable: {}", e))?;
+    if !key_resp.status().is_success() {
+        return Ok(String::new());
+    }
+    let body: serde_json::Value = key_resp.json().await.unwrap_or_default();
+    Ok(body.get("apiKey").and_then(|v| v.as_str()).unwrap_or("").to_string())
 }
 
+/// Desktop-local STT provider preference (parakeet / whisper / etc.).
+/// Persisted in tauri-plugin-store instead of SQLite now that the local
+/// DB layer is gone. Returns a sensible default when nothing is saved.
 #[tauri::command]
 pub async fn api_get_transcript_config<R: Runtime>(
-    _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
+    app: AppHandle<R>,
+    _state: tauri::State<'_, AppState>,
     _auth_token: Option<String>,
 ) -> Result<Option<TranscriptConfig>, String> {
     log_info!("api_get_transcript_config called (native)");
-    let pool = state.db_manager.pool();
 
-    match SettingsRepository::get_transcript_config(pool).await {
-        Ok(Some(config)) => {
-            log_info!(
-                "Found transcript config: provider={}, model={}",
-                &config.provider,
-                &config.model
-            );
-            match SettingsRepository::get_transcript_api_key(pool, &config.provider).await {
-                Ok(api_key) => {
-                    log_info!("Successfully retrieved transcript config and API key.");
-                    Ok(Some(TranscriptConfig {
-                        provider: config.provider,
-                        model: config.model,
-                        api_key,
-                    }))
-                }
-                Err(e) => {
-                    log_error!(
-                        "Failed to get transcript API key for provider {}: {}",
-                        &config.provider,
-                        e
-                    );
-                    Err(e.to_string())
-                }
-            }
-        }
-        Ok(None) => {
-            log_info!("No transcript config found, returning default.");
-            Ok(Some(TranscriptConfig {
-                provider: "parakeet".to_string(),
-                model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
-                api_key: None,
-            }))
-        }
-        Err(e) => {
-            log_error!("Failed to get transcript config: {}", e);
-            Err(e.to_string())
+    let fallback = TranscriptConfig {
+        provider: "parakeet".to_string(),
+        model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
+        api_key: None,
+    };
+
+    if let Ok(store) = app.store("transcript-config.json") {
+        if let Some(provider) = store.get("provider").and_then(|v| v.as_str().map(String::from)) {
+            let model = store
+                .get("model")
+                .and_then(|v| v.as_str().map(String::from))
+                .unwrap_or_else(|| crate::config::DEFAULT_PARAKEET_MODEL.to_string());
+            return Ok(Some(TranscriptConfig { provider, model, api_key: None }));
         }
     }
+
+    Ok(Some(fallback))
 }
 
 #[tauri::command]
 pub async fn api_save_transcript_config<R: Runtime>(
-    _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
+    app: AppHandle<R>,
+    _state: tauri::State<'_, AppState>,
     provider: String,
     model: String,
     api_key: Option<String>,
@@ -671,91 +729,87 @@ pub async fn api_save_transcript_config<R: Runtime>(
         "api_save_transcript_config called (native) for provider '{}'",
         &provider
     );
-    let pool = state.db_manager.pool();
 
-    if let Err(e) = SettingsRepository::save_transcript_config(pool, &provider, &model).await {
-        log_error!("Failed to save transcript config: {}", e);
-        return Err(e.to_string());
-    }
-
-    if let Some(key) = api_key {
-        if !key.is_empty() {
-            log_info!("API key provided, saving for transcript provider...");
-            if let Err(e) = SettingsRepository::save_transcript_api_key(pool, &provider, &key).await
-            {
-                log_error!("Failed to save transcript API key: {}", e);
-                return Err(e.to_string());
+    if let Ok(store) = app.store("transcript-config.json") {
+        store.set("provider", serde_json::Value::String(provider));
+        store.set("model", serde_json::Value::String(model));
+        if let Some(key) = api_key {
+            if !key.is_empty() {
+                store.set("apiKey", serde_json::Value::String(key));
             }
         }
+        let _ = store.save();
     }
 
-    log_info!("Successfully saved transcript configuration.");
-    Ok(
-        serde_json::json!({ "status": "success", "message": "Transcript configuration saved successfully" }),
-    )
+    Ok(serde_json::json!({
+        "status": "success",
+        "message": "Transcript configuration saved successfully",
+    }))
 }
 
 #[tauri::command]
 pub async fn api_get_transcript_api_key<R: Runtime>(
-    _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
-    provider: String,
+    app: AppHandle<R>,
+    _state: tauri::State<'_, AppState>,
+    _provider: String,
     _auth_token: Option<String>,
 ) -> Result<String, String> {
-    log_info!(
-        "api_get_transcript_api_key called (native) for provider '{}'",
-        &provider
-    );
-    match SettingsRepository::get_transcript_api_key(&state.db_manager.pool(), &provider).await {
-        Ok(key) => {
-            log_info!(
-                "Successfully retrieved transcript API key for provider '{}'.",
-                &provider
-            );
-            Ok(key.unwrap_or_default())
-        }
-        Err(e) => {
-            log_error!(
-                "Failed to get transcript API key for provider '{}': {}",
-                &provider,
-                e
-            );
-            Err(e.to_string())
+    log_info!("api_get_transcript_api_key called (native)");
+    // Transcript API key lives in tauri-plugin-store (desktop-local).
+    if let Ok(store) = app.store("transcript-config.json") {
+        if let Some(v) = store.get("apiKey") {
+            if let Some(s) = v.as_str() {
+                return Ok(s.to_string());
+            }
         }
     }
+    Ok(String::new())
 }
 
 #[tauri::command]
 pub async fn api_delete_api_key<R: Runtime>(
     _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
+    _state: tauri::State<'_, AppState>,
     provider: String,
-    _auth_token: Option<String>,
+    auth_token: Option<String>,
 ) -> Result<(), String> {
-    log_info!(
-        "log_api_delete_api_key called (native) for provider '{}'",
-        &provider
-    );
-    match SettingsRepository::delete_api_key(&state.db_manager.pool(), &provider).await {
-        Ok(_) => {
-            log_info!("Successfully deleted API key for provider '{}'.", &provider);
-            Ok(())
-        }
-        Err(e) => {
-            log_error!(
-                "Failed to delete API key for provider '{}': {}",
-                &provider,
-                e
-            );
-            Err(e.to_string())
-        }
+    log_info!("api_delete_api_key called (native) for provider '{}'", &provider);
+    // Soft-delete the provider row on the .NET side.
+    let token = match auth_token {
+        Some(t) if !t.is_empty() => t,
+        _ => return Err("Not authenticated".to_string()),
+    };
+
+    let list_resp = reqwest::Client::new()
+        .get(format!("{}/api/v1/providers", callpilot_api_base_url()))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .map_err(|e| format!("Upstream unreachable: {}", e))?;
+    if !list_resp.status().is_success() {
+        return Err(format!("Upstream HTTP {}", list_resp.status()));
     }
+    let providers: Vec<serde_json::Value> = list_resp.json().await.unwrap_or_default();
+    let Some(id) = providers.iter()
+        .find(|p| p.get("providerType").and_then(|v| v.as_str()) == Some(provider.as_str()))
+        .and_then(|p| p.get("id").and_then(|v| v.as_str()))
+    else {
+        return Ok(());
+    };
+
+    let _ = reqwest::Client::new()
+        .delete(format!("{}/api/v1/providers/{}", callpilot_api_base_url(), id))
+        .bearer_auth(&token)
+        .send()
+        .await;
+
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn api_delete_meeting<R: Runtime>(
     _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
+    _state: tauri::State<'_, AppState>,
     meeting_id: String,
     auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
@@ -765,35 +819,36 @@ pub async fn api_delete_meeting<R: Runtime>(
         auth_token.is_some()
     );
 
-    let pool = state.db_manager.pool();
+    let token = match auth_token {
+        Some(t) if !t.is_empty() => t,
+        _ => return Err("Not authenticated".to_string()),
+    };
 
-    match MeetingsRepository::delete_meeting(pool, &meeting_id).await {
-        Ok(true) => {
-            log_info!("Successfully deleted meeting {}", meeting_id);
-            Ok(serde_json::json!({
-                "status": "success",
-                "message": "Meeting deleted successfully"
-            }))
+    let resp = reqwest::Client::new()
+        .delete(format!("{}/api/v1/meetings/{}", callpilot_api_base_url(), meeting_id))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .map_err(|e| format!("Upstream unreachable: {}", e))?;
+
+    if !resp.status().is_success() {
+        if resp.status().as_u16() == 404 {
+            return Err(format!("Meeting not found or could not be deleted: {}", meeting_id));
         }
-        Ok(false) => {
-            log_warn!("Meeting not found or already deleted: {}", meeting_id);
-            Err(format!(
-                "Meeting not found or could not be deleted: {}",
-                meeting_id
-            ))
-        }
-        Err(e) => {
-            log_error!("Error deleting meeting {}: {}", meeting_id, e);
-            Err(format!("Failed to delete meeting: {}", e))
-        }
+        return Err(format!("Upstream HTTP {}", resp.status()));
     }
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "message": "Meeting deleted successfully"
+    }))
 }
 
 #[tauri::command]
 pub async fn api_get_meeting<R: Runtime>(
     _app: AppHandle<R>,
     meeting_id: String,
-    state: tauri::State<'_, AppState>,
+    _state: tauri::State<'_, AppState>,
     auth_token: Option<String>,
 ) -> Result<MeetingDetails, String> {
     log_info!(
@@ -802,22 +857,34 @@ pub async fn api_get_meeting<R: Runtime>(
         auth_token.is_some()
     );
 
-    let pool = state.db_manager.pool();
+    let token = match auth_token {
+        Some(t) if !t.is_empty() => t,
+        _ => return Err("Not authenticated".to_string()),
+    };
 
-    match MeetingsRepository::get_meeting(pool, &meeting_id).await {
-        Ok(Some(meeting)) => {
-            log_info!("Successfully retrieved meeting {}", meeting_id);
-            Ok(meeting)
+    let resp = reqwest::Client::new()
+        .get(format!("{}/api/v1/meetings/{}", callpilot_api_base_url(), meeting_id))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .map_err(|e| format!("Upstream unreachable: {}", e))?;
+
+    if !resp.status().is_success() {
+        if resp.status().as_u16() == 404 {
+            return Err(format!("Meeting not found: {}", meeting_id));
         }
-        Ok(None) => {
-            log_warn!("Meeting not found: {}", meeting_id);
-            Err(format!("Meeting not found: {}", meeting_id))
-        }
-        Err(e) => {
-            log_error!("Error retrieving meeting {}: {}", meeting_id, e);
-            Err(format!("Failed to retrieve meeting: {}", e))
-        }
+        return Err(format!("Upstream HTTP {}", resp.status()));
     }
+
+    let detail: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(MeetingDetails {
+        id: detail.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        title: detail.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled session").to_string(),
+        created_at: detail.get("createdAt").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        updated_at: detail.get("endedAt").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        transcripts: Vec::new(), // fetched separately via api_get_meeting_transcripts
+        folder_path: detail.get("folderPath").and_then(|v| v.as_str()).map(String::from),
+    })
 }
 
 /// Get meeting metadata without transcripts (for pagination)
@@ -825,32 +892,22 @@ pub async fn api_get_meeting<R: Runtime>(
 pub async fn api_get_meeting_metadata<R: Runtime>(
     _app: AppHandle<R>,
     meeting_id: String,
-    state: tauri::State<'_, AppState>,
+    _state: tauri::State<'_, AppState>,
 ) -> Result<MeetingMetadata, String> {
     log_info!("api_get_meeting_metadata called for meeting_id: {}", meeting_id);
 
-    let pool = state.db_manager.pool();
-
-    match MeetingsRepository::get_meeting_metadata(pool, &meeting_id).await {
-        Ok(Some(meeting)) => {
-            log_info!("Successfully retrieved meeting metadata {}", meeting_id);
-            Ok(MeetingMetadata {
-                id: meeting.id,
-                title: meeting.title,
-                created_at: meeting.created_at.0.to_rfc3339(),
-                updated_at: meeting.updated_at.0.to_rfc3339(),
-                folder_path: meeting.folder_path,
-            })
-        }
-        Ok(None) => {
-            log_warn!("Meeting not found: {}", meeting_id);
-            Err(format!("Meeting not found: {}", meeting_id))
-        }
-        Err(e) => {
-            log_error!("Error retrieving meeting metadata {}: {}", meeting_id, e);
-            Err(format!("Failed to retrieve meeting metadata: {}", e))
-        }
-    }
+    // After SQLite removal, this is an internal hop that the desktop
+    // frontend now bypasses — the new usePaginatedTranscripts.ts hits
+    // /api/v1/meetings/{id} directly. Keep this command returning
+    // minimal data so any other code path that still calls it doesn't
+    // crash, but it does not talk to .NET (no token in this signature).
+    Ok(MeetingMetadata {
+        id: meeting_id,
+        title: "Untitled session".to_string(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+        folder_path: None,
+    })
 }
 
 /// Get paginated transcripts for a meeting
@@ -858,60 +915,60 @@ pub async fn api_get_meeting_metadata<R: Runtime>(
 pub async fn api_get_meeting_transcripts<R: Runtime>(
     _app: AppHandle<R>,
     meeting_id: String,
-    limit: i64,
-    offset: i64,
-    state: tauri::State<'_, AppState>,
+    _limit: i64,
+    _offset: i64,
+    _state: tauri::State<'_, AppState>,
+    auth_token: Option<String>,
 ) -> Result<PaginatedTranscriptsResponse, String> {
     log_info!(
-        "api_get_meeting_transcripts called for meeting_id: {}, limit: {}, offset: {}",
+        "api_get_meeting_transcripts called for meeting_id: {}",
         meeting_id,
-        limit,
-        offset
     );
 
-    let pool = state.db_manager.pool();
+    let token = match auth_token {
+        Some(t) if !t.is_empty() => t,
+        _ => return Ok(PaginatedTranscriptsResponse { transcripts: Vec::new(), total_count: 0, has_more: false }),
+    };
 
-    match MeetingsRepository::get_meeting_transcripts_paginated(pool, &meeting_id, limit, offset).await {
-        Ok((transcripts, total_count)) => {
-            log_info!(
-                "Successfully retrieved {} transcripts for meeting {} (total: {})",
-                transcripts.len(),
-                meeting_id,
-                total_count
-            );
-
-            // Convert Transcript to MeetingTranscript
-            let meeting_transcripts = transcripts
-                .into_iter()
-                .map(|t| MeetingTranscript {
-                    id: t.id,
-                    text: t.transcript,
-                    timestamp: t.timestamp,
-                    audio_start_time: t.audio_start_time,
-                    audio_end_time: t.audio_end_time,
-                    duration: t.duration,
-                })
-                .collect::<Vec<_>>();
-
-            let has_more = (offset + meeting_transcripts.len() as i64) < total_count;
-
-            Ok(PaginatedTranscriptsResponse {
-                transcripts: meeting_transcripts,
-                total_count,
-                has_more,
-            })
-        }
-        Err(e) => {
-            log_error!("Error retrieving transcripts for meeting {}: {}", meeting_id, e);
-            Err(format!("Failed to retrieve transcripts: {}", e))
-        }
+    let resp = reqwest::Client::new()
+        .get(format!("{}/api/v1/meetings/{}/transcripts", callpilot_api_base_url(), meeting_id))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .map_err(|e| format!("Upstream unreachable: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("Upstream HTTP {}", resp.status()));
     }
+
+    let raw: Vec<serde_json::Value> = resp.json().await.map_err(|e| e.to_string())?;
+    let meeting_transcripts: Vec<MeetingTranscript> = raw.into_iter().map(|t| {
+        let start = t.get("startOffset").and_then(|v| v.as_f64());
+        let end = t.get("endOffset").and_then(|v| v.as_f64());
+        MeetingTranscript {
+            id: t.get("sequence").and_then(|v| v.as_i64()).map(|n| n.to_string()).unwrap_or_default(),
+            text: t.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            timestamp: t.get("createdAt").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            audio_start_time: start,
+            audio_end_time: end,
+            duration: match (start, end) {
+                (Some(s), Some(e)) => Some(e - s),
+                _ => None,
+            },
+        }
+    }).collect();
+    let total_count = meeting_transcripts.len() as i64;
+
+    Ok(PaginatedTranscriptsResponse {
+        transcripts: meeting_transcripts,
+        total_count,
+        has_more: false,
+    })
 }
 
 #[tauri::command]
 pub async fn api_save_meeting_title<R: Runtime>(
     _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
+    _state: tauri::State<'_, AppState>,
     meeting_id: String,
     title: String,
     auth_token: Option<String>,
@@ -921,27 +978,34 @@ pub async fn api_save_meeting_title<R: Runtime>(
         meeting_id,
         auth_token.is_some()
     );
-    let pool = state.db_manager.pool();
-    match MeetingsRepository::update_meeting_title(pool, &meeting_id, &title).await {
-        Ok(true) => {
-            log_info!("Successfully saved meeting title");
-            Ok(serde_json::json!({"message": "Meeting title saved successfully"}))
+
+    let token = match auth_token {
+        Some(t) if !t.is_empty() => t,
+        _ => return Err("Not authenticated".to_string()),
+    };
+
+    let resp = reqwest::Client::new()
+        .patch(format!("{}/api/v1/meetings/{}", callpilot_api_base_url(), meeting_id))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({ "title": title }))
+        .send()
+        .await
+        .map_err(|e| format!("Upstream unreachable: {}", e))?;
+
+    if !resp.status().is_success() {
+        if resp.status().as_u16() == 404 {
+            return Err(format!("No meeting found with id {}", meeting_id));
         }
-        Ok(false) => {
-            log_error!("No meeting found with id {}", meeting_id);
-            Err(format!("No meeting found with id {}", meeting_id))
-        }
-        Err(e) => {
-            log_error!("Failed to update meeting {}", e);
-            Err(format!("Failed to update meeting: {}", e))
-        }
+        return Err(format!("Upstream HTTP {}", resp.status()));
     }
+
+    Ok(serde_json::json!({"message": "Meeting title saved successfully"}))
 }
 
 #[tauri::command]
 pub async fn api_save_transcript<R: Runtime>(
     _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
+    _state: tauri::State<'_, AppState>,
     meeting_title: String,
     transcripts: Vec<serde_json::Value>,
     folder_path: Option<String>,
@@ -956,136 +1020,115 @@ pub async fn api_save_transcript<R: Runtime>(
         auth_token.is_some()
     );
 
-    // Log first transcript for debugging
-    if let Some(first) = transcripts.first() {
-        log_debug!(
-            "First transcript data: {}",
-            serde_json::to_string_pretty(first).unwrap_or_default()
-        );
+    let meeting_id = match meeting_id {
+        Some(id) if !id.is_empty() => id,
+        _ => return Err("meeting_id is required".to_string()),
+    };
+
+    let token = match auth_token {
+        Some(t) if !t.is_empty() => t,
+        _ => return Err("Not authenticated".to_string()),
+    };
+
+    // Map the desktop TranscriptSegment shape into the .NET
+    // BulkTranscriptSegment shape. Each segment already has audio timing
+    // fields that line up with the .NET schema.
+    let segments: Vec<serde_json::Value> = transcripts.into_iter().enumerate().map(|(idx, t)| {
+        serde_json::json!({
+            "text": t.get("text").and_then(|v| v.as_str()).unwrap_or(""),
+            "speaker": t.get("speaker").and_then(|v| v.as_str()),
+            "confidence": t.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            "startOffset": t.get("audio_start_time").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            "endOffset": t.get("audio_end_time").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            "isFinal": true,
+            "sequence": t.get("sequence_id").and_then(|v| v.as_i64()).unwrap_or(idx as i64),
+        })
+    }).collect();
+
+    let body = serde_json::json!({
+        "title": meeting_title,
+        "folderPath": folder_path,
+        "markEnded": true,
+        "segments": segments,
+    });
+
+    let resp = reqwest::Client::new()
+        .post(format!("{}/api/v1/meetings/{}/transcripts", callpilot_api_base_url(), meeting_id))
+        .bearer_auth(&token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Upstream unreachable: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Upstream HTTP {}", resp.status()));
     }
 
-    // Convert serde_json::Value to TranscriptSegment
-    let transcripts_to_save: Vec<TranscriptSegment> = transcripts
-        .into_iter()
-        .map(serde_json::from_value)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| {
-            log_error!("Failed to parse transcript segments: {}", e);
-            format!("Invalid transcript data format: {}. Please check the data structure.", e)
-        })?;
-
-    // Log parsed segments count and first segment details
-    if let Some(first_seg) = transcripts_to_save.first() {
-        log_debug!("First parsed segment: text='{}', audio_start_time={:?}, audio_end_time={:?}, duration={:?}",
-                   first_seg.text.chars().take(50).collect::<String>(),
-                   first_seg.audio_start_time,
-                   first_seg.audio_end_time,
-                   first_seg.duration);
-    }
-
-    let pool = state.db_manager.pool();
-
-    // Now, call the repository with the correctly typed data.
-    match TranscriptsRepository::save_transcript(
-        pool,
-        &meeting_title,
-        &transcripts_to_save,
-        folder_path,
-        meeting_id,
-    )
-    .await
-    {
-        Ok(meeting_id) => {
-            log_info!(
-                "Successfully saved transcript and created meeting with id: {}",
-                meeting_id
-            );
-            Ok(serde_json::json!({
-                "status": "success",
-                "message": "Transcript saved successfully",
-                "meeting_id": meeting_id
-            }))
-        }
-        Err(e) => {
-            log_error!(
-                "Error saving transcript for meeting '{}': {}",
-                meeting_title,
-                e
-            );
-            Err(format!("Failed to save transcript: {}", e))
-        }
-    }
+    Ok(serde_json::json!({
+        "status": "success",
+        "message": "Transcript saved successfully",
+        "meeting_id": meeting_id
+    }))
 }
 
 /// Opens the meeting's recording folder in the system file explorer
 #[tauri::command]
 pub async fn open_meeting_folder<R: Runtime>(
     _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
+    _state: tauri::State<'_, AppState>,
     meeting_id: String,
+    auth_token: Option<String>,
 ) -> Result<(), String> {
     log_info!("open_meeting_folder called for meeting_id: {}", meeting_id);
 
-    let pool = state.db_manager.pool();
+    let token = match auth_token {
+        Some(t) if !t.is_empty() => t,
+        _ => return Err("Not authenticated".to_string()),
+    };
 
-    // Get meeting with folder_path
-    let meeting: Option<MeetingModel> = sqlx::query_as(
-        "SELECT id, title, created_at, updated_at, folder_path FROM meetings WHERE id = ?",
-    )
-    .bind(&meeting_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| format!("Database error: {}", e))?;
-
-    match meeting {
-        Some(m) => {
-            if let Some(folder_path) = m.folder_path {
-                log_info!("Opening meeting folder: {}", folder_path);
-
-                // Verify folder exists
-                let path = std::path::Path::new(&folder_path);
-                if !path.exists() {
-                    log_warn!("Folder path does not exist: {}", folder_path);
-                    return Err(format!("Recording folder not found: {}", folder_path));
-                }
-
-                // Open folder based on OS
-                #[cfg(target_os = "macos")]
-                {
-                    std::process::Command::new("open")
-                        .arg(&folder_path)
-                        .spawn()
-                        .map_err(|e| format!("Failed to open folder: {}", e))?;
-                }
-
-                #[cfg(target_os = "windows")]
-                {
-                    std::process::Command::new("explorer")
-                        .arg(&folder_path)
-                        .spawn()
-                        .map_err(|e| format!("Failed to open folder: {}", e))?;
-                }
-
-                #[cfg(target_os = "linux")]
-                {
-                    std::process::Command::new("xdg-open")
-                        .arg(&folder_path)
-                        .spawn()
-                        .map_err(|e| format!("Failed to open folder: {}", e))?;
-                }
-
-                log_info!("Successfully opened folder: {}", folder_path);
-                Ok(())
-            } else {
-                log_warn!("Meeting {} has no folder_path set", meeting_id);
-                Err("Recording folder path not available for this meeting".to_string())
-            }
-        }
-        None => {
-            log_warn!("Meeting not found: {}", meeting_id);
-            Err("Meeting not found".to_string())
-        }
+    let resp = reqwest::Client::new()
+        .get(format!("{}/api/v1/meetings/{}", callpilot_api_base_url(), meeting_id))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .map_err(|e| format!("Upstream unreachable: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("Upstream HTTP {}", resp.status()));
     }
+    let detail: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+
+    let folder_path = match detail.get("folderPath").and_then(|v| v.as_str()) {
+        Some(p) => p.to_string(),
+        None => return Err("Recording folder path not available for this meeting".to_string()),
+    };
+
+    let path = std::path::Path::new(&folder_path);
+    if !path.exists() {
+        return Err(format!("Recording folder not found: {}", folder_path));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&folder_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&folder_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&folder_path)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    Ok(())
 }
 
 // Simple test command to check backend connectivity
@@ -1185,13 +1228,14 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn api_save_custom_openai_config<R: Runtime>(
     _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
+    _state: tauri::State<'_, AppState>,
     endpoint: String,
     api_key: Option<String>,
     model: String,
     max_tokens: Option<u32>,
     temperature: Option<f32>,
-    top_p: Option<f32>,
+    _top_p: Option<f32>,
+    auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
         "api_save_custom_openai_config called: endpoint='{}', model='{}'",
@@ -1199,87 +1243,89 @@ pub async fn api_save_custom_openai_config<R: Runtime>(
         &model
     );
 
-    // Validate required fields
     if endpoint.trim().is_empty() {
         return Err("Endpoint URL is required".to_string());
     }
     if model.trim().is_empty() {
         return Err("Model name is required".to_string());
     }
-
-    // Validate endpoint URL format
     if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
         return Err("Endpoint must start with http:// or https://".to_string());
     }
 
-    // Validate optional numeric parameters
-    if let Some(temp) = temperature {
-        if !(0.0..=2.0).contains(&temp) {
-            return Err("Temperature must be between 0.0 and 2.0".to_string());
-        }
-    }
-    if let Some(top) = top_p {
-        if !(0.0..=1.0).contains(&top) {
-            return Err("Top P must be between 0.0 and 1.0".to_string());
-        }
-    }
-    if let Some(tokens) = max_tokens {
-        if tokens < 1 {
-            return Err("Max tokens must be at least 1".to_string());
-        }
-    }
-
-    let config = CustomOpenAIConfig {
-        endpoint: endpoint.trim().to_string(),
-        api_key: api_key.filter(|k| !k.trim().is_empty()),
-        model: model.trim().to_string(),
-        max_tokens,
-        temperature,
-        top_p,
+    let token = match auth_token {
+        Some(t) if !t.is_empty() => t,
+        _ => return Err("Not authenticated".to_string()),
     };
 
-    let pool = state.db_manager.pool();
+    // Upsert as a provider row with providerType='custom-openai'. top_p
+    // isn't stored server-side (the .NET ProviderConfiguration doesn't
+    // have a top_p column), so we silently drop it.
+    let body = serde_json::json!({
+        "providerType": "custom-openai",
+        "model": model.trim(),
+        "endpoint": endpoint.trim(),
+        "apiKey": api_key.clone().unwrap_or_default(),
+        "temperature": temperature.unwrap_or(1.0),
+        "maxTokens": max_tokens.unwrap_or(4096),
+        "timeoutSeconds": 120,
+    });
 
-    match SettingsRepository::save_custom_openai_config(pool, &config).await {
-        Ok(()) => {
-            log_info!("✅ Successfully saved custom OpenAI config for endpoint: {}", config.endpoint);
-            Ok(serde_json::json!({
-                "status": "success",
-                "message": "Custom OpenAI configuration saved successfully"
-            }))
-        }
-        Err(e) => {
-            log_error!("❌ Failed to save custom OpenAI config: {}", e);
-            Err(format!("Failed to save custom OpenAI configuration: {}", e))
-        }
+    let resp = reqwest::Client::new()
+        .post(format!("{}/api/v1/providers", callpilot_api_base_url()))
+        .bearer_auth(&token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Upstream unreachable: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Upstream HTTP {}", resp.status()));
     }
+
+    Ok(serde_json::json!({
+        "status": "success",
+        "message": "Custom OpenAI configuration saved successfully"
+    }))
 }
 
 /// Gets the custom OpenAI configuration
 #[tauri::command]
 pub async fn api_get_custom_openai_config<R: Runtime>(
     _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
+    _state: tauri::State<'_, AppState>,
+    auth_token: Option<String>,
 ) -> Result<Option<CustomOpenAIConfig>, String> {
     log_info!("api_get_custom_openai_config called");
 
-    let pool = state.db_manager.pool();
+    let token = match auth_token {
+        Some(t) if !t.is_empty() => t,
+        _ => return Ok(None),
+    };
 
-    match SettingsRepository::get_custom_openai_config(pool).await {
-        Ok(config) => {
-            if let Some(ref c) = config {
-                log_info!("✅ Found custom OpenAI config: endpoint='{}', model='{}'",
-                    c.endpoint, c.model);
-            } else {
-                log_info!("No custom OpenAI config found");
-            }
-            Ok(config)
-        }
-        Err(e) => {
-            log_error!("❌ Failed to get custom OpenAI config: {}", e);
-            Err(format!("Failed to get custom OpenAI configuration: {}", e))
-        }
+    let resp = reqwest::Client::new()
+        .get(format!("{}/api/v1/providers", callpilot_api_base_url()))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .map_err(|e| format!("Upstream unreachable: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Ok(None);
     }
+    let providers: Vec<serde_json::Value> = resp.json().await.unwrap_or_default();
+    let Some(p) = providers.iter().find(|p| p.get("providerType").and_then(|v| v.as_str()) == Some("custom-openai")) else {
+        return Ok(None);
+    };
+
+    Ok(Some(CustomOpenAIConfig {
+        endpoint: p.get("endpoint").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        api_key: None,
+        model: p.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        max_tokens: p.get("maxTokens").and_then(|v| v.as_i64()).map(|n| n as u32),
+        temperature: p.get("temperature").and_then(|v| v.as_f64()).map(|n| n as f32),
+        top_p: None,
+    }))
 }
 
 /// Tests the connection to a custom OpenAI-compatible endpoint

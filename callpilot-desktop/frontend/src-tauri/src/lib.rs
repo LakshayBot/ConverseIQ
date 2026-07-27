@@ -33,7 +33,6 @@ pub mod auth;
 pub mod audio;
 pub mod config;
 pub mod console_utils;
-pub mod database;
 pub mod notifications;
 pub mod onboarding;
 pub mod parakeet_engine;
@@ -527,10 +526,8 @@ pub fn run() {
             // }
 
             // Initialize database (handles first launch detection and conditional setup)
-            tauri::async_runtime::block_on(async {
-                database::setup::initialize_database_on_startup(&_app.handle()).await
-            })
-            .expect("Failed to initialize database");
+            // SQLite layer was removed in the SQLite→.NET migration; nothing
+            // to bootstrap here anymore. AppState is empty.
 
             Ok(())
         })
@@ -694,17 +691,9 @@ pub fn run() {
             audio::permissions::check_screen_recording_permission_command,
             audio::permissions::request_screen_recording_permission_command,
             audio::permissions::trigger_system_audio_permission_command,
-            // Database import commands
-            database::commands::check_first_launch,
-            database::commands::select_legacy_database_path,
-            database::commands::detect_legacy_database,
-            database::commands::check_default_legacy_database,
-            database::commands::check_homebrew_database,
-            database::commands::import_and_initialize_database,
-            database::commands::initialize_fresh_database,
-            // Database and Models path commands
-            database::commands::get_database_directory,
-            database::commands::open_database_folder,
+            // Database import / setup commands removed — SQLite layer was
+            // dropped in the SQLite→.NET migration; meetings now live on
+            // Postgres via the .NET Gateway.
             whisper_engine::commands::open_models_folder,
             // Onboarding commands
             onboarding::get_onboarding_status,
@@ -734,21 +723,10 @@ pub fn run() {
                     tray::focus_main_window(_app_handle);
                 }
                 tauri::RunEvent::Exit => {
-                    log::info!("Application exiting, cleaning up resources...");
-                    tauri::async_runtime::block_on(async {
-                        // Clean up database connection and checkpoint WAL
-                        if let Some(app_state) = _app_handle.try_state::<state::AppState>() {
-                            log::info!("Starting database cleanup...");
-                            if let Err(e) = app_state.db_manager.cleanup().await {
-                                log::error!("Failed to cleanup database: {}", e);
-                            } else {
-                                log::info!("Database cleanup completed successfully");
-                            }
-                        } else {
-                            log::warn!("AppState not available for database cleanup (likely first launch)");
-                        }
-                    });
-                    log::info!("Application cleanup complete");
+                    // SQLite layer removed in the SQLite→.NET migration.
+                    // The .NET Gateway manages its own persistence; the
+                    // desktop app has no local DB to clean up.
+                    log::info!("Application exiting");
                 }
                 _ => {}
             }

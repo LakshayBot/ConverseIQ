@@ -61,4 +61,9 @@ public class ProviderConfiguration
         TimeoutSeconds = timeoutSeconds;
         UpdatedAt = DateTime.UtcNow;
     }
+
+    public void MarkDeleted()
+    {
+        DeletedAt = DateTime.UtcNow;
+    }
 }

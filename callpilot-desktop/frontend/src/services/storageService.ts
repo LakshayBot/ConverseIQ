@@ -1,17 +1,24 @@
 /**
  * Storage Service
  *
- * Handles all meeting storage and retrieval Tauri backend calls (SQLite persistence).
- * Pure 1-to-1 wrapper - no error handling changes, exact same behavior as direct invoke calls.
+ * Persists meetings + transcripts via the .NET Gateway REST API. Replaces
+ * the old Tauri-SQLite shortcuts (`api_save_transcript`, `api_get_meeting`,
+ * `api_get_meetings`) so the desktop no longer carries its own SQLite
+ * database for meeting storage. Conversations events and recommendations
+ * already live on the .NET side — this service completes the picture by
+ * keeping transcripts and meeting metadata on the same Postgres-backed
+ * store.
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { authedApiCall } from '@/lib/auth';
 import { Transcript } from '@/types';
 
 export interface SaveMeetingRequest {
   meetingTitle: string;
   transcripts: Transcript[];
   folderPath: string | null;
+  meetingId?: string | null;
 }
 
 export interface SaveMeetingResponse {
@@ -21,7 +28,15 @@ export interface SaveMeetingResponse {
 export interface Meeting {
   id: string;
   title: string;
-  [key: string]: any; // Allow additional properties from backend
+  status: string;
+  createdAt: string;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  folderPath?: string | null;
+  transcriptCount?: number;
+  eventCount?: number;
+  recommendationCount?: number;
+  [key: string]: any;
 }
 
 /**
@@ -30,16 +45,16 @@ export interface Meeting {
  */
 export class StorageService {
   /**
-   * Save meeting transcript to SQLite database
-   * @param meetingTitle - Title of the meeting
-   * @param transcripts - Array of transcript segments
-   * @param folderPath - Optional folder path for audio file
-   * @param meetingId - Optional server-issued id (e.g. .NET UUID). When provided,
-   *                    the local SQLite row uses this id verbatim so the sidebar's
-   *                    meeting id matches the id ConversationEvents +
-   *                    Recommendations were persisted under on the .NET side.
-   *                    When omitted, the Rust side generates a fresh local id.
-   * @returns Promise with { meeting_id: string }
+   * Persist a completed meeting's transcripts to the .NET Gateway.
+   *
+   * The .NET `POST /api/v1/meetings/{id}/transcripts` endpoint is idempotent —
+   * existing transcript segments for the meeting are deleted first, then
+   * the new set is written. This keeps desktop retry logic simple and is
+   * also the right semantics for retranscription.
+   *
+   * The `meetingId` must be the .NET UUID that was minted at recording
+   * start (the same id that ConversationEvents were persisted under).
+   * Returns the meeting id on success.
    */
   async saveMeeting(
     meetingTitle: string,
@@ -47,29 +62,48 @@ export class StorageService {
     folderPath: string | null,
     meetingId?: string | null,
   ): Promise<SaveMeetingResponse> {
-    return invoke<SaveMeetingResponse>('api_save_transcript', {
-      meetingTitle,
-      transcripts,
-      folderPath,
-      meetingId: meetingId ?? null,
-    });
+    if (!meetingId) {
+      throw new Error('saveMeeting requires meetingId — every meeting must be created via createMeeting() first');
+    }
+
+    const segments = transcripts
+      .filter((t) => !t.is_partial && t.text && t.text.trim().length > 0)
+      .map((t, idx) => ({
+        text: t.text,
+        speaker: null,
+        confidence: typeof t.confidence === 'number' ? t.confidence : 0,
+        startOffset: typeof t.audio_start_time === 'number' ? t.audio_start_time : idx,
+        endOffset: typeof t.audio_end_time === 'number' ? t.audio_end_time : idx,
+        isFinal: true,
+        sequence: typeof t.sequence_id === 'number' ? t.sequence_id : idx,
+      }));
+
+    const result = await authedApiCall<{ id: string; savedSegments: number }>(
+      'POST',
+      `/api/v1/meetings/${meetingId}/transcripts`,
+      {
+        title: meetingTitle,
+        folderPath,
+        markEnded: true,
+        segments,
+      },
+    );
+
+    return { meeting_id: result.id };
   }
 
   /**
-   * Get meeting details by ID
-   * @param meetingId - ID of the meeting to fetch
-   * @returns Promise with meeting details
+   * Get meeting details (metadata + counts) by ID.
    */
   async getMeeting(meetingId: string): Promise<Meeting> {
-    return invoke<Meeting>('api_get_meeting', { meetingId });
+    return authedApiCall<Meeting>('GET', `/api/v1/meetings/${meetingId}`);
   }
 
   /**
-   * Get list of all meetings
-   * @returns Promise with array of meetings
+   * List all meetings for the current user, newest first.
    */
   async getMeetings(): Promise<Meeting[]> {
-    return invoke<Meeting[]>('api_get_meetings');
+    return authedApiCall<Meeting[]>('GET', '/api/v1/meetings');
   }
 }
 

@@ -5,7 +5,7 @@ use crate::audio::decoder::{decode_audio_file, decode_audio_file_with_progress};
 use crate::audio::vad::get_speech_chunks_with_progress;
 use crate::config::{DEFAULT_WHISPER_MODEL, DEFAULT_PARAKEET_MODEL};
 use crate::parakeet_engine::ParakeetEngine;
-use crate::state::AppState;
+use crate::state::AppState; // kept for type references elsewhere
 use crate::whisper_engine::WhisperEngine;
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
@@ -14,8 +14,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri_plugin_store::StoreExt;
 use tauri_plugin_dialog::DialogExt;
-use uuid::Uuid;
+use uuid::Uuid; // retained for parity with other modules
 
 use super::audio_processing::create_meeting_folder;
 use super::common::{create_transcript_segments, split_segment_at_silence, write_transcripts_json};
@@ -632,13 +633,10 @@ async fn run_import<R: Runtime>(
     // Create transcript segments
     let segments = create_transcript_segments(&all_transcripts);
 
-    // Save to database
-    let app_state = app
-        .try_state::<AppState>()
-        .ok_or_else(|| anyhow!("App state not available"))?;
-
+    // Save via .NET Gateway (Postgres-backed) — local SQLite layer
+    // was removed in the SQLite→.NET migration.
     let meeting_id = create_meeting_with_transcripts(
-        app_state.db_manager.pool(),
+        &app,
         &title,
         &segments,
         meeting_folder.to_string_lossy().to_string(),
@@ -686,60 +684,73 @@ fn emit_progress<R: Runtime>(app: &AppHandle<R>, stage: &str, progress: u32, mes
 }
 
 
-/// Create a new meeting with transcripts in the database
+/// Create a new meeting with transcripts via the .NET Gateway.
 async fn create_meeting_with_transcripts(
-    pool: &sqlx::SqlitePool,
+    app: &AppHandle<impl Runtime>,
     title: &str,
     segments: &[TranscriptSegment],
     folder_path: String,
 ) -> Result<String> {
-    let meeting_id = format!("meeting-{}", Uuid::new_v4());
-    let now = chrono::Utc::now();
+    // Step 1: Create the meeting via POST /api/v1/meetings to get a real
+    // .NET UUID. POST /api/v1/meetings requires an authenticated user
+    // context — the desktop's import flow runs after the user has signed
+    // in, so the access token is available via the Tauri store.
+    let token = match app.store("settings.json") {
+        Ok(s) => match s.get("access_token") {
+            Some(v) if v.is_string() => v.as_str().unwrap_or_default().to_string(),
+            _ => return Err(anyhow!("Not authenticated — sign in before importing")),
+        },
+        _ => return Err(anyhow!("Not authenticated — sign in before importing")),
+    };
 
-    // Start transaction
-    let mut conn = pool.acquire().await.map_err(|e| anyhow!("DB error: {}", e))?;
-    let mut tx = sqlx::Connection::begin(&mut *conn)
+    let base = crate::api::api::callpilot_api_base_url();
+    let resp = reqwest::Client::new()
+        .post(format!("{}/api/v1/meetings", base))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({ "title": title }))
+        .send()
         .await
-        .map_err(|e| anyhow!("Failed to start transaction: {}", e))?;
+        .map_err(|e| anyhow!("Upstream unreachable: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(anyhow!("Failed to create meeting: HTTP {}", resp.status()));
+    }
+    let body: serde_json::Value = resp.json().await.map_err(|e| anyhow!("Invalid response: {}", e))?;
+    let meeting_id = body.get("meetingId").and_then(|v| v.as_str())
+        .or_else(|| body.get("id").and_then(|v| v.as_str()))
+        .ok_or_else(|| anyhow!("Meeting id missing from create response"))?
+        .to_string();
 
-    // Insert meeting
-    sqlx::query(
-        "INSERT INTO meetings (id, title, created_at, updated_at, folder_path)
-         VALUES (?, ?, ?, ?, ?)",
-    )
-    .bind(&meeting_id)
-    .bind(title)
-    .bind(now)
-    .bind(now)
-    .bind(&folder_path)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| anyhow!("Failed to create meeting: {}", e))?;
+    // Step 2: Bulk-save the transcripts via POST .../transcripts.
+    let payload: Vec<serde_json::Value> = segments.iter().enumerate().map(|(idx, s)| {
+        serde_json::json!({
+            "text": s.text,
+            "speaker": Option::<String>::None,
+            "confidence": 1.0,
+            "startOffset": s.audio_start_time.unwrap_or(idx as f64),
+            "endOffset": s.audio_end_time.unwrap_or(idx as f64),
+            "isFinal": true,
+            "sequence": idx as i64,
+        })
+    }).collect();
 
-    // Insert transcripts
-    for segment in segments {
-        sqlx::query(
-            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(&segment.id)
-        .bind(&meeting_id)
-        .bind(&segment.text)
-        .bind(&segment.timestamp)
-        .bind(segment.audio_start_time)
-        .bind(segment.audio_end_time)
-        .bind(segment.duration)
-        .execute(&mut *tx)
+    let resp = reqwest::Client::new()
+        .post(format!("{}/api/v1/meetings/{}/transcripts", base, meeting_id))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({
+            "title": title,
+            "folderPath": folder_path,
+            "markEnded": true,
+            "segments": payload,
+        }))
+        .send()
         .await
-        .map_err(|e| anyhow!("Failed to insert transcript: {}", e))?;
+        .map_err(|e| anyhow!("Upstream unreachable: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(anyhow!("Failed to save transcripts: HTTP {}", resp.status()));
     }
 
-    tx.commit()
-        .await
-        .map_err(|e| anyhow!("Failed to commit transaction: {}", e))?;
-
     info!(
-        "Created meeting '{}' with {} transcripts",
+        "Created meeting '{}' with {} transcripts via .NET",
         meeting_id,
         segments.len()
     );
@@ -839,39 +850,37 @@ async fn get_or_init_parakeet<R: Runtime>(
     }
 }
 
-/// Get the configured model from database
+/// Get the configured STT model from the desktop-local
+/// tauri-plugin-store (this is a UI preference, not a server-side config).
 async fn get_configured_model<R: Runtime>(app: &AppHandle<R>, provider_type: &str) -> Result<String> {
-    let app_state = app
-        .try_state::<AppState>()
-        .ok_or_else(|| anyhow!("App state not available"))?;
+    let store = app
+        .store("transcript-config.json")
+        .map_err(|e| anyhow!("Failed to load transcript-config store: {}", e))?;
 
-    let result: Option<(String, String)> = sqlx::query_as(
-        "SELECT provider, model FROM transcript_settings WHERE id = '1'",
-    )
-    .fetch_optional(app_state.db_manager.pool())
-    .await
-    .map_err(|e| anyhow!("Failed to query config: {}", e))?;
+    let provider: Option<String> = store.get("provider").and_then(|v| v.as_str().map(String::from));
+    let model: Option<String> = store.get("model").and_then(|v| v.as_str().map(String::from));
 
-    match result {
-        Some((provider, model)) => {
-            if (provider_type == "whisper" && (provider == "localWhisper" || provider == "whisper"))
-                || (provider_type == "parakeet" && provider == "parakeet")
-            {
-                Ok(model)
+    match (provider, model) {
+        (Some(p), Some(m)) => {
+            let matches = (provider_type == "whisper" && (p == "localWhisper" || p == "whisper"))
+                || (provider_type == "parakeet" && p == "parakeet");
+            let result = if matches {
+                m
+            } else if provider_type == "parakeet" {
+                DEFAULT_PARAKEET_MODEL.to_string()
             } else {
-                // Return default model for the requested type
-                Ok(if provider_type == "parakeet" {
-                    DEFAULT_PARAKEET_MODEL.to_string()
-                } else {
-                    DEFAULT_WHISPER_MODEL.to_string()
-                })
-            }
+                DEFAULT_WHISPER_MODEL.to_string()
+            };
+            Ok(result)
         }
-        None => Ok(if provider_type == "parakeet" {
-            DEFAULT_PARAKEET_MODEL.to_string()
-        } else {
-            DEFAULT_WHISPER_MODEL.to_string()
-        }),
+        (None, None) | (None, _) | (_, None) => {
+            let result = if provider_type == "parakeet" {
+                DEFAULT_PARAKEET_MODEL.to_string()
+            } else {
+                DEFAULT_WHISPER_MODEL.to_string()
+            };
+            Ok(result)
+        }
     }
 }
 

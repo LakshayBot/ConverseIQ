@@ -6,7 +6,7 @@ use super::common::{create_transcript_segments, split_segment_at_silence, write_
 use super::constants::AUDIO_EXTENSIONS;
 use crate::config::{DEFAULT_WHISPER_MODEL, DEFAULT_PARAKEET_MODEL};
 use crate::parakeet_engine::ParakeetEngine;
-use crate::state::AppState;
+use crate::state::AppState; // retained for legacy state-lookup paths
 use crate::whisper_engine::WhisperEngine;
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri_plugin_store::StoreExt;
 
 /// Global flag to track if retranscription is in progress
 static RETRANSCRIPTION_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
@@ -421,46 +422,46 @@ async fn run_retranscription<R: Runtime>(
     // Create transcript segments with proper timestamps from VAD
     let segments = create_transcript_segments(&all_transcripts);
 
-    // Save to database
-    let app_state = app
-        .try_state::<AppState>()
-        .ok_or_else(|| anyhow!("App state not available"))?;
+    // Save via .NET Gateway (Postgres-backed) — local SQLite layer was
+    // removed in the SQLite→.NET migration. The bulk-save endpoint
+    // deletes existing transcripts first, so retranscription is idempotent.
+    let token = match app.store("settings.json") {
+        Ok(s) => match s.get("access_token") {
+            Some(v) if v.is_string() => v.as_str().unwrap_or_default().to_string(),
+            _ => return Err(anyhow!("Not authenticated — sign in before retranscribing")),
+        },
+        _ => return Err(anyhow!("Not authenticated — sign in before retranscribing")),
+    };
 
-    // Wrap delete+insert+update in a transaction to prevent data loss
-    let pool = app_state.db_manager.pool();
-    let mut conn = pool.acquire().await.map_err(|e| anyhow!("DB error: {}", e))?;
-    let mut tx = sqlx::Connection::begin(&mut *conn)
-        .await
-        .map_err(|e| anyhow!("Failed to start transaction: {}", e))?;
+    let payload: Vec<serde_json::Value> = segments.iter().enumerate().map(|(idx, s)| {
+        serde_json::json!({
+            "text": s.text,
+            "speaker": Option::<String>::None,
+            "confidence": 1.0,
+            "startOffset": s.audio_start_time.unwrap_or(idx as f64),
+            "endOffset": s.audio_end_time.unwrap_or(idx as f64),
+            "isFinal": true,
+            "sequence": idx as i64,
+        })
+    }).collect();
 
-    sqlx::query("DELETE FROM transcripts WHERE meeting_id = ?")
-        .bind(&meeting_id)
-        .execute(&mut *tx)
+    let base = crate::api::api::callpilot_api_base_url();
+    let resp = reqwest::Client::new()
+        .post(format!("{}/api/v1/meetings/{}/transcripts", base, meeting_id))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({
+            "markEnded": false,
+            "segments": payload,
+        }))
+        .send()
         .await
-        .map_err(|e| anyhow!("Failed to delete existing transcripts: {}", e))?;
-
-    for segment in &segments {
-        sqlx::query(
-            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration)
-             VALUES (?, ?, ?, ?, ?, ?, ?)"
-        )
-        .bind(&segment.id)
-        .bind(&meeting_id)
-        .bind(&segment.text)
-        .bind(&segment.timestamp)
-        .bind(segment.audio_start_time)
-        .bind(segment.audio_end_time)
-        .bind(segment.duration)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| anyhow!("Failed to insert transcript: {}", e))?;
+        .map_err(|e| anyhow!("Upstream unreachable: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(anyhow!("Failed to retranscribe: HTTP {}", resp.status()));
     }
 
-    tx.commit().await
-        .map_err(|e| anyhow!("Failed to commit transaction: {}", e))?;
-
     info!(
-        "Updated {} transcripts for meeting {} in transaction",
+        "Updated {} transcripts for meeting {} via .NET",
         segments.len(),
         meeting_id
     );
@@ -578,41 +579,27 @@ async fn get_or_init_whisper<R: Runtime>(
 
 /// Get the configured Whisper model name from the database
 async fn get_configured_whisper_model<R: Runtime>(app: &AppHandle<R>) -> Result<String> {
-    debug!("Getting configured Whisper model from database...");
+    debug!("Getting configured Whisper model from tauri-plugin-store...");
 
-    let app_state = app
-        .try_state::<AppState>()
-        .ok_or_else(|| {
-            error!("App state not available");
-            anyhow!("App state not available")
-        })?;
-
-    debug!("Querying transcript_settings table...");
-
-    // Query the transcript settings from the database - get both provider and model
-    let result: Option<(String, String)> = sqlx::query_as(
-        "SELECT provider, model FROM transcript_settings WHERE id = '1'"
-    )
-    .fetch_optional(app_state.db_manager.pool())
-    .await
-    .map_err(|e| {
-        error!("Failed to query transcript config: {}", e);
-        anyhow!("Failed to query transcript config: {}", e)
+    let store = app.store("transcript-config.json").map_err(|e| {
+        error!("Failed to load transcript-config store: {}", e);
+        anyhow!("Failed to load transcript-config store: {}", e)
     })?;
 
-    match result {
-        Some((provider, model)) => {
-            info!("Found transcript config: provider={}, model={}", provider, model);
+    let provider: Option<String> = store.get("provider").and_then(|v| v.as_str().map(String::from));
+    let model: Option<String> = store.get("model").and_then(|v| v.as_str().map(String::from));
 
-            // Check if provider is Whisper-based
-            if provider == "localWhisper" || provider == "whisper" {
-                Ok(model)
+    match (provider, model) {
+        (Some(p), Some(m)) => {
+            info!("Found transcript config: provider={}, model={}", p, m);
+            if p == "localWhisper" || p == "whisper" {
+                Ok(m)
             } else {
-                error!("Retranscription requires Whisper provider, but configured provider is: {}", provider);
-                Err(anyhow!("Retranscription requires Whisper. Current provider '{}' does not support retranscription with language selection.", provider))
+                error!("Retranscription requires Whisper provider, but configured provider is: {}", p);
+                Err(anyhow!("Retranscription requires Whisper. Current provider '{}' does not support retranscription with language selection.", p))
             }
         },
-        None => {
+        (None, None) | (None, _) | (_, None) => {
             // Default to configured Whisper model if no config exists
             warn!("No transcript config found, using default model '{}'", DEFAULT_WHISPER_MODEL);
             Ok(DEFAULT_WHISPER_MODEL.to_string())
@@ -678,42 +665,29 @@ async fn get_or_init_parakeet<R: Runtime>(
     }
 }
 
-/// Get the configured Parakeet model name from the database
+/// Get the configured Parakeet model name from tauri-plugin-store
 async fn get_configured_parakeet_model<R: Runtime>(app: &AppHandle<R>) -> Result<String> {
-    debug!("Getting configured Parakeet model from database...");
+    debug!("Getting configured Parakeet model from tauri-plugin-store...");
 
-    let app_state = app
-        .try_state::<AppState>()
-        .ok_or_else(|| {
-            error!("App state not available");
-            anyhow!("App state not available")
-        })?;
-
-    // Query the transcript settings from the database
-    let result: Option<(String, String)> = sqlx::query_as(
-        "SELECT provider, model FROM transcript_settings WHERE id = '1'"
-    )
-    .fetch_optional(app_state.db_manager.pool())
-    .await
-    .map_err(|e| {
-        error!("Failed to query transcript config: {}", e);
-        anyhow!("Failed to query transcript config: {}", e)
+    let store = app.store("transcript-config.json").map_err(|e| {
+        error!("Failed to load transcript-config store: {}", e);
+        anyhow!("Failed to load transcript-config store: {}", e)
     })?;
 
-    match result {
-        Some((provider, model)) => {
-            info!("Found transcript config: provider={}, model={}", provider, model);
+    let provider: Option<String> = store.get("provider").and_then(|v| v.as_str().map(String::from));
+    let model: Option<String> = store.get("model").and_then(|v| v.as_str().map(String::from));
 
-            if provider == "parakeet" {
-                Ok(model)
+    match (provider, model) {
+        (Some(p), Some(m)) => {
+            info!("Found transcript config: provider={}, model={}", p, m);
+            if p == "parakeet" {
+                Ok(m)
             } else {
-                // Default to configured Parakeet model
                 warn!("Configured provider is not Parakeet, using default model");
                 Ok(DEFAULT_PARAKEET_MODEL.to_string())
             }
         },
-        None => {
-            // Default to configured Parakeet model if no config exists
+        (None, None) | (None, _) | (_, None) => {
             warn!("No transcript config found, using default Parakeet model");
             Ok(DEFAULT_PARAKEET_MODEL.to_string())
         }
