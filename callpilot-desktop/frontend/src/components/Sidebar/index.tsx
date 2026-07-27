@@ -16,6 +16,48 @@ import { toast } from 'sonner';
 import { useImportDialog } from '@/contexts/ImportDialogContext';
 import { useConfig } from '@/contexts/ConfigContext';
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Design tokens
+// ──────────────────────────────────────────────────────────────────────────────
+//
+// The sidebar reads as a quiet mission-control rail — the same visual language
+// as the UserChip at the bottom. No chunky fills, no hard shadows. Border +
+// soft hover tint is the default interaction vocabulary. The single accent
+// (gradient blue → indigo → violet) is reserved for:
+//   • the brand mark at the top
+//   • the 3px-wide left-edge indicator on the active nav item
+//   • the user's avatar gradient
+// Three uses of the same gradient family = cohesion.
+//
+// Tailwind utility aliases used throughout (kept inline for proximity to the
+// JSX that consumes them rather than abstracted into theme tokens):
+//   ink-900  text-slate-900          primary text
+//   ink-500  text-slate-500          secondary / labels
+//   ink-400  text-slate-400          hints, version
+//   ink-300  border-slate-200        hairline borders
+//   surface  bg-white                rail bg
+//   surface-muted  bg-slate-50       hover tint
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Active-item left-edge indicator — gradient threads through brand mark + avatar. */
+const ACTIVE_GRADIENT = 'linear-gradient(180deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%)';
+
+interface SidebarItem {
+  id: string;
+  title: string;
+  type: 'folder' | 'file';
+  children?: SidebarItem[];
+}
+
+/** Single source of truth for active-route → nav-key mapping. */
+function isNavActive(pathname: string | null, key: 'home' | 'meetings' | 'settings'): boolean {
+  if (!pathname) return false;
+  if (key === 'home') return pathname === '/';
+  if (key === 'meetings') return pathname.startsWith('/meeting-details');
+  if (key === 'settings') return pathname.startsWith('/settings');
+  return false;
+}
+
 import {
   Dialog,
   DialogContent,
@@ -442,23 +484,41 @@ const Sidebar: React.FC = () => {
   const renderCollapsedIcons = () => {
     if (!isCollapsed) return null;
 
-    const isHomePage = pathname === '/';
-    const isMeetingPage = pathname?.includes('/meeting-details');
-    const isSettingsPage = pathname === '/settings';
+    // Each nav item is a 36×36 square centred in the 64px rail.
+    // Active state = 3px-wide gradient bar on the left edge + soft
+    // background tint (no chunky fill). Inactive = transparent,
+    // hover = slate-50 tint.
+    const navItemClass = (active: boolean) =>
+      [
+        'group relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors duration-150',
+        active
+          ? 'bg-slate-50 text-slate-900'
+          : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900',
+      ].join(' ');
 
     return (
       <TooltipProvider>
-        <div className="flex flex-col items-center space-y-4 mt-4">
-          <Logo isCollapsed={isCollapsed} />
+        <div className="flex flex-col items-center gap-1 px-2 pt-3">
+          <div className="pb-2">
+            <Logo isCollapsed={isCollapsed} />
+          </div>
 
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
+                aria-current={isNavActive(pathname, 'home') ? 'page' : undefined}
                 onClick={() => router.push('/')}
-                className={`p-2 rounded-lg transition-colors duration-150 ${isHomePage ? 'bg-gray-100' : 'hover:bg-gray-100'
-                  }`}
+                className={navItemClass(isNavActive(pathname, 'home'))}
               >
-                <Home className="w-5 h-5 text-gray-600" />
+                {isNavActive(pathname, 'home') && (
+                  <span
+                    aria-hidden
+                    className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
+                    style={{ backgroundImage: ACTIVE_GRADIENT }}
+                  />
+                )}
+                <Home className="h-[18px] w-[18px]" strokeWidth={1.75} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
@@ -470,10 +530,11 @@ const Sidebar: React.FC = () => {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  type="button"
                   onClick={() => openImportDialog()}
-                  className="p-2 rounded-lg transition-colors duration-150 hover:bg-blue-100 bg-blue-50"
+                  className={navItemClass(false)}
                 >
-                  <Upload className="w-5 h-5 text-blue-600" />
+                  <Upload className="h-[18px] w-[18px] text-blue-600" strokeWidth={1.75} />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">
@@ -485,14 +546,22 @@ const Sidebar: React.FC = () => {
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
+                aria-current={isNavActive(pathname, 'meetings') ? 'page' : undefined}
                 onClick={() => {
                   if (isCollapsed) toggleCollapse();
                   toggleFolder('meetings');
                 }}
-                className={`p-2 rounded-lg transition-colors duration-150 ${isMeetingPage ? 'bg-gray-100' : 'hover:bg-gray-100'
-                  }`}
+                className={navItemClass(isNavActive(pathname, 'meetings'))}
               >
-                <NotebookPen className="w-5 h-5 text-gray-600" />
+                {isNavActive(pathname, 'meetings') && (
+                  <span
+                    aria-hidden
+                    className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
+                    style={{ backgroundImage: ACTIVE_GRADIENT }}
+                  />
+                )}
+                <NotebookPen className="h-[18px] w-[18px]" strokeWidth={1.75} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
@@ -503,11 +572,19 @@ const Sidebar: React.FC = () => {
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                type="button"
+                aria-current={isNavActive(pathname, 'settings') ? 'page' : undefined}
                 onClick={() => router.push('/settings')}
-                className={`p-2 rounded-lg transition-colors duration-150 ${isSettingsPage ? 'bg-gray-100' : 'hover:bg-gray-100'
-                  }`}
+                className={navItemClass(isNavActive(pathname, 'settings'))}
               >
-                <Settings className="w-5 h-5 text-gray-600" />
+                {isNavActive(pathname, 'settings') && (
+                  <span
+                    aria-hidden
+                    className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
+                    style={{ backgroundImage: ACTIVE_GRADIENT }}
+                  />
+                )}
+                <Settings className="h-[18px] w-[18px]" strokeWidth={1.75} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
@@ -544,11 +621,14 @@ const Sidebar: React.FC = () => {
     return (
       <div key={item.id}>
         <div
-          className={`flex items-center transition-all duration-150 group ${item.type === 'folder' && depth === 0
-            ? 'p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg'
-            : `px-3 py-2 my-0.5 rounded-md text-sm ${isActive ? 'bg-blue-100 text-blue-700 font-medium' :
-              hasTranscriptMatch ? 'bg-yellow-50' : 'hover:bg-gray-50'
-            } cursor-pointer`
+          className={`flex items-center transition-colors duration-150 group ${item.type === 'folder' && depth === 0
+            ? 'px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400'
+            : `px-2 py-1.5 my-px rounded-md text-sm cursor-pointer ${isActive
+                ? 'bg-blue-50 text-blue-700 font-medium'
+                : hasTranscriptMatch
+                  ? 'bg-amber-50/60 text-slate-700'
+                  : 'text-slate-700 hover:bg-slate-50'
+              }`
             }`}
           style={item.type === 'folder' && depth === 0 ? {} : { paddingLeft }}
           onClick={() => {
@@ -585,36 +665,36 @@ const Sidebar: React.FC = () => {
             <div className="flex flex-col w-full">
               <div className="flex items-center w-full">
                 {isMeetingItem ? (
-                  <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-gray-100">
-                    <File className="w-3.5 h-3.5 text-gray-600" />
+                  <div className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded mr-1.5 bg-slate-100 group-hover:bg-slate-200 transition-colors">
+                    <File className="w-3 h-3 text-slate-500" strokeWidth={2} />
                   </div>
                 ) : (
-                  <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-blue-100">
-                    <Plus className="w-3.5 h-3.5 text-blue-600" />
+                  <div className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded mr-1.5 bg-blue-50">
+                    <Plus className="w-3 h-3 text-blue-600" strokeWidth={2.25} />
                   </div>
                 )}
-                <span className="flex-1 break-words">{item.title}</span>
+                <span className="flex-1 truncate">{item.title}</span>
                 {isMeetingItem && (
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleEditStart(item.id, item.title);
                       }}
-                      className="hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 flex-shrink-0"
+                      className="text-slate-400 hover:text-slate-700 p-1 rounded-md hover:bg-slate-100 flex-shrink-0"
                       aria-label="Edit meeting title"
                     >
-                      <Pencil className="w-4 h-4" />
+                      <Pencil className="w-3.5 h-3.5" strokeWidth={1.75} />
                     </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setDeleteModalState({ isOpen: true, itemId: item.id });
                       }}
-                      className="hover:text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
+                      className="text-slate-400 hover:text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
                       aria-label="Delete meeting"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" strokeWidth={1.75} />
                     </button>
                   </div>
                 )}
@@ -622,8 +702,9 @@ const Sidebar: React.FC = () => {
 
               {/* Show transcript match snippet if available */}
               {hasTranscriptMatch && (
-                <div className="mt-1 ml-8 text-xs text-gray-500 bg-yellow-50 p-1.5 rounded border border-yellow-100 line-clamp-2">
-                  <span className="font-medium text-yellow-600">Match:</span> {matchingResult.matchContext}
+                <div className="mt-1 ml-7 text-xs text-slate-600 bg-slate-50 px-2 py-1 rounded-md border-l-2 border-blue-400 line-clamp-2">
+                  <span className="font-medium text-slate-500">Match</span>{" "}
+                  {matchingResult.matchContext}
                 </div>
               )}
             </div>
@@ -640,93 +721,113 @@ const Sidebar: React.FC = () => {
 
   return (
     <div className="fixed top-0 left-0 h-screen z-40">
-      {/* Floating collapse button */}
+      {/* Floating collapse button — refined: smaller, slate-tinted, no hard shadow */}
       <button
+        type="button"
         onClick={toggleCollapse}
-        className="absolute -right-6 top-20 z-50 p-1 bg-white hover:bg-gray-100 rounded-full shadow-lg border"
+        aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        className="absolute -right-3 top-20 z-50 flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
         style={{ transform: 'translateX(50%)' }}
       >
         {isCollapsed ? (
-          <ChevronRightCircle className="w-6 h-6" />
+          <ChevronRightCircle className="h-4 w-4" strokeWidth={1.75} />
         ) : (
-          <ChevronLeftCircle className="w-6 h-6" />
+          <ChevronLeftCircle className="h-4 w-4" strokeWidth={1.75} />
         )}
       </button>
 
       <div
-        className={`h-screen bg-white border-r shadow-sm flex flex-col transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-64'
+        className={`h-screen bg-white border-r border-slate-200 flex flex-col transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-64'
           }`}
       >
-        {/*  Header with traffic light spacing */}
-        <div className="flex-shrink-0 h-22 flex items-center">
+        {/* Header — brand mark, hairline divider */}
+        <div className="flex-shrink-0">
+          {!isCollapsed && (
+            <div className="px-3 pt-3 pb-3">
+              <Logo isCollapsed={isCollapsed} />
 
-          {/* Title container */}
-
-
-
-          <div className="flex-1">
-            {!isCollapsed && (
-              <div className="p-3">
-                <Logo isCollapsed={isCollapsed} />
-
-                <div className="relative mb-1">
-                  <InputGroup >
-                    <InputGroupInput placeholder='Search meeting content...' value={searchQuery}
-                      onChange={(e) => handleSearchChange(e.target.value)}
-                    />
-                    <InputGroupAddon>
-                      <SearchIcon />
+              {/* Search — refined: smaller placeholder, no shadow, slate border */}
+              <div className="mt-3 relative">
+                <InputGroup>
+                  <InputGroupInput
+                    placeholder="Search meetings…"
+                    value={searchQuery}
+                    onChange={(e) => handleSearchChange(e.target.value)}
+                    className="h-8 text-sm border-slate-200 bg-white focus-visible:ring-1 focus-visible:ring-blue-500/40"
+                  />
+                  <InputGroupAddon className="text-slate-400">
+                    <SearchIcon className="h-3.5 w-3.5" />
+                  </InputGroupAddon>
+                  {searchQuery && (
+                    <InputGroupAddon align="inline-end">
+                      <InputGroupButton
+                        onClick={() => handleSearchChange('')}
+                        aria-label="Clear search"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </InputGroupButton>
                     </InputGroupAddon>
-                    {searchQuery &&
-                      <InputGroupAddon align={'inline-end'}>
-                        <InputGroupButton
-                          onClick={() => handleSearchChange('')}
-                        >
-                          <X />
-                        </InputGroupButton>
-                      </InputGroupAddon>
-                    }
-                  </InputGroup>
-                </div>
+                  )}
+                </InputGroup>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
+
+        {/* Thin divider between header and content */}
+        <div className="flex-shrink-0 h-px bg-slate-100" />
 
         {/* Main content - scrollable area */}
         <div className="flex-1 flex flex-col min-h-0">
           {/* Fixed navigation items */}
-          <div className="flex-shrink-0">
+          <div className="flex-shrink-0 px-2 pt-2">
             {!isCollapsed && (
-              <div
+              <button
+                type="button"
+                aria-current={isNavActive(pathname, 'home') ? 'page' : undefined}
                 onClick={() => router.push('/')}
-                className="p-3  text-lg font-semibold items-center hover:bg-gray-100 h-10   flex mx-3 mt-3 rounded-lg cursor-pointer"
+                className={[
+                  'group relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors duration-150',
+                  isNavActive(pathname, 'home')
+                    ? 'bg-slate-50 text-slate-900'
+                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
+                ].join(' ')}
               >
-                <Home className="w-4 h-4 mr-2" />
+                {isNavActive(pathname, 'home') && (
+                  <span
+                    aria-hidden
+                    className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
+                    style={{ backgroundImage: ACTIVE_GRADIENT }}
+                  />
+                )}
+                <Home className="h-[16px] w-[16px]" strokeWidth={1.75} />
                 <span>Home</span>
-              </div>
+              </button>
             )}
           </div>
 
           {/* Content area */}
           <div className="flex-1 flex flex-col min-h-0">
             {renderCollapsedIcons()}
-            {/* Meeting Notes folder header - fixed */}
+
+            {/* Meetings section header — eyebrow label + count badge */}
             {!isCollapsed && (
-              <div className="flex-shrink-0">
-                {filteredSidebarItems.filter(item => item.type === 'folder').map(item => (
-                  <div key={item.id}>
-                    <div
-                      className="flex items-center transition-all duration-150 p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg"
-                    >
-                      <NotebookPen className="w-4 h-4 mr-2 text-gray-600" />
-                      <span className="text-gray-700">{item.title}</span>
-                      {searchQuery && item.id === 'meetings' && isSearching && (
-                        <span className="ml-2 text-xs text-blue-500 animate-pulse">Searching...</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
+              <div className="flex-shrink-0 px-3 pt-4 pb-1.5 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                    Meetings
+                  </span>
+                  {meetings.length > 0 && (
+                    <span className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-medium text-slate-500 tabular-nums">
+                      {meetings.length}
+                    </span>
+                  )}
+                  {searchQuery && isSearching && (
+                    <span className="text-[10px] font-medium text-blue-500 animate-pulse">
+                      Searching…
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
@@ -736,7 +837,7 @@ const Sidebar: React.FC = () => {
                 {filteredSidebarItems
                   .filter(item => item.type === 'folder' && expandedFolders.has(item.id) && item.children)
                   .map(item => (
-                    <div key={`${item.id}-children`} className="mx-3">
+                    <div key={`${item.id}-children`} className="mx-2">
                       {item.children!.map(child => renderItem(child, 1))}
                     </div>
                   ))}
@@ -745,29 +846,36 @@ const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* Footer */}
+        {/* Footer — ghost-style buttons matching the UserChip aesthetic.
+           No flat fills, no shadows. Border + soft hover tint. */}
         {!isCollapsed && (
-
-          <div className="flex-shrink-0 p-2 border-t border-gray-100">
+          <div className="flex-shrink-0 px-2 pt-1.5 pb-2 border-t border-slate-100 space-y-0.5">
             {betaFeatures.importAndRetranscribe && (
               <button
+                type="button"
                 onClick={() => openImportDialog()}
-                className="w-full flex items-center justify-center px-3 py-2 text-sm font-medium text-gray-700 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors shadow-sm"
+                className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               >
-                <Upload className="w-4 h-4 mr-2" />
-                <span>Import Audio</span>
+                <Upload className="h-[16px] w-[16px]" strokeWidth={1.75} />
+                <span>Import audio</span>
               </button>
             )}
 
             <button
+              type="button"
               onClick={() => router.push('/settings')}
-              className="w-full flex items-center justify-center px-3 py-1.5 mt-1 mb-1 text-sm font-medium text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors shadow-sm"
+              className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
-              <Settings className="w-4 h-4 mr-2" />
+              <Settings className="h-[16px] w-[16px]" strokeWidth={1.75} />
               <span>Settings</span>
             </button>
+
             <Info isCollapsed={isCollapsed} />
-            <UserChip collapsed={false} />
+
+            {/* spacer pushes the user chip to the very bottom */}
+            <div className="pt-1">
+              <UserChip collapsed={false} />
+            </div>
           </div>
         )}
       </div>
