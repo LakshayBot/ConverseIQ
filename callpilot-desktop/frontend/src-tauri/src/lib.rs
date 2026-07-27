@@ -464,6 +464,12 @@ pub fn run() {
         .setup(|_app| {
             log::info!("Application setup complete");
 
+            // Register AppState (was previously the DatabaseManager wrapper
+            // for the SQLite layer — kept as an empty marker struct so
+            // existing Tauri command signatures that take `State<'_, AppState>`
+            // continue to compile and work after the SQLite→.NET migration).
+            _app.manage(state::AppState {});
+
             // Initialize system tray
             if let Err(e) = tray::create_tray(_app.handle()) {
                 log::error!("Failed to create system tray: {}", e);
