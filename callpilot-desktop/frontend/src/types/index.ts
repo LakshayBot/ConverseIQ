@@ -107,6 +107,10 @@ export interface TranscriptSegmentData {
   endTime?: number; // audio_end_time in seconds
   text: string;
   confidence?: number;
+  /** Whether this segment is an interim partial (still being typed by the
+   *  STT engine) vs a finalized utterance. Drives monospace italic +
+   *  breathing caret styling in the live transcript view. */
+  is_partial?: boolean;
   /** Which audio stream produced this segment. CallPilot infers speaker from this. */
   audioSource?: 'mic' | 'system' | 'unknown';
 }

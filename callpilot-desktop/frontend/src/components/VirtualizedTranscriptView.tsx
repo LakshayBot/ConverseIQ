@@ -1,413 +1,340 @@
 'use client';
 
-import { useCallback, useRef, useReducer, startTransition, useEffect, useState, memo } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { useAutoScroll } from "@/hooks/useAutoScroll";
-import { useTranscriptStreaming } from "@/hooks/useTranscriptStreaming";
-import { ConfidenceIndicator } from "./ConfidenceIndicator";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
-import { RecordingStatusBar } from "./RecordingStatusBar";
-import { motion, AnimatePresence } from "framer-motion";
-import { TranscriptSegmentData } from "@/types";
+// VirtualizedTranscriptView — live transcript feed.
+//
+// Reference for the visual language: a court-reporter's live feed / broadcast
+// subtitles. Dense, calm, focused. The signature element is a 3px-wide
+// left-edge bar in the brand gradient on the active (most-recent) row, plus
+// a soft 1ch-wide breathing caret that follows the in-flight partial. They
+// both communicate "things are happening right now" without ever demanding
+// attention.
+//
+// Tokens (in addition to the existing app palette):
+//   --ink-900  #0f172a   final transcript text
+//   --ink-500  #64748b   partial (in-progress) text
+//   --ink-300  #cbd5e1   timestamps, dividers
+//   --rep      #10b981   REP speaker chip
+//   --prospect #0ea5e9   PROSPECT speaker chip
+//   brand gradient (blue→indigo→violet) — the "now" indicator
+//
+// Performance:
+//   - Virtualizer uses dynamic measurement so row heights match real content
+//     (partials are typically one line, finals can be two).
+//   - Overscan dropped from 10 → 5 (still smooth, less re-render work).
+//   - The text-row component is React.memo so re-renders only re-paint
+//     the row whose data actually changed.
 
-export interface VirtualizedTranscriptViewProps {
-    /** Transcript segments to display */
-    segments: TranscriptSegmentData[];
-    /** Whether recording is in progress */
-    isRecording?: boolean;
-    /** Whether recording is paused */
-    isPaused?: boolean;
-    /** Whether processing/finalizing transcription */
-    isProcessing?: boolean;
-    /** Whether stopping */
-    isStopping?: boolean;
-    /** Enable streaming effect for latest segment */
-    enableStreaming?: boolean;
-    /** Show confidence indicators */
-    showConfidence?: boolean;
-    /** Completely disable auto-scroll behavior (for meeting details page) */
-    disableAutoScroll?: boolean;
-
-    // Pagination props (infinite scroll)
-    hasMore?: boolean;
-    isLoadingMore?: boolean;
-    totalCount?: number;
-    loadedCount?: number;
-    onLoadMore?: () => void;
-}
+import { useCallback, useRef, useReducer, startTransition, useEffect, memo } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { useAutoScroll } from '@/hooks/useAutoScroll';
+import { ConfidenceIndicator } from './ConfidenceIndicator';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { RecordingStatusBar } from './RecordingStatusBar';
+import { TranscriptSegmentData } from '@/types';
 
 // Threshold for enabling virtualization (below this, use simple rendering)
 const VIRTUALIZATION_THRESHOLD = 10;
 
-// Helper function to format seconds as recording-relative time [MM:SS]
+const BRAND_GRADIENT = 'linear-gradient(180deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%)';
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Format helpers
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Recording-relative time as MM:SS. No brackets — the timestamp is its own
+ *  monospace column, brackets would compete with the text. */
 function formatRecordingTime(seconds: number | undefined): string {
-    if (seconds === undefined) return '[--:--]';
-
-    const totalSeconds = Math.floor(seconds);
-    const minutes = Math.floor(totalSeconds / 60);
-    const secs = totalSeconds % 60;
-
-    return `[${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}]`;
+  if (seconds === undefined) return '--:--';
+  const total = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
-// Helper function to remove filler words and repetitions
+/** Soft-filler cleanup ("uh", "um") so the live feed reads cleanly. Final
+ *  segment text only — partials stay verbatim so the user sees the current
+ *  utterance as it is. */
 function cleanStopWords(text: string): string {
-    const stopWords = ['uh', 'um', 'er', 'ah', 'hmm', 'hm', 'eh', 'oh'];
-
-    let cleanedText = text;
-    stopWords.forEach(word => {
-        const pattern = new RegExp(`\\b${word}\\b[,\\s]*`, 'gi');
-        cleanedText = cleanedText.replace(pattern, ' ');
-    });
-
-    return cleanedText.replace(/\s+/g, ' ').trim();
+  return text
+    .replace(/\b(uh|um|er|ah|hmm|hm|eh|oh)[,\s]*/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-// Memoized transcript segment component
-const TranscriptSegment = memo(function TranscriptSegment({
-    id,
-    timestamp,
-    text,
-    confidence,
-    isStreaming,
-    showConfidence,
-    audioSource,
-}: {
-    id: string;
-    timestamp: number;
-    text: string;
-    confidence?: number;
-    isStreaming: boolean;
-    showConfidence: boolean;
-    audioSource?: 'mic' | 'system' | 'unknown';
-}) {
-    const displayText = cleanStopWords(text) || (text.trim() === '' ? '[Silence]' : text);
-    const speakerLabel = audioSource === 'mic'
-        ? 'REP'
-        : audioSource === 'system'
-            ? 'PROSPECT'
-            : null;
-    const speakerTone = audioSource === 'mic'
-        ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-        : audioSource === 'system'
-            ? 'bg-sky-100 text-sky-800 border-sky-200'
-            : 'bg-gray-100 text-gray-600 border-gray-200';
+// ──────────────────────────────────────────────────────────────────────────────
+// Row component
+// ──────────────────────────────────────────────────────────────────────────────
 
-    return (
-        <div id={`segment-${id}`} className="mb-3">
-            <div className="flex items-start gap-2">
-                <Tooltip>
-                    <TooltipTrigger>
-                        <span className="text-xs text-gray-400 mt-1 flex-shrink-0 min-w-[50px]">
-                            {formatRecordingTime(timestamp)}
-                        </span>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                        {confidence !== undefined && showConfidence && (
-                            <ConfidenceIndicator confidence={confidence} showIndicator={showConfidence} />
-                        )}
-                    </TooltipContent>
-                </Tooltip>
-                <div className="flex-1">
-                    {speakerLabel && (
-                        <span className={`inline-block mb-1 mr-2 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide border rounded ${speakerTone}`}>
-                            {speakerLabel}
-                        </span>
-                    )}
-                    {isStreaming ? (
-                        <div className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2">
-                            <p className="text-base text-gray-800 leading-relaxed">{displayText}</p>
-                        </div>
-                    ) : (
-                        <p className="text-base text-gray-800 leading-relaxed">{displayText}</p>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
+interface TranscriptRowProps {
+  id: string;
+  timestamp: number | undefined;
+  text: string;
+  confidence?: number;
+  isPartial: boolean;
+  isActive: boolean;
+  showConfidence: boolean;
+  audioSource?: 'mic' | 'system' | 'unknown';
+}
+
+const TranscriptRow = memo(function TranscriptRow({
+  id,
+  timestamp,
+  text,
+  confidence,
+  isPartial,
+  isActive,
+  showConfidence,
+  audioSource,
+}: TranscriptRowProps) {
+  const isFinal = !isPartial;
+  // Final text gets filler cleanup; partial text stays verbatim so the
+  // speaker's mid-thought phrasing reads true.
+  const displayText = isFinal
+    ? cleanStopWords(text) || (text.trim() === '' ? '[Silence]' : text)
+    : text || (isPartial ? '…' : '[Silence]');
+
+  const speakerLabel = audioSource === 'mic'
+    ? 'REP'
+    : audioSource === 'system'
+      ? 'PROSPECT'
+      : null;
+
+  // Chip palette — emerald for REP, sky for PROSPECT, neutral for unknown.
+  const speakerTone = audioSource === 'mic'
+    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+    : audioSource === 'system'
+      ? 'bg-sky-50 text-sky-700 border-sky-200'
+      : 'bg-slate-100 text-slate-500 border-slate-200';
+
+  // Text style:
+  //   - final:    sans-serif, slate-900, regular, 14px
+  //   - partial:  monospace, slate-500, italic, 13px (signals "transient")
+  const textClass = isPartial
+    ? 'font-mono italic text-[13px] text-slate-500 leading-relaxed'
+    : 'text-[14px] text-slate-900 leading-relaxed';
+
+  return (
+    <div
+      id={`segment-${id}`}
+      className={`relative pl-3 pr-1 py-1.5 rounded-md transition-colors duration-150 ${
+        isActive ? 'bg-slate-50/70' : ''
+      }`}
+    >
+      {/* "Now" indicator — left-edge gradient bar on the most-recent row. */}
+      {isActive && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
+          style={{ backgroundImage: BRAND_GRADIENT }}
+        />
+      )}
+
+      <div className="flex items-baseline gap-2.5">
+        {/* Timestamp column — monospace, fixed-width for column alignment. */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="font-mono text-[11px] text-slate-300 tabular-nums flex-shrink-0 min-w-[36px] mt-[3px]">
+              {formatRecordingTime(timestamp)}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            {confidence !== undefined && showConfidence && (
+              <ConfidenceIndicator confidence={confidence} showIndicator={showConfidence} />
+            )}
+          </TooltipContent>
+        </Tooltip>
+
+        {/* Speaker chip */}
+        {speakerLabel ? (
+          <span
+            className={`inline-flex items-center flex-shrink-0 mt-[2px] px-1.5 py-px text-[9px] font-bold uppercase tracking-[0.08em] border rounded ${speakerTone}`}
+          >
+            {speakerLabel}
+          </span>
+        ) : (
+          <span className="flex-shrink-0 w-[58px]" aria-hidden />
+        )}
+
+        {/* Transcript text */}
+        <p className={`flex-1 min-w-0 ${textClass}`}>
+          {displayText}
+          {/* Live caret — a thin 1ch-wide bar that breathes on the active
+              partial row. Uses a CSS animation gated by prefers-reduced-motion. */}
+          {isPartial && isActive && (
+            <span
+              aria-hidden
+              className="live-caret ml-px inline-block align-baseline"
+            />
+          )}
+        </p>
+      </div>
+    </div>
+  );
 });
 
-export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps> = ({
-    segments,
-    isRecording = false,
-    isPaused = false,
-    isProcessing = false,
-    isStopping = false,
-    enableStreaming = false,
-    showConfidence = true,
-    disableAutoScroll = false,
-    hasMore = false,
-    isLoadingMore = false,
-    totalCount = 0,
-    loadedCount = 0,
-    onLoadMore,
+// ──────────────────────────────────────────────────────────────────────────────
+// Main view
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const VirtualizedTranscriptView: React.FC<{
+  segments: TranscriptSegmentData[];
+  isRecording?: boolean;
+  isPaused?: boolean;
+  isProcessing?: boolean;
+  isStopping?: boolean;
+  enableStreaming?: boolean;
+  showConfidence?: boolean;
+  disableAutoScroll?: boolean;
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  totalCount?: number;
+  loadedCount?: number;
+  onLoadMore?: () => void;
+}> = ({
+  segments,
+  isRecording = false,
+  isPaused = false,
+  isProcessing = false,
+  isStopping = false,
+  enableStreaming = false,
+  showConfidence = true,
+  disableAutoScroll = false,
+  hasMore = false,
+  isLoadingMore = false,
+  totalCount = 0,
+  loadedCount = 0,
+  onLoadMore,
 }) => {
-    // Create scroll ref first - shared between virtualizer and auto-scroll hook
-    const scrollRef = useRef<HTMLDivElement>(null);
-    // Ref for infinite scroll trigger element
-    const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
+  const [, rerender] = useReducer((x: number) => x + 1, 0);
 
-    // Force re-render without flushSync (avoids React warning)
-    const [, rerender] = useReducer((x: number) => x + 1, 0);
+  // Dynamic measurement so partial rows (single line) and final rows
+  // (often wrap to two) don't fight the fixed estimate. estimateSize is
+  // a fallback for the first render before measurement is available.
+  const virtualizer = useVirtualizer({
+    count: segments.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 36,
+    overscan: 5,
+    measureElement: (el) => el.getBoundingClientRect().height,
+    onChange: () => {
+      startTransition(() => {
+        rerender();
+      });
+    },
+  });
 
-    // Setup virtualizer for efficient rendering of large lists
-    const virtualizer = useVirtualizer({
-        count: segments.length,
-        getScrollElement: () => scrollRef.current,
-        estimateSize: () => 60, // Estimated height per segment
-        overscan: 10, // Render extra items above/below viewport
-        onChange: () => {
-            startTransition(() => {
-                rerender();
-            });
-        },
-    });
+  useAutoScroll({
+    scrollRef,
+    segments,
+    isRecording,
+    isPaused,
+    virtualizer,
+    virtualizationThreshold: VIRTUALIZATION_THRESHOLD,
+    disableAutoScroll,
+  });
 
-    // Custom hook for auto-scrolling (supports both virtualized and non-virtualized)
-    useAutoScroll({
-        scrollRef,
-        segments,
-        isRecording,
-        isPaused,
-        virtualizer,
-        virtualizationThreshold: VIRTUALIZATION_THRESHOLD,
-        disableAutoScroll,
-    });
+  // The "active" row is the most-recent segment — it's the one that gets the
+  // pulsing left-edge bar + caret. Reference equality on the last segment.
+  const lastIndex = segments.length - 1;
+  const lastSegment = lastIndex >= 0 ? segments[lastIndex] : null;
 
-    // Streaming text effect hook (typewriter animation for new transcripts)
-    const { streamingSegmentId, getDisplayText } = useTranscriptStreaming(
-        segments,
-        isRecording,
-        enableStreaming
-    );
+  // Infinite scroll trigger.
+  useEffect(() => {
+    if (!onLoadMore || !hasMore || isLoadingMore || isRecording || segments.length === 0) {
+      return;
+    }
+    const triggerElement = loadMoreTriggerRef.current;
+    if (!triggerElement) return;
 
-    // Infinite scroll: IntersectionObserver to trigger loading more
-    useEffect(() => {
-        if (!onLoadMore || !hasMore || isLoadingMore || isRecording || segments.length === 0) {
-            return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
+          onLoadMore();
         }
-
-        const triggerElement = loadMoreTriggerRef.current;
-        if (!triggerElement) return;
-
-        const observer = new IntersectionObserver(
-            (entries) => {
-                if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
-                    onLoadMore();
-                }
-            },
-            {
-                root: null,
-                rootMargin: '100px',
-                threshold: 0,
-            }
-        );
-
-        observer.observe(triggerElement);
-
-        return () => observer.disconnect();
-    }, [hasMore, isLoadingMore, onLoadMore, isRecording, segments.length]);
-
-    // Scroll-based fallback for fast scrolling
-    useEffect(() => {
-        if (!onLoadMore || !hasMore || isLoadingMore || isRecording) return;
-
-        const scrollElement = scrollRef.current;
-        if (!scrollElement) return;
-
-        let ticking = false;
-
-        const handleScroll = () => {
-            if (ticking || isLoadingMore || !hasMore) return;
-
-            ticking = true;
-            requestAnimationFrame(() => {
-                const { scrollTop, scrollHeight, clientHeight } = scrollElement;
-                const scrollBottom = scrollHeight - scrollTop - clientHeight;
-
-                // Trigger load when within 200px of bottom
-                if (scrollBottom < 200 && hasMore && !isLoadingMore) {
-                    onLoadMore();
-                }
-                ticking = false;
-            });
-        };
-
-        scrollElement.addEventListener('scroll', handleScroll, { passive: true });
-        return () => scrollElement.removeEventListener('scroll', handleScroll);
-    }, [onLoadMore, hasMore, isLoadingMore, isRecording]);
-
-    // Use simple rendering for small lists, virtualization for large lists
-    const useVirtualization = segments.length >= VIRTUALIZATION_THRESHOLD;
-
-    return (
-        <div ref={scrollRef} className="flex flex-col h-full overflow-y-auto px-4 py-2">
-            {/* Recording Status Bar - Sticky at top, always visible when recording */}
-            <AnimatePresence>
-                {isRecording && (
-                    <div className="sticky top-0 z-10 bg-white pb-2">
-                        <RecordingStatusBar isPaused={isPaused} />
-                    </div>
-                )}
-            </AnimatePresence>
-
-            {/* Content - add padding when recording to prevent overlap */}
-            <div className={isRecording ? 'pt-2' : ''}>
-            {segments.length === 0 ? (
-                // Empty state
-                <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="text-center text-gray-500 mt-8"
-                >
-                    {isRecording ? (
-                        <>
-                            <div className="flex items-center justify-center mb-3">
-                                <div className={`w-3 h-3 rounded-full ${isPaused ? 'bg-orange-500' : 'bg-blue-500 animate-pulse'}`}></div>
-                            </div>
-                            <p className="text-sm text-gray-600">
-                                {isPaused ? 'Recording paused' : 'Listening for speech...'}
-                            </p>
-                            <p className="text-xs mt-1 text-gray-400">
-                                {isPaused ? 'Click resume to continue recording' : 'Speak to see live transcription'}
-                            </p>
-                        </>
-                    ) : (
-                        <>
-                            <p className="text-lg font-semibold">Welcome to callpilot!</p>
-                            <p className="text-xs mt-1">Start recording to see live transcription</p>
-                        </>
-                    )}
-                </motion.div>
-            ) : useVirtualization ? (
-                // Virtualized rendering for large lists
-                <>
-                    <div
-                        style={{
-                            height: virtualizer.getTotalSize(),
-                            width: "100%",
-                            position: "relative",
-                        }}
-                    >
-                        {virtualizer.getVirtualItems().map((virtualRow) => {
-                            const segment = segments[virtualRow.index];
-                            const isStreaming = streamingSegmentId === segment.id;
-
-                            return (
-                                <div
-                                    key={segment.id}
-                                    data-index={virtualRow.index}
-                                    ref={virtualizer.measureElement}
-                                    style={{
-                                        position: "absolute",
-                                        top: 0,
-                                        left: 0,
-                                        width: "100%",
-                                        transform: `translateY(${virtualRow.start}px)`,
-                                    }}
-                                >
-                                    <TranscriptSegment
-                                        id={segment.id}
-                                        timestamp={segment.timestamp}
-                                        text={getDisplayText(segment)}
-                                        confidence={segment.confidence}
-                                        isStreaming={isStreaming}
-                                        showConfidence={showConfidence}
-                                        audioSource={segment.audioSource}
-                                    />
-                                </div>
-                            );
-                        })}
-                    </div>
-
-                    {/* Infinite scroll trigger and loading indicator */}
-                    {(hasMore || isLoadingMore) && !isRecording && segments.length > 0 && (
-                        <div ref={loadMoreTriggerRef} className="flex justify-center items-center py-4 mt-2">
-                            {isLoadingMore ? (
-                                <div className="flex items-center gap-2 text-gray-500">
-                                    <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-                                    <span className="text-sm">Loading more...</span>
-                                </div>
-                            ) : hasMore && totalCount > 0 ? (
-                                <span className="text-sm text-gray-400">
-                                    Showing {loadedCount} of {totalCount} segments
-                                </span>
-                            ) : null}
-                        </div>
-                    )}
-
-                    {/* Listening indicator when recording */}
-                    {!isStopping && isRecording && !isPaused && !isProcessing && segments.length > 0 && (
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="flex items-center gap-2 mt-4 text-gray-500"
-                        >
-                            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                            <span className="text-sm">Listening...</span>
-                        </motion.div>
-                    )}
-                </>
-            ) : (
-                // Simple rendering for small lists (better animations)
-                <>
-                    <div className="space-y-1">
-                        {segments.map((segment) => {
-                            const isStreaming = streamingSegmentId === segment.id;
-
-                            return (
-                                <motion.div
-                                    key={segment.id}
-                                    initial={{ opacity: 0, y: 5 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    transition={{ duration: 0.15 }}
-                                >
-                                    <TranscriptSegment
-                                        id={segment.id}
-                                        timestamp={segment.timestamp}
-                                        text={getDisplayText(segment)}
-                                        confidence={segment.confidence}
-                                        isStreaming={isStreaming}
-                                        showConfidence={showConfidence}
-                                        audioSource={segment.audioSource}
-                                    />
-                                </motion.div>
-                            );
-                        })}
-                    </div>
-
-                    {/* Infinite scroll trigger (for small lists that grow) */}
-                    {(hasMore || isLoadingMore) && !isRecording && segments.length > 0 && (
-                        <div ref={loadMoreTriggerRef} className="flex justify-center items-center py-4 mt-2">
-                            {isLoadingMore ? (
-                                <div className="flex items-center gap-2 text-gray-500">
-                                    <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-                                    <span className="text-sm">Loading more...</span>
-                                </div>
-                            ) : hasMore && totalCount > 0 ? (
-                                <span className="text-sm text-gray-400">
-                                    Showing {loadedCount} of {totalCount} segments
-                                </span>
-                            ) : null}
-                        </div>
-                    )}
-
-                    {/* Listening indicator when recording */}
-                    {!isStopping && isRecording && !isPaused && !isProcessing && segments.length > 0 && (
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="flex items-center gap-2 mt-4 text-gray-500"
-                        >
-                            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                            <span className="text-sm">Listening...</span>
-                        </motion.div>
-                    )}
-                </>
-            )}
-            </div>
-        </div>
+      },
+      { root: null, rootMargin: '100px', threshold: 0 }
     );
+    observer.observe(triggerElement);
+
+    return () => observer.disconnect();
+  }, [hasMore, isLoadingMore, onLoadMore, isRecording, segments.length]);
+
+  const renderItem = useCallback(
+    (segment: TranscriptSegmentData, index: number, isActive: boolean) => (
+      <TranscriptRow
+        key={segment.id}
+        id={segment.id}
+        timestamp={segment.timestamp}
+        text={segment.text}
+        confidence={segment.confidence}
+        isPartial={segment.is_partial ?? false}
+        isActive={isActive}
+        showConfidence={showConfidence}
+        audioSource={segment.audioSource as 'mic' | 'system' | 'unknown' | undefined}
+      />
+    ),
+    [showConfidence]
+  );
+
+  // Streaming flag is intentionally ignored now — the typewriter was the
+  // bottleneck. The prop is kept for API compat (callers don't need to
+  // change) but no animation runs.
+  void enableStreaming;
+
+  if (segments.length < VIRTUALIZATION_THRESHOLD) {
+    return (
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto transcript-scroll"
+      >
+        {segments.map((segment, index) =>
+          renderItem(segment, index, segment === lastSegment)
+        )}
+        <div ref={loadMoreTriggerRef} />
+        <RecordingStatusBar
+          isPaused={isPaused}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={scrollRef}
+      className="flex-1 overflow-y-auto transcript-scroll"
+    >
+      <div
+        style={{
+          height: `${virtualizer.getTotalSize()}px`,
+          position: 'relative',
+        }}
+      >
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const segment = segments[virtualRow.index];
+          return (
+            <div
+              key={virtualRow.key}
+              data-index={virtualRow.index}
+              ref={virtualizer.measureElement}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+            >
+              {renderItem(segment, virtualRow.index, virtualRow.index === lastIndex)}
+            </div>
+          );
+        })}
+      </div>
+      <div ref={loadMoreTriggerRef} />
+      <RecordingStatusBar
+        isPaused={isPaused}
+      />
+    </div>
+  );
 };
