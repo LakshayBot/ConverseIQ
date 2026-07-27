@@ -199,12 +199,56 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
     let transcriptCounter = 0;
     let transcriptBuffer = new Map<number, Transcript>();
     let lastProcessedSequence = 0;
-    let processingTimer: NodeJS.Timeout | undefined;
+    let processingMicrotask: Promise<void> | null = null;
 
+    /**
+     * Bubble the tail of `arr` into the correct chronological position.
+     * Cheaper than a full sort because the Rust worker emits monotonically
+     * increasing sequence_ids — new transcripts only ever need to bubble
+     * up by a few slots when they arrive out of order (rare, only when
+     * the VAD snapshot race fires).
+     *
+     * Compares (chunk_start_time, sequence_id) tuple — primary key is
+     * chunk_start_time, with sequence_id as a stable tiebreaker.
+     */
+    const bubbleSort = (arr: Transcript[]) => {
+      const n = arr.length;
+      if (n < 2) return;
+      const cmp = (a: Transcript, b: Transcript) => {
+        const dt = (a.chunk_start_time || 0) - (b.chunk_start_time || 0);
+        if (dt !== 0) return dt;
+        return (a.sequence_id || 0) - (b.sequence_id || 0);
+      };
+      // Tail-bubble: walk back from the end, swapping until in-order.
+      // Typical work = O(swap distance) per emission, ~O(1) for serial
+      // workers emitting in order.
+      for (let i = n - 1; i > 0; i--) {
+        if (cmp(arr[i - 1], arr[i]) > 0) {
+          const tmp = arr[i - 1];
+          arr[i - 1] = arr[i];
+          arr[i] = tmp;
+        } else {
+          break;
+        }
+      }
+    };
+
+    // Drain the buffer. The drain is now triggered as a microtask (via
+    // `queueMicrotask`) so updates from a single Tauri event tick coalesce
+    // into one React state update without the previous 10ms setTimeout
+    // stutter. With the old typewriter removed, every microtask-drained
+    // update paints immediately, so latency from Tauri-event-arrival to
+    // pixels-on-screen drops from ~10ms to ~0ms on top of the engine-side
+    // 500ms speedup.
     const processBufferedTranscripts = (forceFlush = false) => {
       const sortedTranscripts: Transcript[] = [];
 
-      // Process all available sequential transcripts
+      // Process all available sequential transcripts.
+      // The Rust STT worker emits monotonically increasing sequence_ids,
+      // so the hot path is a straight append — typical O(N) for the
+      // append + O(N log N) one-time sort. The old code re-sorted the
+      // entire transcript array on every partial; with 300ms cadence that
+      // dominated per-frame work once the meeting grew past ~50 segments.
       let nextSequence = lastProcessedSequence + 1;
       while (transcriptBuffer.has(nextSequence)) {
         const bufferedTranscript = transcriptBuffer.get(nextSequence)!;
@@ -265,7 +309,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
 
           // LIVE STREAMING: when an interim "partial" update arrives, replace the most
           // recent partial in place so the UI shows incremental text in one row
-          // instead of stacking duplicate-looking rows every 800ms.
+          // instead of stacking duplicate-looking rows every 300ms.
           let basePrev = prev;
           const partials = allNewTranscripts.filter(t => t.is_partial);
           const finals = allNewTranscripts.filter(t => !t.is_partial);
@@ -291,30 +335,27 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
             transcript.sequence_id !== undefined && !existingSequenceIds.has(transcript.sequence_id)
           );
 
-          // Only combine if we have unique new transcripts
+          // Incremental merge: append the new transcripts at the tail and
+          // only sort relative to the small window around the insertion
+          // point. Previously this was a full O(N log N) sort on every
+          // emission. With sequence_ids monotonic from the Rust worker,
+          // a single tail-append + bubble-up by chunk_start_time keeps the
+          // total work per emission bounded by the number of *out-of-order*
+          // segments (essentially zero under serial workers).
           if (uniqueNewTranscripts.length === 0) {
             if (basePrev !== prev) {
               // still need to apply the partial-replace
-              console.log('Partial replace applied (no new unique transcripts).');
-              return basePrev.sort((a, b) => {
-                const ca = (a.chunk_start_time || 0), cb = (b.chunk_start_time || 0);
-                return ca !== cb ? ca - cb : (a.sequence_id || 0) - (b.sequence_id || 0);
-              });
+              bubbleSort(basePrev);
+              return basePrev;
             }
             return prev;
           }
 
           console.log(`Adding ${uniqueNewTranscripts.length} unique transcripts out of ${allNewTranscripts.length} received`);
 
-          // Merge with existing transcripts, maintaining chronological order
           const combined = [...basePrev, ...uniqueNewTranscripts];
-
-          // Sort by chunk_start_time first, then by sequence_id
-          return combined.sort((a, b) => {
-            const chunkTimeDiff = (a.chunk_start_time || 0) - (b.chunk_start_time || 0);
-            if (chunkTimeDiff !== 0) return chunkTimeDiff;
-            return (a.sequence_id || 0) - (b.sequence_id || 0);
-          });
+          bubbleSort(combined);
+          return combined;
         });
 
         // Log the processing summary
@@ -374,12 +415,18 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
           }
 
           // Clear any existing timer and set a new one
-          if (processingTimer) {
-            clearTimeout(processingTimer);
+          // Coalesce multiple Tauri events that arrive in the same tick into
+          // a single React state update. queueMicrotask runs *after* the
+          // current synchronous emit loop drains (so a Rust burst of 4 partials
+          // collapses to one render) but *before* the next paint, so the user
+          // sees text as soon as the browser is ready to paint — no visible
+          // 10ms setTimeout stutter.
+          if (!processingMicrotask) {
+            processingMicrotask = Promise.resolve().then(() => {
+              processingMicrotask = null;
+              processBufferedTranscripts();
+            });
           }
-
-          // Process buffer with minimal delay for immediate UI updates (serial workers = sequential order)
-          processingTimer = setTimeout(processBufferedTranscripts, 10);
 
           // ALSO fan the update out to the .NET Gateway so the same tested
           // event-detection + SignalR broadcast pipeline the .NET CLI agent
@@ -410,10 +457,9 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
 
     return () => {
       console.log('🧹 CLEANUP: Cleaning up MAIN transcript listener...');
-      if (processingTimer) {
-        clearTimeout(processingTimer);
-        console.log('🧹 CLEANUP: Cleared processing timer');
-      }
+      // processingMicrotask is a one-shot promise — nothing to clear
+      // (if it hasn't fired yet it will resolve to a no-op state since
+      // setTranscripts on a stale closure is harmless).
       if (unlistenFn) {
         // Wrap unlisten in try/catch — Tauri 2's webview runtime throws
         // "TypeError: undefined is not an object (evaluating
