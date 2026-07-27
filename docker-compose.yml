@@ -6,12 +6,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-callpilot}
       POSTGRES_USER: ${POSTGRES_USER:-callpilot}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-callpilot_dev}
-    # NOTE: port 5432 is intentionally NOT published here.
-    # In dev, docker-compose.override.yml re-publishes it so a local client
-    # (psql, TablePlus, pgAdmin) can connect on localhost:5432.  In
-    # production the override is not loaded, so the database is reachable
-    # only from other services on the internal docker network
-    # (e.g. the .NET server using Host=postgres).
+    # Port 5432 IS published so external SQL clients (psql, TablePlus,
+    # pgAdmin, DBeaver) can reach Postgres from the host on localhost:5432.
+    # The credentials are POSTGRES_USER / POSTGRES_PASSWORD from .env.
+    ports:
+      - "5432:5432"
     expose:
       - "5432"
     volumes:

@@ -301,6 +301,7 @@ async fn make_api_request<R: Runtime, T: for<'de> Deserialize<'de>>(
         "GET" => client.get(&url),
         "POST" => client.post(&url),
         "PUT" => client.put(&url),
+        "PATCH" => client.patch(&url),
         "DELETE" => client.delete(&url),
         _ => return Err(format!("Unsupported HTTP method: {}", method)),
     };
@@ -1539,6 +1540,7 @@ pub async fn callpilot_api_request<R: Runtime>(
         "POST" => client.post(&url),
         "DELETE" => client.delete(&url),
         "PUT" => client.put(&url),
+        "PATCH" => client.patch(&url),
         other => return Err(format!("Unsupported method: {}", other)),
     };
 
