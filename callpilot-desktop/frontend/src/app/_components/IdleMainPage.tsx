@@ -100,9 +100,13 @@ const StatusDot: React.FC<StatusDotProps> = ({ icon, label, state }) => {
       ? 'bg-emerald-500'
       : state === 'loading'
         ? 'bg-amber-400 animate-pulse'
-        : 'bg-slate-300';
+        : 'bg-[var(--grain-ink-300)]';
   const textColor =
-    state === 'ready' ? 'text-slate-700' : state === 'loading' ? 'text-slate-500' : 'text-slate-400';
+    state === 'ready'
+      ? 'text-[var(--grain-ink-700)]'
+      : state === 'loading'
+        ? 'text-[var(--grain-ink-500)]'
+        : 'text-[var(--grain-ink-300)]';
   return (
     <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] ${textColor}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} aria-hidden />
@@ -134,17 +138,14 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
 
         {/* ── 2. Hero ───────────────────────────────────────────────── */}
         <div className="space-y-4">
-          <h1 className="text-3xl font-semibold tracking-tight text-slate-900 leading-tight">
+          <h1 className="text-3xl font-semibold tracking-tight text-[var(--grain-ink-900)] leading-tight">
             Run a live sales call with
             <br />
-            <span
-              className="bg-clip-text text-transparent"
-              style={{ backgroundImage: BRAND_GRADIENT }}
-            >
+            <span className="text-[var(--grain-accent)]">
               CallPilot intelligence.
             </span>
           </h1>
-          <p className="text-sm text-slate-500 leading-relaxed max-w-2xl">
+          <p className="text-sm text-[var(--grain-ink-500)] leading-relaxed max-w-2xl">
             Hit record to capture the conversation. Competitors, objections,
             pricing questions, and product mentions surface in the right
             rail the moment they&apos;re spoken — pulled from your knowledge
@@ -155,8 +156,7 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
             <button
               type="button"
               onClick={onStartRecording}
-              className="group inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium text-white shadow-sm ring-1 ring-black/5 transition-all hover:shadow-md hover:scale-[1.01] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
-              style={{ backgroundImage: BRAND_GRADIENT }}
+              className="group inline-flex items-center gap-2 rounded-md bg-[var(--grain-ink-900)] px-5 py-2.5 text-sm font-medium text-white shadow-sm ring-1 ring-black/5 transition-all hover:bg-[var(--grain-ink-700)] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--grain-accent)]"
             >
               <span>Start a call</span>
               <ArrowRight className="h-3.5 w-3.5 transition-transform duration-150 group-hover:translate-x-0.5" strokeWidth={2.25} />
@@ -164,37 +164,37 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
             <button
               type="button"
               onClick={() => router.push('/meeting-details')}
-              className="inline-flex items-center gap-1.5 rounded-full px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              className="inline-flex items-center gap-1.5 rounded-md px-4 py-2.5 text-sm font-medium text-[var(--grain-ink-500)] transition-colors hover:bg-[var(--grain-paper-2)] hover:text-[var(--grain-ink-900)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--grain-accent)]"
             >
               <History className="h-3.5 w-3.5" strokeWidth={2} />
               <span>Browse meetings</span>
             </button>
-            <span className="text-xs text-slate-400">
-              or press <kbd className="font-mono text-[11px] bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 text-slate-600">⌘ R</kbd> from anywhere
+            <span className="text-xs text-[var(--grain-ink-500)]">
+              or press <kbd className="font-mono text-[11px] bg-[var(--grain-paper-2)] px-1.5 py-0.5 rounded border border-[var(--grain-ink-200)] text-[var(--grain-ink-700)]">⌘ R</kbd> from anywhere
             </span>
           </div>
         </div>
 
         {/* ── 3. Recent meetings + Knowledge bank ───────────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <section className="rounded-lg border border-slate-200 bg-white p-5">
+          <section className="rounded-lg border border-[var(--grain-ink-200)] bg-white p-5">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+              <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)]">
                 Recent meetings
               </h2>
-              <span className="text-[10px] font-medium text-slate-400 tabular-nums">
+              <span className="text-[10px] font-medium text-[var(--grain-ink-500)] tabular-nums">
                 {meetings.length}
               </span>
             </div>
             {recentMeetings.length === 0 ? (
               <div className="py-6 text-center">
-                <p className="text-sm text-slate-500">No meetings yet.</p>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-sm text-[var(--grain-ink-500)]">No meetings yet.</p>
+                <p className="text-xs text-[var(--grain-ink-500)] mt-1">
                   Recordings you make will show up here.
                 </p>
               </div>
             ) : (
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y divide-[var(--grain-ink-200)]">
                 {recentMeetings.map((m) => (
                   <li
                     key={m.id}
@@ -202,20 +202,20 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
                     onClick={() => router.push(`/meeting-details?id=${encodeURIComponent(m.id)}`)}
                   >
                     <span
-                      className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors"
+                      className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-[var(--grain-paper-2)] text-[var(--grain-ink-500)] group-hover:bg-[var(--grain-accent-soft)] group-hover:text-[var(--grain-accent)] transition-colors"
                     >
                       <FileText className="h-3.5 w-3.5" strokeWidth={2} />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-slate-800">
+                      <div className="truncate text-sm font-medium text-[var(--grain-ink-900)]">
                         {m.title || 'Untitled session'}
                       </div>
-                      <div className="font-mono text-[10px] text-slate-400 tabular-nums">
+                      <div className="font-mono text-[10px] text-[var(--grain-ink-500)] tabular-nums">
                         {formatMeetingTimestamp(m.createdAt)}
                       </div>
                     </div>
                     <ArrowRight
-                      className="h-3.5 w-3.5 text-slate-300 group-hover:text-slate-500 transition-colors"
+                      className="h-3.5 w-3.5 text-[var(--grain-ink-300)] group-hover:text-[var(--grain-ink-700)] transition-colors"
                       strokeWidth={2}
                     />
                   </li>
@@ -224,34 +224,34 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
             )}
           </section>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-5">
+          <section className="rounded-lg border border-[var(--grain-ink-200)] bg-white p-5">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+              <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)]">
                 Knowledge bank
               </h2>
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 border border-emerald-200">
-                <span className="h-1 w-1 rounded-full bg-emerald-500" aria-hidden />
+              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--grain-rep-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--grain-rep)]">
+                <span className="h-1 w-1 rounded-full bg-[var(--grain-rep)]" aria-hidden />
                 Ready
               </span>
             </div>
             <div className="space-y-3">
               <div className="flex items-baseline justify-between">
-                <span className="text-xs text-slate-500">Indexed documents</span>
-                <span className="text-2xl font-semibold tabular-nums text-slate-900">
+                <span className="text-xs text-[var(--grain-ink-500)]">Indexed documents</span>
+                <span className="text-2xl font-semibold tabular-nums text-[var(--grain-ink-900)]">
                   {/* placeholder until /api/v1/knowledge/stats is wired */}
                   —
                 </span>
               </div>
               <div className="flex items-baseline justify-between">
-                <span className="text-xs text-slate-500">Coverage</span>
-                <span className="font-mono text-xs text-slate-700">
+                <span className="text-xs text-[var(--grain-ink-500)]">Coverage</span>
+                <span className="font-mono text-xs text-[var(--grain-ink-700)]">
                   Pricing · Competition · Objections
                 </span>
               </div>
               <button
                 type="button"
                 onClick={() => router.push('/settings')}
-                className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-900 transition-colors"
+                className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-[var(--grain-ink-500)] hover:text-[var(--grain-ink-900)] transition-colors"
               >
                 Manage knowledge sources
                 <ArrowRight className="h-3 w-3" strokeWidth={2} />
@@ -262,7 +262,7 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
 
         {/* ── 4. How it works strip ─────────────────────────────────── */}
         <section>
-          <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400 mb-3">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)] mb-3">
             How CallPilot works
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -287,12 +287,12 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
           </div>
         </section>
 
-        <p className="text-[11px] text-slate-400 pt-2">
+        <p className="text-[11px] text-[var(--grain-ink-500)] pt-2">
           Knowledge bank settings are editable from{' '}
           <button
             type="button"
             onClick={() => router.push('/settings')}
-            className="underline underline-offset-2 hover:text-slate-700"
+            className="underline underline-offset-2 hover:text-[var(--grain-ink-700)]"
           >
             Settings → CallPilot
           </button>
@@ -315,14 +315,14 @@ interface StepProps {
 }
 
 const Step: React.FC<StepProps> = ({ n, icon, title, body }) => (
-  <div className="rounded-lg border border-slate-200 bg-white p-4">
+  <div className="rounded-lg border border-[var(--grain-ink-200)] bg-white p-4">
     <div className="flex items-baseline gap-2 mb-2">
-      <span className="font-mono text-[10px] text-slate-400 tabular-nums">{n}</span>
-      <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-slate-50 text-slate-700">
+      <span className="font-mono text-[10px] text-[var(--grain-ink-500)] tabular-nums">{n}</span>
+      <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[var(--grain-paper-2)] text-[var(--grain-ink-700)]">
         {icon}
       </span>
-      <span className="text-sm font-semibold text-slate-900">{title}</span>
+      <span className="text-sm font-semibold text-[var(--grain-ink-900)]">{title}</span>
     </div>
-    <p className="text-xs text-slate-500 leading-relaxed">{body}</p>
+    <p className="text-xs text-[var(--grain-ink-500)] leading-relaxed">{body}</p>
   </div>
 );
