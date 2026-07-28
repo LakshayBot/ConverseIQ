@@ -28,6 +28,7 @@ import { useCallback, useRef, useReducer, startTransition, useEffect, memo } fro
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useAutoScroll } from '@/hooks/useAutoScroll';
 import { ConfidenceIndicator } from './ConfidenceIndicator';
+import { SpeakerDot } from './SpeakerDot';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { RecordingStatusBar } from './RecordingStatusBar';
 import { TranscriptSegmentData } from '@/types';
@@ -93,18 +94,7 @@ const TranscriptRow = memo(function TranscriptRow({
     ? cleanStopWords(text) || (text.trim() === '' ? '[Silence]' : text)
     : text || (isPartial ? '…' : '[Silence]');
 
-  const speakerLabel = audioSource === 'mic'
-    ? 'REP'
-    : audioSource === 'system'
-      ? 'PROSPECT'
-      : null;
-
-  // Chip palette — emerald for REP, sky for PROSPECT, neutral for unknown.
-  const speakerTone = audioSource === 'mic'
-    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-    : audioSource === 'system'
-      ? 'bg-sky-50 text-sky-700 border-sky-200'
-      : 'bg-slate-100 text-slate-500 border-slate-200';
+  const speakerSource: 'mic' | 'system' | 'unknown' | undefined = audioSource;
 
   // Text style:
   //   - final:    sans-serif, slate-900, regular, 14px
@@ -144,16 +134,11 @@ const TranscriptRow = memo(function TranscriptRow({
           </TooltipContent>
         </Tooltip>
 
-        {/* Speaker chip */}
-        {speakerLabel ? (
-          <span
-            className={`inline-flex items-center flex-shrink-0 mt-[2px] px-1.5 py-px text-[9px] font-bold uppercase tracking-[0.08em] border rounded ${speakerTone}`}
-          >
-            {speakerLabel}
-          </span>
-        ) : (
-          <span className="flex-shrink-0 w-[58px]" aria-hidden />
-        )}
+        {/* Speaker dot — small filled circle (REP=green, PROSPECT=violet). */}
+        <SpeakerDot
+          source={speakerSource}
+          className="ml-[2px]"
+        />
 
         {/* Transcript text */}
         <p className={`flex-1 min-w-0 ${textClass}`}>

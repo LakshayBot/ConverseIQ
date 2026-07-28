@@ -260,3 +260,38 @@
 .transcript-scroll::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Stitch "Grain // Transcription with Audio Visualizer" redesign tokens
+   ──────────────────────────────────────────────────────────────────────────
+   New design DNA (extracted from the Stitch reference):
+     - paper band: off-white #fafafa (cool, soft) — replaces flat fills
+     - ink: #0a0a0a / #737373 / #d4d4d4
+     - accent: single muted blue #2563eb (the brand gradient is de-emphasised
+       in this redesign; it's reserved for primary CTA + live indicators)
+     - speaker dots: green (REP) + violet (PROSPECT) — tiny filled circles
+   Existing tokens stay; the new ones are additive.
+   ────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --grain-paper:        #fafafa;
+  --grain-paper-2:      #f4f4f5;
+  --grain-paper-3:      #e4e4e7;
+  --grain-ink-900:      #0a0a0a;
+  --grain-ink-700:      #404040;
+  --grain-ink-500:      #737373;
+  --grain-ink-300:      #d4d4d4;
+  --grain-ink-200:      #e5e5e5;
+  --grain-ink-100:      #f4f4f5;
+  --grain-accent:       #2563eb;
+  --grain-accent-soft:  #dbeafe;
+  --grain-rep:          #22c55e;   /* REP speaker dot */
+  --grain-prospect:     #8b5cf6;   /* PROSPECT speaker dot */
+  --grain-rep-soft:     #dcfce7;
+  --grain-prospect-soft:#f3e8ff;
+}
+
+/* Page background — paper tone. Applies to <body> via the root. */
+html, body {
+  background-color: var(--grain-paper);
+}
