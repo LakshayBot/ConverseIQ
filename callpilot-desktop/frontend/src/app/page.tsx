@@ -214,7 +214,7 @@ export default function Home() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: 'easeOut' }}
-      className="flex flex-col h-screen bg-gray-50"
+      className="flex flex-col h-screen bg-[var(--grain-paper)]"
     >
       {/* All Modals supported*/}
       <SettingsModals
@@ -279,10 +279,10 @@ export default function Home() {
               </div>
             )}
         </div>
-        <aside className="hidden lg:flex w-[360px] flex-col gap-3 border-l border-gray-200 bg-gray-50 p-4 overflow-y-auto">
+        <aside className="hidden lg:flex w-[360px] flex-col gap-3 border-l border-[var(--grain-ink-200)] bg-[var(--grain-paper)] p-4 overflow-y-auto">
           <div className="flex items-baseline justify-between">
-            <h2 className="text-sm font-semibold text-gray-700">Intelligence</h2>
-            <span className={`text-[10px] uppercase tracking-wide ${intelligenceConnected ? 'text-emerald-600' : 'text-gray-400'}`}>
+            <h2 className="text-sm font-semibold text-[var(--grain-ink-900)]">Intelligence</h2>
+            <span className={`text-[10px] uppercase tracking-wide ${intelligenceConnected ? 'text-[var(--grain-rep)]' : 'text-[var(--grain-ink-500)]'}`}>
               {intelligenceConnected ? 'live' : 'idle'}
             </span>
           </div>

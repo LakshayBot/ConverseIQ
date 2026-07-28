@@ -60,33 +60,33 @@ interface StateMeta {
 const STATE_META: Record<StreamState, StateMeta> = {
   idle: {
     icon: <Mic className="h-5 w-5" />,
-    iconBg: 'bg-slate-100',
-    iconColor: 'text-slate-500',
-    pill: { dot: 'bg-slate-400', bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200', label: 'Start transcribing' },
+    iconBg: 'bg-[var(--grain-paper-2)]',
+    iconColor: 'text-[var(--grain-ink-500)]',
+    pill: { dot: 'bg-[var(--grain-ink-300)]', bg: 'bg-[var(--grain-paper-2)]', text: 'text-[var(--grain-ink-700)]', border: 'border-[var(--grain-ink-200)]', label: 'Start transcribing' },
     title: 'Start transcribing to open the intelligence stream',
     subtitle: 'Cards will appear here as soon as you start a recording and the call begins.',
   },
   opening: {
     icon: <Radio className="h-5 w-5 animate-pulse" />,
-    iconBg: 'bg-amber-50',
-    iconColor: 'text-amber-600',
-    pill: { dot: 'bg-amber-500 animate-pulse', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', label: 'Opening stream' },
+    iconBg: 'bg-[var(--grain-paper-2)]',
+    iconColor: 'text-[var(--grain-ink-500)]',
+    pill: { dot: 'bg-[var(--grain-ink-500)] animate-pulse', bg: 'bg-[var(--grain-paper-2)]', text: 'text-[var(--grain-ink-700)]', border: 'border-[var(--grain-ink-200)]', label: 'Opening stream' },
     title: 'Opening intelligence stream…',
     subtitle: 'Connecting to the CallPilot AI engine — usually takes a second.',
   },
   live: {
     icon: <Sparkles className="h-5 w-5" />,
-    iconBg: 'bg-emerald-50',
-    iconColor: 'text-emerald-600',
-    pill: { dot: 'bg-emerald-500', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', label: 'Live' },
+    iconBg: 'bg-[var(--grain-rep-soft)]',
+    iconColor: 'text-[var(--grain-rep)]',
+    pill: { dot: 'bg-[var(--grain-rep)]', bg: 'bg-[var(--grain-rep-soft)]', text: 'text-[var(--grain-rep)]', border: 'border-[var(--grain-rep-soft)]', label: 'Live' },
     title: 'Listening for intelligence',
     subtitle: 'Competitors, objections, and product matches will surface here as the conversation unfolds.',
   },
   offline: {
     icon: <WifiOff className="h-5 w-5" />,
-    iconBg: 'bg-red-50',
-    iconColor: 'text-red-600',
-    pill: { dot: 'bg-red-500', bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', label: 'Offline' },
+    iconBg: 'bg-[var(--grain-paper-2)]',
+    iconColor: 'text-[var(--grain-ink-500)]',
+    pill: { dot: 'bg-[var(--grain-ink-300)]', bg: 'bg-[var(--grain-paper-2)]', text: 'text-[var(--grain-ink-500)]', border: 'border-[var(--grain-ink-200)]', label: 'Offline' },
     title: 'Intelligence stream offline',
     subtitle: '', // filled by caller (includes the engine error text)
   },
@@ -107,15 +107,15 @@ const EmptyState: React.FC<{
   const { icon, iconBg, iconColor, pill, title } = meta;
   const subtitle = subtitleOverride ?? meta.subtitle;
   return (
-    <div className="rounded-lg border border-gray-200 bg-white px-4 py-7 text-center shadow-sm">
+    <div className="rounded-lg border border-[var(--grain-ink-200)] bg-white px-4 py-7 text-center">
       <div
         className={`mx-auto flex h-11 w-11 items-center justify-center rounded-full ${iconBg}`}
       >
         <div className={iconColor}>{icon}</div>
       </div>
-      <p className="mt-3 text-sm font-semibold text-gray-900">{title}</p>
+      <p className="mt-3 text-sm font-semibold text-[var(--grain-ink-900)]">{title}</p>
       {subtitle && (
-        <p className="mt-1 text-xs leading-relaxed text-gray-500">{subtitle}</p>
+        <p className="mt-1 text-xs leading-relaxed text-[var(--grain-ink-500)]">{subtitle}</p>
       )}
       <span
         className={`mt-3 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[10px] font-medium border ${pill.bg} ${pill.text} ${pill.border}`}
@@ -124,7 +124,7 @@ const EmptyState: React.FC<{
         {pill.label}
       </span>
       {sessionId && (
-        <div className="mt-4 text-[10px] text-gray-400 font-mono break-all">
+        <div className="mt-4 text-[10px] text-[var(--grain-ink-500)] font-mono break-all">
           session: {sessionId}
         </div>
       )}
@@ -176,16 +176,16 @@ const IntelligenceCardItem: React.FC<{ card: IntelligenceCard }> = ({ card }) =>
 
   return (
     <div
-      className={`bg-white rounded-md border border-gray-200 border-l-4 ${SEVERITY_BORDER[card.severity]} shadow-sm overflow-hidden`}
+      className={`bg-white rounded-md border border-[var(--grain-ink-200)] border-l-4 ${SEVERITY_BORDER[card.severity]} overflow-hidden`}
     >
       <div className="p-3">
-        <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-gray-500">
-          <span className="text-gray-700">{meta.icon}</span>
+        <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[var(--grain-ink-500)]">
+          <span className="text-[var(--grain-ink-700)]">{meta.icon}</span>
           <span>{meta.label}</span>
-          <span className="ml-auto text-[10px] font-semibold uppercase text-gray-400">{card.severity}</span>
+          <span className="ml-auto text-[10px] font-semibold uppercase text-[var(--grain-ink-500)]">{card.severity}</span>
         </div>
-        <div className="mt-1 text-sm font-semibold text-gray-900">{card.title}</div>
-        {card.body && <div className="mt-1 text-sm text-gray-700 whitespace-pre-wrap">{card.body}</div>}
+        <div className="mt-1 text-sm font-semibold text-[var(--grain-ink-900)]">{card.title}</div>
+        {card.body && <div className="mt-1 text-sm text-[var(--grain-ink-700)] whitespace-pre-wrap">{card.body}</div>}
         {hasChunks && (
           <button
             type="button"
@@ -199,7 +199,7 @@ const IntelligenceCardItem: React.FC<{ card: IntelligenceCard }> = ({ card }) =>
         {open && hasChunks && (
           <ul className="mt-2 space-y-2">
             {card.chunks.map((chunk, i) => (
-              <li key={i} className="text-xs text-gray-600 border-l-2 border-gray-200 pl-2">
+              <li key={i} className="text-xs text-[var(--grain-ink-500)] border-l-2 border-[var(--grain-ink-200)] pl-2">
                 {chunk}
               </li>
             ))}
