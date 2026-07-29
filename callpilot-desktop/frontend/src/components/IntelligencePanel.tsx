@@ -62,8 +62,8 @@ const STATE_META: Record<StreamState, StateMeta> = {
     icon: <Mic className="h-5 w-5" />,
     iconBg: 'bg-[var(--grain-paper-2)]',
     iconColor: 'text-[var(--grain-ink-500)]',
-    pill: { dot: 'bg-[var(--grain-ink-300)]', bg: 'bg-[var(--grain-paper-2)]', text: 'text-[var(--grain-ink-700)]', border: 'border-[var(--grain-ink-200)]', label: 'Start transcribing' },
-    title: 'Start transcribing to open the intelligence stream',
+    pill: { dot: 'bg-[var(--grain-ink-300)]', bg: 'bg-[var(--grain-paper-2)]', text: 'text-[var(--grain-ink-700)]', border: 'border-[var(--grain-ink-200)]', label: 'Start recording' },
+    title: 'Product information will appear here',
     subtitle: 'Cards will appear here as soon as you start a recording and the call begins.',
   },
   opening: {
@@ -107,15 +107,10 @@ const EmptyState: React.FC<{
   const { icon, iconBg, iconColor, pill, title } = meta;
   const subtitle = subtitleOverride ?? meta.subtitle;
   return (
-    <div className="rounded-lg border border-[var(--grain-ink-200)] bg-white px-4 py-7 text-center">
-      <div
-        className={`mx-auto flex h-11 w-11 items-center justify-center rounded-full ${iconBg}`}
-      >
-        <div className={iconColor}>{icon}</div>
-      </div>
-      <p className="mt-3 text-sm font-semibold text-[var(--grain-ink-900)]">{title}</p>
+    <div className="rounded-lg border-2 border-dashed border-[var(--hairline)] bg-[var(--grain-paper-2)] px-4 py-10 text-center min-h-[200px] flex flex-col items-center justify-center">
+      <p className="text-sm font-medium text-[var(--nav-dim-text)]">{title}</p>
       {subtitle && (
-        <p className="mt-1 text-xs leading-relaxed text-[var(--grain-ink-500)]">{subtitle}</p>
+        <p className="mt-1.5 text-xs leading-relaxed text-[var(--nav-dim-text)]/80 max-w-[280px]">{subtitle}</p>
       )}
       <span
         className={`mt-3 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[10px] font-medium border ${pill.bg} ${pill.text} ${pill.border}`}
