@@ -31,10 +31,11 @@
 // from "an empty starter template" — the moment the app opens, the
 // user sees a working mission-control surface.
 
-import React, { useMemo } from 'react';
-import { Mic, Brain, Server, ArrowRight, FileText, History, Sparkles } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Mic, Brain, Server, ArrowRight, FileText, History } from 'lucide-react';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { useRouter } from 'next/navigation';
+import { authedApiCall } from '@/lib/auth';
 
 interface IdleMainPageProps {
   onStartRecording: () => void;
@@ -85,6 +86,27 @@ function formatMeetingTimestamp(iso: string | undefined): string {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Knowledge document shape (mirror of /api/v1/knowledge payload) — kept
+// minimal here so the IdleMainPage doesn't drag in the full KnowledgeUpload
+// type stack.
+// ──────────────────────────────────────────────────────────────────────────────
+interface KnowledgeDoc {
+  id: string;
+  fileName: string;
+  processingStatus: string;
+  enrichmentStatus: string | null;
+  chunkCount: number;
+  createdAt: string;
+  mode?: 'fast' | 'structured';
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Status row
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -125,6 +147,30 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
   const { meetings } = useSidebar();
 
   const recentMeetings = useMemo(() => meetings.slice(0, 4), [meetings]);
+
+  // Knowledge document list — fetched from the .NET endpoint so the
+  // Knowledge Bank card mirrors the Recent Meetings card pattern (same
+  // row layout, same visual weight). Failures are silent: the card
+  // gracefully shows the empty state.
+  const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
+  const [docsLoading, setDocsLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const items = await authedApiCall<KnowledgeDoc[]>('GET', '/api/v1/knowledge');
+        if (!cancelled) setDocs(items);
+      } catch {
+        if (!cancelled) setDocs([]);
+      } finally {
+        if (!cancelled) setDocsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const recentDocs = useMemo(() => docs.slice(0, 4), [docs]);
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -225,37 +271,59 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
           </section>
 
           <section className="rounded-2xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-label-sm text-[var(--opaline-on-surface-variant)]">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)]">
                 Knowledge bank
               </h2>
-              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--opaline-primary-container)] px-2 py-0.5 text-[10px] font-semibold text-[var(--opaline-on-primary-container)]">
-                <span className="h-1 w-1 rounded-full bg-[var(--opaline-primary)]" aria-hidden />
-                Ready
+              <span className="text-[10px] font-medium text-[var(--grain-ink-500)] tabular-nums">
+                {docs.length}
               </span>
             </div>
-            <div className="space-y-3">
-              <div className="flex items-baseline justify-between">
-                <span className="text-body-sm text-[var(--opaline-on-surface-variant)]">Indexed documents</span>
-                <span className="text-headline-md tabular-nums text-[var(--opaline-on-surface)]">
-                  0
-                </span>
+            {docsLoading ? (
+              <div className="py-6 text-center">
+                <p className="text-sm text-[var(--grain-ink-500)]">Loading…</p>
               </div>
-              <div className="flex items-baseline justify-between">
-                <span className="text-body-sm text-[var(--opaline-on-surface-variant)]">Coverage</span>
-                <span className="text-body-sm text-[var(--opaline-on-surface-variant)]">
-                  Pricing · Competition · Objections
-                </span>
+            ) : recentDocs.length === 0 ? (
+              <div className="py-6 text-center">
+                <p className="text-sm text-[var(--grain-ink-500)]">No documents yet.</p>
+                <button
+                  type="button"
+                  onClick={() => router.push('/settings')}
+                  className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[var(--opaline-primary)] hover:text-[var(--opaline-on-primary-container)] transition-colors"
+                >
+                  Upload from Settings
+                  <ArrowRight className="h-3 w-3" strokeWidth={2} />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => router.push('/settings')}
-                className="mt-2 inline-flex items-center gap-1 text-label-sm text-[var(--opaline-primary)] hover:text-[var(--opaline-on-primary-container)] transition-colors"
-              >
-                Manage knowledge sources
-                <ArrowRight className="h-3 w-3" strokeWidth={2} />
-              </button>
-            </div>
+            ) : (
+              <ul className="divide-y divide-[var(--grain-ink-200)]">
+                {recentDocs.map((d) => (
+                  <li
+                    key={d.id}
+                    className="group flex items-center gap-3 py-2.5 cursor-pointer hover:opacity-80"
+                    onClick={() => router.push('/settings?tab=knowledge')}
+                  >
+                    <span
+                      className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-[var(--grain-paper-2)] text-[var(--grain-ink-500)] group-hover:bg-[var(--opaline-accent-soft)] group-hover:text-[var(--opaline-primary)] transition-colors"
+                    >
+                      <FileText className="h-3.5 w-3.5" strokeWidth={2} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium text-[var(--grain-ink-900)]">
+                        {d.fileName}
+                      </div>
+                      <div className="font-mono text-[10px] text-[var(--grain-ink-500)] tabular-nums">
+                        {formatMeetingTimestamp(d.createdAt)} · {d.chunkCount} chunks
+                      </div>
+                    </div>
+                    <ArrowRight
+                      className="h-3.5 w-3.5 text-[var(--grain-ink-300)] group-hover:text-[var(--grain-ink-700)] transition-colors"
+                      strokeWidth={2}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         </div>
 
@@ -267,19 +335,16 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Step
               n="01"
-              icon={<Mic className="h-4 w-4" strokeWidth={1.75} />}
               title="Capture"
               body="Mic + system audio are transcribed locally by Parakeet — nothing leaves the machine."
             />
             <Step
               n="02"
-              icon={<Brain className="h-4 w-4" strokeWidth={1.75} />}
               title="Detect"
               body="Each turn is checked against your knowledge bank and the event catalogue in real time."
             />
             <Step
               n="03"
-              icon={<Sparkles className="h-4 w-4" strokeWidth={1.75} />}
               title="Surface"
               body="Cards land in the right rail the moment a competitor, objection, or pricing question is spoken."
             />
@@ -308,18 +373,14 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
 
 interface StepProps {
   n: string;
-  icon: React.ReactNode;
   title: string;
   body: string;
 }
 
-const Step: React.FC<StepProps> = ({ n, icon, title, body }) => (
+const Step: React.FC<StepProps> = ({ n, title, body }) => (
   <div className="rounded-2xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-5">
     <div className="flex items-baseline gap-2 mb-2">
       <span className="font-mono text-[10px] text-[var(--grain-ink-500)] tabular-nums">{n}</span>
-      <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[var(--grain-paper-2)] text-[var(--grain-ink-700)]">
-        {icon}
-      </span>
       <span className="text-sm font-semibold text-[var(--grain-ink-900)]">{title}</span>
     </div>
     <p className="text-xs text-[var(--grain-ink-500)] leading-relaxed">{body}</p>
