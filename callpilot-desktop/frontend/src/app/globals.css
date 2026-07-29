@@ -307,3 +307,36 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   [style*="live-rec-bar"] { animation: none !important; }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Figma "16thapartment" sidebar + meeting-detail tokens (2026-07-27)
+   ──────────────────────────────────────────────────────────────────────────
+   Extracted from the Figma frame fetched at
+   https://www.figma.com/design/5BFitII9ZpQCjuVAj1NhPJ/Untitled?node-id=1-3
+   The nav/text vocabulary is cooler and more functional than the
+   previous Grain palette — closer to the actual Grain product's
+   tonal language.
+
+   Speaker colours are the most visible shift: from the muted
+   `--grain-rep` (#22c55e) / `--grain-prospect` (#8b5cf6) to the
+   saturated Figma values. Aliases for the new ones are kept so
+   existing component code can migrate gradually.
+   ────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Figma nav vocabulary */
+  --nav-active-bg:     #f3f4f6;
+  --nav-active-text:   #111827;
+  --nav-inactive-text: #374151;
+  --nav-muted-text:    #6b7280;
+  --nav-dim-text:      #9ca3af;
+  --body-text:         #1f2937;
+  --hairline:          #e5e7eb;
+  --tab-divider:       #f3f4f6;
+  --tab-active-border: #0a0a0a;
+
+  /* Figma speaker circle palette (saturated — replaces the Grain
+     muted versions for the transcript dialogue layout) */
+  --rep-circle:        #84c95f;
+  --prospect-circle:   #7d5df6;
+}

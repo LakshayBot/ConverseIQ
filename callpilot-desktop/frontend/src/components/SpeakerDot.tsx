@@ -21,9 +21,9 @@ interface SpeakerDotProps {
 }
 
 const COLOR: Record<NonNullable<SpeakerSource>, string> = {
-  mic: 'var(--grain-rep)',
-  system: 'var(--grain-prospect)',
-  unknown: 'var(--grain-ink-300)',
+  mic: 'var(--rep-circle)',
+  system: 'var(--prospect-circle)',
+  unknown: 'var(--nav-dim-text)',
 };
 
 const LABEL: Record<NonNullable<SpeakerSource>, string> = {
