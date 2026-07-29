@@ -66,6 +66,7 @@ const PageContent: React.FC<PageContentProps> = ({
   // <IntelligencePanel> component renders them with identical styling.
   const [pastCards, setPastCards] = useState<ReturnType<typeof buildPastIntelligenceCards>>([]);
   const [cardsLoading, setCardsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'transcript' | 'summary'>('transcript');
 
   useEffect(() => {
     Analytics.trackPageView('meeting_details');
@@ -107,20 +108,65 @@ const PageContent: React.FC<PageContentProps> = ({
   }
 
   return (
-    <div className="flex flex-col h-full bg-gray-50">
-      <header className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-white">
-        <div>
-          <button
-            type="button"
-            onClick={() => router.push('/')}
-            className="text-xs text-blue-600 hover:underline"
-          >
-            ← Back to live
-          </button>
-          <h1 className="mt-1 text-lg font-semibold text-gray-900">{meeting.title || 'Untitled session'}</h1>
+    <div className="flex flex-col h-full bg-[var(--grain-paper)]">
+      {/* Header — breadcrumb + actions row + tab strip, Figma style. */}
+      <header className="bg-white border-b border-[var(--hairline)]">
+        <div className="flex items-center justify-between px-6 py-4">
+          {/* Breadcrumb: Meetings (muted) > [title] (dark, medium). */}
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[14px] text-[var(--nav-muted-text)]">Meetings</span>
+            <svg className="h-3 w-3 text-[var(--nav-muted-text)]" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z" />
+            </svg>
+            <h1 className="text-[14px] font-medium text-[var(--nav-active-text)] truncate">
+              {meeting.title || 'Untitled session'}
+            </h1>
+          </div>
+
+          {/* Right side — segment count + a single icon button. Figma has
+             a row of 4 icons; we keep the count + a single share-like
+             icon so the right side reads as a quiet utility rail. */}
+          <div className="flex items-center gap-3">
+            <span className="text-[12px] text-[var(--nav-muted-text)]">
+              {segmentCount} segment{segmentCount === 1 ? '' : 's'}
+            </span>
+            <button
+              type="button"
+              onClick={() => router.push('/')}
+              className="text-[12px] font-medium text-[var(--nav-inactive-text)] hover:text-[var(--nav-active-text)] transition-colors"
+            >
+              Back to live
+            </button>
+          </div>
         </div>
-        <div className="text-xs text-gray-500">
-          {segmentCount} segment{segmentCount === 1 ? '' : 's'}
+
+        {/* Tab strip — Summary / Transcript with bottom-border active indicator. */}
+        <div className="flex px-6 border-t border-[var(--tab-divider)]">
+          {(['summary', 'transcript'] as const).map((key) => {
+            const isActive = activeTab === key;
+            const label = key.charAt(0).toUpperCase() + key.slice(1);
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setActiveTab(key)}
+                className={`relative px-3 pt-3 pb-2.5 text-[14px] font-medium transition-colors ${
+                  isActive
+                    ? 'text-[var(--nav-active-text)]'
+                    : 'text-[var(--nav-muted-text)] hover:text-[var(--nav-active-text)]'
+                }`}
+              >
+                {label}
+                {isActive && (
+                  <span
+                    aria-hidden
+                    className="absolute left-0 right-0 bottom-0 h-[2px]"
+                    style={{ backgroundColor: 'var(--tab-active-border)' }}
+                  />
+                )}
+              </button>
+            );
+          })}
         </div>
       </header>
 
