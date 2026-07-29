@@ -96,12 +96,17 @@ const TranscriptRow = memo(function TranscriptRow({
 
   const speakerSource: 'mic' | 'system' | 'unknown' | undefined = audioSource;
 
+  // Figma dialogue layout: 24px speaker circle on the left, a column
+  // (timestamp on top, body text below) on the right. 12px gap between
+  // the circle and the column, 24px gap between consecutive turns.
+  const circleSize = isPartial ? 20 : 24;
+
   // Text style:
-  //   - final:    sans-serif, slate-900, regular, 14px
-  //   - partial:  monospace, slate-500, italic, 13px (signals "transient")
+  //   - final:    sans-serif, --body-text, regular, 14px (Figma's body color)
+  //   - partial:  monospace, --nav-muted-text, italic, 13px (signals "transient")
   const textClass = isPartial
-    ? 'font-mono italic text-[13px] text-slate-500 leading-relaxed'
-    : 'text-[14px] text-slate-900 leading-relaxed';
+    ? 'font-mono italic text-[13px] text-[var(--nav-muted-text)] leading-[22.75px]'
+    : 'text-[14px] text-[var(--body-text)] leading-[22.75px]';
 
   return (
     <div
@@ -110,22 +115,31 @@ const TranscriptRow = memo(function TranscriptRow({
         isActive ? 'bg-[var(--grain-paper-2)]' : ''
       }`}
     >
-      {/* "Now" indicator — left-edge gradient bar on the most-recent row. */}
-      {isActive && (
-        <span
-          aria-hidden
-          className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
-          style={{ backgroundImage: BRAND_GRADIENT }}
-        />
-      )}
-
-      <div className="flex items-baseline gap-2.5">
-        {/* Timestamp column — monospace, fixed-width for column alignment. */}
+      <div className="flex items-start gap-3">
+        {/* Speaker circle — 24px (or 20px while partial). Figma's saturated
+            green (REP) / purple (PROSPECT). */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="font-mono text-[11px] text-slate-300 tabular-nums flex-shrink-0 min-w-[36px] mt-[3px]">
-              {formatRecordingTime(timestamp)}
-            </span>
+            <span
+              className="flex-shrink-0 rounded-full mt-[2px]"
+              style={{
+                width: circleSize,
+                height: circleSize,
+                backgroundColor:
+                  speakerSource === 'system'
+                    ? 'var(--prospect-circle)'
+                    : speakerSource === 'mic'
+                      ? 'var(--rep-circle)'
+                      : 'var(--nav-dim-text)',
+              }}
+              aria-label={
+                speakerSource === 'mic'
+                  ? 'REP'
+                  : speakerSource === 'system'
+                    ? 'PROSPECT'
+                    : undefined
+              }
+            />
           </TooltipTrigger>
           <TooltipContent>
             {confidence !== undefined && showConfidence && (
@@ -134,24 +148,22 @@ const TranscriptRow = memo(function TranscriptRow({
           </TooltipContent>
         </Tooltip>
 
-        {/* Speaker dot — small filled circle (REP=green, PROSPECT=violet). */}
-        <SpeakerDot
-          source={speakerSource}
-          className="ml-[2px]"
-        />
-
-        {/* Transcript text */}
-        <p className={`flex-1 min-w-0 ${textClass}`}>
-          {displayText}
-          {/* Live caret — a thin 1ch-wide bar that breathes on the active
-              partial row. Uses a CSS animation gated by prefers-reduced-motion. */}
-          {isPartial && isActive && (
-            <span
-              aria-hidden
-              className="live-caret ml-px inline-block align-baseline"
-            />
-          )}
-        </p>
+        {/* Column — timestamp on top, body text below. */}
+        <div className="min-w-0 flex-1">
+          <div className="font-mono text-[12px] text-[var(--nav-muted-text)] tabular-nums">
+            {formatRecordingTime(timestamp)}
+          </div>
+          <p className={`min-w-0 ${textClass}`}>
+            {displayText}
+            {/* Live caret — breathes on the active partial row. */}
+            {isPartial && isActive && (
+              <span
+                aria-hidden
+                className="live-caret ml-px inline-block align-baseline"
+              />
+            )}
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -277,11 +289,13 @@ export const VirtualizedTranscriptView: React.FC<{
     return (
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto transcript-scroll"
+        className="flex-1 overflow-y-auto transcript-scroll p-6"
       >
-        {segments.map((segment, index) =>
-          renderItem(segment, index, segment === lastSegment)
-        )}
+        <div className="max-w-3xl mx-auto flex flex-col gap-6">
+          {segments.map((segment, index) =>
+            renderItem(segment, index, segment === lastSegment)
+          )}
+        </div>
         <div ref={loadMoreTriggerRef} />
         {showStatusBar && <RecordingStatusBar isPaused={isPaused} />}
       </div>
@@ -291,7 +305,7 @@ export const VirtualizedTranscriptView: React.FC<{
   return (
     <div
       ref={scrollRef}
-      className="flex-1 overflow-y-auto transcript-scroll"
+      className="flex-1 overflow-y-auto transcript-scroll p-6"
     >
       <div
         style={{
