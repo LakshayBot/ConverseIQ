@@ -50,9 +50,20 @@ export function TranscriptPanel({
   );
 
   return (
-    <div ref={transcriptContainerRef} className="w-full border-r border-gray-200 bg-white flex flex-col overflow-y-auto">
+    <div ref={transcriptContainerRef} className="w-full border-r border-[var(--grain-ink-200)] bg-[var(--grain-paper)] flex flex-col overflow-y-auto">
+      {/* Live recording indicator — thin colored line that breathes while
+          a session is active. The signature of the Grain redesign: a quiet
+          ambient signal that something is happening now, in the transcript
+          masthead area rather than as a chunky badge. */}
+      {isRecording && (
+        <div className="h-px w-full" style={{
+          background: 'linear-gradient(90deg, transparent 0%, var(--grain-rep) 20%, var(--grain-rep) 80%, transparent 100%)',
+          animation: 'live-rec-bar 2.4s ease-in-out infinite',
+        }} aria-hidden />
+      )}
+
       {/* Title area - Sticky header */}
-      <div className="sticky top-0 z-10 bg-white p-4 border-gray-200">
+      <div className="sticky top-0 z-10 bg-[var(--grain-paper)] p-4 border-[var(--grain-ink-200)]">
         <div className="flex flex-col space-y-3">
           <div className="flex  flex-col space-y-2">
             <div className="flex justify-center  items-center space-x-2">

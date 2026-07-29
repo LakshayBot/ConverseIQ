@@ -295,3 +295,15 @@
 html, body {
   background-color: var(--grain-paper);
 }
+
+/* Live recording indicator — thin line that breathes while a session
+   is active. The Grain redesign's signature ambient signal: it
+   fades in and out on a 2.4s loop, anchored to the top of the
+   transcript column. respects prefers-reduced-motion. */
+@keyframes live-rec-bar {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 0.85; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [style*="live-rec-bar"] { animation: none !important; }
+}

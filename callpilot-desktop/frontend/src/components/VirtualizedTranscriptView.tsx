@@ -107,7 +107,7 @@ const TranscriptRow = memo(function TranscriptRow({
     <div
       id={`segment-${id}`}
       className={`relative pl-3 pr-1 py-1.5 rounded-md transition-colors duration-150 ${
-        isActive ? 'bg-slate-50/70' : ''
+        isActive ? 'bg-[var(--grain-paper-2)]' : ''
       }`}
     >
       {/* "Now" indicator — left-edge gradient bar on the most-recent row. */}
