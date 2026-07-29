@@ -2,147 +2,115 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ──────────────────────────────────────────────────────────────────────────
+   Opaline design system — 2026-07-29
+   ──────────────────────────────────────────────────────────────────────────
+   Authoritative source: ~/.claude/projects/.../design.md (Opaline System).
+   Muted terracotta primary (#93483c) on a cool/warm "opaline" surface
+   range. Pairs Manrope (display) + Inter (UI). Tonal layers + glassmorphism
+   over heavy shadows.
+
+   Naming follows Material 3 conventions to match the design doc:
+     surface, surface-dim, surface-bright, surface-container-{lowest..highest},
+     on-surface, on-surface-variant, outline, outline-variant,
+     surface-tint, primary, on-primary, primary-container, on-primary-container,
+     inverse-primary, secondary, on-secondary, secondary-container,
+     on-secondary-container, tertiary, on-tertiary, tertiary-container,
+     on-tertiary-container, error, on-error, error-container, on-error-container,
+     primary-fixed, primary-fixed-dim, on-primary-fixed, on-primary-fixed-variant,
+     secondary-fixed, secondary-fixed-dim, on-secondary-fixed,
+     on-secondary-fixed-variant, tertiary-fixed, tertiary-fixed-dim,
+     on-tertiary-fixed, on-tertiary-fixed-variant,
+     background, on-background, surface-variant.
+
+   Legacy aliases (--grain-* and --nav-*) are REPOINTED at Opaline so
+   existing components continue to work — visual shift is the intended
+   effect of the migration.
+   ────────────────────────────────────────────────────────────────────────── */
+
 @keyframes vibrate {
-  0% {
-    transform: translate(0);
-  }
-
-  20% {
-    transform: translate(-2px, 2px);
-  }
-
-  40% {
-    transform: translate(-2px, -2px);
-  }
-
-  60% {
-    transform: translate(2px, 2px);
-  }
-
-  80% {
-    transform: translate(2px, -2px);
-  }
-
-  100% {
-    transform: translate(0);
-  }
+  0%   { transform: translate(0); }
+  20%  { transform: translate(-2px, 2px); }
+  40%  { transform: translate(-2px, -2px); }
+  60%  { transform: translate(2px, 2px); }
+  80%  { transform: translate(2px, -2px); }
+  100% { transform: translate(0); }
 }
 
-.animate-vibrate {
-  animation: vibrate 0.3s linear;
-}
+.animate-vibrate { animation: vibrate 0.3s linear; }
 
 @keyframes fade-in {
-  0% {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  0%   { opacity: 0; transform: translateY(-4px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
-
-.animate-fade-in {
-  animation: fade-in 0.4s ease-out;
-}
+.animate-fade-in { animation: fade-in 0.4s ease-out; }
 
 @keyframes fade-in-up {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
+.animate-fade-in-up { animation: fade-in-up 0.5s ease-out forwards; }
 
-.animate-fade-in-up {
-  animation: fade-in-up 0.5s ease-out forwards;
-}
-
-.delay-75 {
-  animation-delay: 75ms;
-}
-
-.delay-100 {
-  animation-delay: 100ms;
-}
-
-.delay-150 {
-  animation-delay: 150ms;
-}
+.delay-75  { animation-delay: 75ms; }
+.delay-100 { animation-delay: 100ms; }
+.delay-150 { animation-delay: 150ms; }
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
-    --radius: 0.5rem;
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
+    /* ── shadcn base aliases (legacy shadcn tokens, repointed to Opaline) ── */
+    --background:           #f8f9ff;  /* opaline-background */
+    --foreground:           #0d1c2e;  /* opaline-on-background */
+    --card:                 #eff4ff;  /* opaline-surface-container-low */
+    --card-foreground:      #0d1c2e;  /* opaline-on-surface */
+    --popover:              #e5eeff;  /* opaline-surface-container */
+    --popover-foreground:   #0d1c2e;  /* opaline-on-surface */
+    --primary:              #93483c;  /* opaline-primary */
+    --primary-foreground:   #ffffff;  /* opaline-on-primary */
+    --secondary:            #545f72;  /* opaline-secondary */
+    --secondary-foreground: #ffffff;  /* opaline-on-secondary */
+    --muted:                #dce9ff;  /* opaline-surface-container-high */
+    --muted-foreground:     #544340;  /* opaline-on-surface-variant */
+    --accent:               #dce9ff;  /* opaline-surface-container-high */
+    --accent-foreground:    #0d1c2e;  /* opaline-on-surface */
+    --destructive:          #ba1a1a;  /* opaline-error */
+    --destructive-foreground: #ffffff; /* opaline-on-error */
+    --border:               #dac1bd;  /* opaline-outline-variant */
+    --input:                #e5eeff;  /* opaline-surface-container */
+    --ring:                 #93483c;  /* opaline-primary */
+    --radius:               0.5rem;
   }
 
   .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+    --background:           #223144;
+    --foreground:           #eaf1ff;
+    --card:                 #1c2533;
+    --card-foreground:      #eaf1ff;
+    --popover:              #1c2533;
+    --popover-foreground:   #eaf1ff;
+    --primary:              #ffb4a7;
+    --primary-foreground:   #64241b;
+    --secondary:            #bcc7dd;
+    --secondary-foreground: #111c2c;
+    --muted:                #1c2533;
+    --muted-foreground:     #bcc7dd;
+    --accent:               #1c2533;
+    --accent-foreground:    #eaf1ff;
+    --destructive:          #ffb4ab;
+    --destructive-foreground: #690005;
+    --border:               #3c475a;
+    --input:                #1c2533;
+    --ring:                 #ffb4a7;
   }
 }
 
 @layer base {
-  * {
-    @apply border-border;
-  }
+  * { @apply border-border; }
 
-  /* html, */
   body {
     @apply bg-background text-foreground;
     overflow: hidden;
     height: 100%;
+    font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
   }
 
   /* Make the window draggable */
@@ -157,74 +125,38 @@
   }
 
   /* Custom scrollbar styles */
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
+  .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #d1d5db;
+    background: #dac1bd;
     border-radius: 3px;
   }
-
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #9ca3af;
+    background: #87726f;
   }
-
-  /* Firefox scrollbar */
   .custom-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: #d1d5db transparent;
+    scrollbar-color: #dac1bd transparent;
   }
 
-  /* BlockNote Editor - Override fixed dimensions for responsive layout */
-  .bn-container {
+  /* BlockNote overrides — unchanged */
+  .bn-container, .bn-editor, .ProseMirror, .bn-block-outer, .bn-default-styles {
     width: 100% !important;
     max-width: none !important;
     overflow: visible !important;
   }
-
-  .bn-editor {
-    width: 100% !important;
-    max-width: none !important;
-    overflow: visible !important;
-  }
-
-  /* Disable internal scrolling - let parent handle all scrolling */
-  .ProseMirror {
-    overflow: visible !important;
-  }
-
-  /* Ensure BlockNote content area is responsive */
-  .bn-block-outer {
-    max-width: 100% !important;
-  }
-
-  .bn-default-styles {
-    max-width: none !important;
-  }
-
-  /* Disable scrolling on any BlockNote wrapper elements */
-  [data-node-type] {
-    overflow: visible !important;
-  }
+  [data-node-type] { overflow: visible !important; }
 }
+
 /* ──────────────────────────────────────────────────────────────────────────
    Live transcript visual signals
    ────────────────────────────────────────────────────────────────────────── */
-
-/* Breathing caret on the active partial row. 1ch wide, ~13px tall,
-   brand-blue, 1.2s ease-in-out infinite. The breathing rate was tuned to
-   feel "alive but patient" — faster reads as alarming, slower as broken. */
 .live-caret {
   display: inline-block;
   width: 0.55ch;
   height: 1em;
   margin-left: 1px;
-  background: #2563eb;
+  background: #93483c;            /* opaline-primary */
   border-radius: 1px;
   vertical-align: -0.15em;
   animation: live-caret-pulse 1.2s ease-in-out infinite;
@@ -236,107 +168,253 @@
   50%      { opacity: 0.95; transform: scaleY(1.0); }
 }
 
-/* Reduced-motion: respect the user's OS-level setting. */
 @media (prefers-reduced-motion: reduce) {
-  .live-caret {
-    animation: none;
-    opacity: 0.85;
-  }
+  .live-caret { animation: none; opacity: 0.85; }
 }
 
-/* Slim scrollbar — broadcast-style. Sits inside the transcript viewport
-   without competing with the text. */
+/* Slim transcript scrollbar — broadcast style */
 .transcript-scroll {
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-color: #dac1bd transparent;
 }
-.transcript-scroll::-webkit-scrollbar {
-  width: 6px;
-}
+.transcript-scroll::-webkit-scrollbar { width: 6px; }
 .transcript-scroll::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #dac1bd;
   border-radius: 3px;
 }
 .transcript-scroll::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #87726f;
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
-   Stitch "Grain // Transcription with Audio Visualizer" redesign tokens
-   ──────────────────────────────────────────────────────────────────────────
-   New design DNA (extracted from the Stitch reference):
-     - paper band: off-white #fafafa (cool, soft) — replaces flat fills
-     - ink: #0a0a0a / #737373 / #d4d4d4
-     - accent: single muted blue #2563eb (the brand gradient is de-emphasised
-       in this redesign; it's reserved for primary CTA + live indicators)
-     - speaker dots: green (REP) + violet (PROSPECT) — tiny filled circles
-   Existing tokens stay; the new ones are additive.
+   Opaline — full color palette (authoritative)
    ────────────────────────────────────────────────────────────────────────── */
-
 :root {
-  --grain-paper:        #fafafa;
-  --grain-paper-2:      #f4f4f5;
-  --grain-paper-3:      #e4e4e7;
-  --grain-ink-900:      #0a0a0a;
-  --grain-ink-700:      #404040;
-  --grain-ink-500:      #737373;
-  --grain-ink-300:      #d4d4d4;
-  --grain-ink-200:      #e5e5e5;
-  --grain-ink-100:      #f4f4f5;
-  --grain-accent:       #2563eb;
-  --grain-accent-soft:  #dbeafe;
-  --grain-rep:          #22c55e;   /* REP speaker dot */
-  --grain-prospect:     #8b5cf6;   /* PROSPECT speaker dot */
-  --grain-rep-soft:     #dcfce7;
-  --grain-prospect-soft:#f3e8ff;
+  /* ── Surfaces ─────────────────────────────────────────────────────────── */
+  --opaline-surface:                    #f8f9ff;
+  --opaline-surface-dim:                #ccdbf4;
+  --opaline-surface-bright:             #f8f9ff;
+  --opaline-surface-container-lowest:   #ffffff;
+  --opaline-surface-container-low:      #eff4ff;
+  --opaline-surface-container:          #e5eeff;
+  --opaline-surface-container-high:     #dce9ff;
+  --opaline-surface-container-highest:  #d4e4fc;
+  --opaline-on-surface:                 #0d1c2e;
+  --opaline-on-surface-variant:         #544340;
+  --opaline-inverse-surface:            #223144;
+  --opaline-inverse-on-surface:         #eaf1ff;
+  --opaline-outline:                    #87726f;
+  --opaline-outline-variant:            #dac1bd;
+  --opaline-surface-tint:               #93483c;
+  --opaline-surface-variant:            #d4e4fc;
+
+  /* ── Primary (muted terracotta) ──────────────────────────────────────── */
+  --opaline-primary:                    #93483c;
+  --opaline-on-primary:                 #ffffff;
+  --opaline-primary-container:          #e58a7b;
+  --opaline-on-primary-container:       #64241b;
+  --opaline-inverse-primary:            #ffb4a7;
+  --opaline-primary-fixed:              #ffdad4;
+  --opaline-primary-fixed-dim:          #ffb4a7;
+  --opaline-on-primary-fixed:           #3c0703;
+  --opaline-on-primary-fixed-variant:   #763227;
+
+  /* ── Secondary (deep slate) ──────────────────────────────────────────── */
+  --opaline-secondary:                  #545f72;
+  --opaline-on-secondary:               #ffffff;
+  --opaline-secondary-container:        #d5e0f7;
+  --opaline-on-secondary-container:     #586377;
+  --opaline-secondary-fixed:            #d8e3fa;
+  --opaline-secondary-fixed-dim:        #bcc7dd;
+  --opaline-on-secondary-fixed:         #111c2c;
+  --opaline-on-secondary-fixed-variant: #3c475a;
+
+  /* ── Tertiary (neutral gray) ─────────────────────────────────────────── */
+  --opaline-tertiary:                   #5b5f61;
+  --opaline-on-tertiary:                #ffffff;
+  --opaline-tertiary-container:         #9fa3a5;
+  --opaline-on-tertiary-container:      #35393b;
+  --opaline-tertiary-fixed:             #e0e3e5;
+  --opaline-tertiary-fixed-dim:         #c3c7c9;
+  --opaline-on-tertiary-fixed:          #181c1e;
+  --opaline-on-tertiary-fixed-variant:  #434749;
+
+  /* ── Error ───────────────────────────────────────────────────────────── */
+  --opaline-error:                      #ba1a1a;
+  --opaline-on-error:                   #ffffff;
+  --opaline-error-container:            #ffdad6;
+  --opaline-on-error-container:         #93000a;
+
+  /* ── Background / on-background aliases ──────────────────────────────── */
+  --opaline-background:                 #f8f9ff;
+  --opaline-on-background:              #0d1c2e;
+
+  /* ── Tonal alphas (chipped against surface-tint) ─────────────────────── */
+  --opaline-tone-4:                     rgba(147, 72, 60, 0.08);
+  --opaline-tone-8:                     rgba(147, 72, 60, 0.16);
+  --opaline-tone-12:                    rgba(147, 72, 60, 0.24);
+  --opaline-tone-20:                    rgba(147, 72, 60, 0.40);
+
+  /* ── Glassmorphism utilities (Level 2 elevation) ─────────────────────── */
+  --opaline-glass-bg:                   rgba(255, 255, 255, 0.80);
+  --opaline-glass-blur:                 12px;
+
+  /* ── Rounded shape scale (from design.md) ───────────────────────────── */
+  --opaline-radius-sm:   0.25rem;
+  --opaline-radius-md:   0.5rem;
+  --opaline-radius-lg:   0.75rem;
+  --opaline-radius-xl:   1rem;
+  --opaline-radius-2xl:  1.5rem;
+  --opaline-radius-full: 9999px;
+
+  /* ── Spacing scale (from design.md) ─────────────────────────────────── */
+  --opaline-space-xs:    4px;
+  --opaline-space-sm:    8px;
+  --opaline-space-md:    16px;
+  --opaline-space-lg:    24px;
+  --opaline-space-xl:    48px;
 }
 
-/* Page background — paper tone. Applies to <body> via the root. */
-html, body {
-  background-color: var(--grain-paper);
+/* ──────────────────────────────────────────────────────────────────────────
+   Legacy aliases — Figma / Grain / shadcn tokens repointed at Opaline
+   ──────────────────────────────────────────────────────────────────────────
+   These names are referenced by existing components. They now resolve
+   to Opaline values. Speaker colors (rep/prospect) are NOT in Opaline
+   so they stay as bespoke hex values.
+   ────────────────────────────────────────────────────────────────────────── */
+:root {
+  /* Figma "16thapartment" sidebar + meeting-detail */
+  --nav-active-bg:     var(--opaline-surface-container-high);
+  --nav-active-text:   var(--opaline-on-surface);
+  --nav-inactive-text: var(--opaline-on-surface-variant);
+  --nav-muted-text:    var(--opaline-on-surface-variant);
+  --nav-dim-text:      var(--opaline-outline);
+  --body-text:         var(--opaline-on-surface);
+  --hairline:          var(--opaline-outline-variant);
+  --tab-divider:       var(--opaline-surface-container);
+  --tab-active-border: var(--opaline-primary);
+
+  /* Grain paper band — repointed */
+  --grain-paper:           var(--opaline-surface);
+  --grain-paper-2:         var(--opaline-surface-container-low);
+  --grain-paper-3:         var(--opaline-surface-container);
+  --grain-ink-900:         var(--opaline-on-surface);
+  --grain-ink-700:         var(--opaline-on-surface-variant);
+  --grain-ink-500:         var(--opaline-on-surface-variant);
+  --grain-ink-300:         var(--opaline-outline-variant);
+  --grain-ink-200:         var(--opaline-outline-variant);
+  --grain-ink-100:         var(--opaline-surface-container-low);
+  --grain-accent:          var(--opaline-primary);
+  --grain-accent-soft:     var(--opaline-primary-container);
+  --grain-rep-soft:        var(--opaline-surface-container-high);
+  --grain-prospect-soft:   var(--opaline-surface-container-high);
+
+  /* Speaker dots — kept as bespoke values (not part of Opaline) */
+  --grain-rep:             #84c95f;
+  --grain-prospect:        #7d5df6;
+  --rep-circle:            #84c95f;
+  --prospect-circle:       #7d5df6;
 }
 
-/* Live recording indicator — thin line that breathes while a session
-   is active. The Grain redesign's signature ambient signal: it
-   fades in and out on a 2.4s loop, anchored to the top of the
-   transcript column. respects prefers-reduced-motion. */
+/* ──────────────────────────────────────────────────────────────────────────
+   Opaline typography scale — utility classes
+   ──────────────────────────────────────────────────────────────────────────
+   Use as className="text-headline-xl" etc. All screen sizes in the design
+   doc except headline-lg-mobile use the same value; mobile uses
+   text-headline-lg-mobile to scale down on small viewports.
+   ────────────────────────────────────────────────────────────────────────── */
+@layer utilities {
+  /* Inter is the single global font for the project. The design.md split
+     (Manrope for headlines, Inter for body) was abandoned in app code
+     because the visual mismatch between the sidebar and the main
+     content was jarring. Inter renders well at every weight from 400
+     up to 700, so the typography scale still has clear hierarchy
+     without needing a second family. */
+  .text-headline-xl {
+    font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
+    font-size: 48px;
+    font-weight: 700;
+    line-height: 56px;
+    letter-spacing: -0.02em;
+  }
+
+  .text-headline-lg {
+    font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
+    font-size: 32px;
+    font-weight: 600;
+    line-height: 40px;
+    letter-spacing: -0.01em;
+  }
+
+  .text-headline-lg-mobile {
+    font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
+    font-size: 24px;
+    font-weight: 600;
+    line-height: 32px;
+    letter-spacing: -0.01em;
+  }
+
+  .text-headline-md {
+    font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
+    font-size: 24px;
+    font-weight: 600;
+    line-height: 32px;
+  }
+
+  .text-body-lg {
+    font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
+    font-size: 18px;
+    font-weight: 400;
+    line-height: 28px;
+  }
+
+  .text-body-md {
+    font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
+    font-size: 16px;
+    font-weight: 400;
+    line-height: 24px;
+  }
+
+  .text-body-sm {
+    font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 20px;
+  }
+
+  .text-label-md {
+    font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 20px;
+    letter-spacing: 0.02em;
+  }
+
+  .text-label-sm {
+    font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 16px;
+    letter-spacing: 0.05em;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Glassmorphism helper — Level 2 elevation
+   ────────────────────────────────────────────────────────────────────────── */
+@layer utilities {
+  .opaline-glass {
+    background: var(--opaline-glass-bg);
+    backdrop-filter: blur(var(--opaline-glass-blur));
+    -webkit-backdrop-filter: blur(var(--opaline-glass-blur));
+  }
+}
+
+/* Kingpin: Grain live-recording indicator (kept for compatibility) */
 @keyframes live-rec-bar {
   0%, 100% { opacity: 0.25; }
   50%      { opacity: 0.85; }
 }
 @media (prefers-reduced-motion: reduce) {
   [style*="live-rec-bar"] { animation: none !important; }
-}
-
-/* ──────────────────────────────────────────────────────────────────────────
-   Figma "16thapartment" sidebar + meeting-detail tokens (2026-07-27)
-   ──────────────────────────────────────────────────────────────────────────
-   Extracted from the Figma frame fetched at
-   https://www.figma.com/design/5BFitII9ZpQCjuVAj1NhPJ/Untitled?node-id=1-3
-   The nav/text vocabulary is cooler and more functional than the
-   previous Grain palette — closer to the actual Grain product's
-   tonal language.
-
-   Speaker colours are the most visible shift: from the muted
-   `--grain-rep` (#22c55e) / `--grain-prospect` (#8b5cf6) to the
-   saturated Figma values. Aliases for the new ones are kept so
-   existing component code can migrate gradually.
-   ────────────────────────────────────────────────────────────────────────── */
-
-:root {
-  /* Figma nav vocabulary */
-  --nav-active-bg:     #f3f4f6;
-  --nav-active-text:   #111827;
-  --nav-inactive-text: #374151;
-  --nav-muted-text:    #6b7280;
-  --nav-dim-text:      #9ca3af;
-  --body-text:         #1f2937;
-  --hairline:          #e5e7eb;
-  --tab-divider:       #f3f4f6;
-  --tab-active-border: #0a0a0a;
-
-  /* Figma speaker circle palette (saturated — replaces the Grain
-     muted versions for the transcript dialogue layout) */
-  --rep-circle:        #84c95f;
-  --prospect-circle:   #7d5df6;
 }

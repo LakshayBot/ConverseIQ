@@ -1,7 +1,7 @@
 'use client'
 
 import './globals.css'
-import { Source_Sans_3 } from 'next/font/google'
+import { Source_Sans_3, Inter } from 'next/font/google'
 import Sidebar from '@/components/Sidebar'
 import { SidebarProvider } from '@/components/Sidebar/SidebarProvider'
 import MainContent from '@/components/MainContent'
@@ -33,6 +33,17 @@ const sourceSans3 = Source_Sans_3({
   subsets: ['latin'],
   weight: ['400', '500', '600', '700'],
   variable: '--font-source-sans-3',
+})
+
+// Inter is the single global font for the project. The design.md split
+// (Manrope for display, Inter for body) was abandoned in app code
+// because the visual mismatch between the sidebar and the main content
+// was jarring. Inter renders well at every weight from 400 to 700, so
+// the typography scale still has clear hierarchy without a second family.
+const inter = Inter({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-inter',
 })
 
 // Module-level component — stable reference across RootLayout re-renders.
@@ -267,7 +278,7 @@ export default function RootLayout({
 
   return (
     <html lang="en">
-      <body className={`${sourceSans3.variable} font-sans antialiased`}>
+      <body className={`${inter.variable} ${sourceSans3.variable} font-sans antialiased`}>
         <AuthProvider>
           <AnalyticsProvider>
             <RecordingStateProvider>
