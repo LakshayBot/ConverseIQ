@@ -645,7 +645,22 @@ PAGE_TIMEOUT_S: float = 30.0
 # the free-tier rate limit (~30 req/min for llama-3.1-8b-instant) while
 # cutting wall time roughly 3x vs. a sequential loop.  Bump to 5 on a
 # paid key if needed.
-PAGE_CONCURRENCY: int = 3
+#
+# 2026-07-29: forced to 1 + deliberate per-page pacing. Real-world test on
+# `1779097554_Secure_Product-Booklet_India.pdf` (18 pages) hit Groq's 6000
+# TPM limit mid-document with PAGE_CONCURRENCY=3: 3 pages in flight at
+# once means ~6-15s of overlap and token usage far above the free-tier
+# budget. The user explicitly chose reliability over wall time — the
+# product booklet took 18 * 5s = 90s wall time at PAGE_CONCURRENCY=1 +
+# 5s pacing, vs ~30s when 3 pages raced and half of them 429'd.
+PAGE_CONCURRENCY: int = 1
+
+# Deliberate pause between page starts. 5s is the safe floor for Groq
+# free-tier (6000 TPM, llama-3.1-8b-instant ~1k tokens per request =
+# ~12 req/min, so 5s/start = 12 req/min which is right at the ceiling).
+# Lifted by env var so operators on a paid key can drop it.
+import os as _os
+MIN_PAGE_INTERVAL_S: float = float(_os.getenv("ENRICHMENT_PAGE_INTERVAL_S", "5.0"))
 
 
 async def enrich_pages(pages: list[dict]) -> list[dict]:
@@ -673,6 +688,14 @@ async def enrich_pages(pages: list[dict]) -> list[dict]:
         page_no = p.get("page", 0)
         text = p.get("text", "")
         async with semaphore:
+            # Pace consecutive page starts so the per-minute request
+            # rate stays below Groq's free-tier ceiling. PAGE_CONCURRENCY=1
+            # already serializes the work via the semaphore, but a 5s gap
+            # between consecutive requests is what actually keeps us under
+            # the 6000 TPM limit. The first page in the batch starts
+            # immediately — the pacing matters for pages 2..N.
+            if MIN_PAGE_INTERVAL_S > 0 and p.get("page", 0) > 1:
+                await asyncio.sleep(MIN_PAGE_INTERVAL_S)
             try:
                 result = await asyncio.wait_for(
                     enrich_page(text), timeout=PAGE_TIMEOUT_S
@@ -803,7 +826,16 @@ async def enrich_pages_streaming(pages: list[dict]):
             }
 
     pending: dict[asyncio.Task, dict] = {}
-    for p in pages:
+    for i, p in enumerate(pages):
+        # Deliberate stagger between page STARTS so we never burst
+        # >1 concurrent LLM call in the window. PAGE_CONCURRENCY=1 keeps
+        # the in-flight count at 1; the MIN_PAGE_INTERVAL_S sleep on
+        # top of that guarantees the gap between consecutive request
+        # submissions stays above Groq's per-minute request ceiling.
+        # Started only after the first page so the first page begins
+        # immediately — the pacing matters once we're already in flight.
+        if i > 0 and MIN_PAGE_INTERVAL_S > 0:
+            await asyncio.sleep(MIN_PAGE_INTERVAL_S)
         task = asyncio.create_task(_enrich_one(p))
         pending[task] = p
 
