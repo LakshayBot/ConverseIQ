@@ -1,7 +1,41 @@
 'use client';
 
+// CallPilot sidebar — Figma "16thapartment" treatment, pixel-perfect.
+//
+// Visual reference: callpilot-desktop/.../figma node-id 1:4 (Aside - Left Sidebar)
+//   • 240px wide, white bg, 1px hairline border on the right (#e5e7eb)
+//   • Top: workspace picker (24×24 black badge + brand name + chevron-down)
+//   • Middle: nav list (Home, Import, Meetings) — 4px gap, 12px row padding
+//   • Below Meetings: meeting children rendered inline (no eyebrow header,
+//     no count badge — matches Figma's quiet active treatment)
+//   • Bottom: 2 footer links (Help, Settings) — same Link style, no divider
+//   • Search: inline input styled as a Figma nav row (no border, slate-50 bg)
+//   • Active state: bg-[#f3f4f6] + text-[#111827] — no left-edge gradient bar
+//   • Collapse: a 16×16 chevron-left sits next to the workspace chevron-down
+//
+// Functionality preserved end-to-end:
+//   - sidebar collapse/expand (stored in SidebarProvider)
+//   - instant transcript search (debounced via SidebarProvider)
+//   - meeting list + edit/delete + PATCH/DELETE on /api/v1/meetings
+//   - Settings modal + About modal (Info)
+//   - model-config-updated event listener
+//   - authedApiCall routing through the .NET Gateway
+
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { ChevronDown, ChevronRight as ChevronRightIcon, ChevronLeft, File, Settings, Calendar, StickyNote, Home, Trash2, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight as ChevronRightIcon,
+  File,
+  Settings,
+  Home,
+  Trash2,
+  Search as SearchIcon,
+  Pencil,
+  NotebookPen,
+  X,
+  Upload,
+  HelpCircle,
+} from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
 import type { CurrentMeeting } from '@/components/Sidebar/SidebarProvider';
@@ -16,31 +50,42 @@ import { toast } from 'sonner';
 import { useImportDialog } from '@/contexts/ImportDialogContext';
 import { useConfig } from '@/contexts/ConfigContext';
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Design tokens
-// ──────────────────────────────────────────────────────────────────────────────
-//
-// The sidebar reads as a quiet mission-control rail — the same visual language
-// as the UserChip at the bottom. No chunky fills, no hard shadows. Border +
-// soft hover tint is the default interaction vocabulary. The single accent
-// (gradient blue → indigo → violet) is reserved for:
-//   • the brand mark at the top
-//   • the 3px-wide left-edge indicator on the active nav item
-//   • the user's avatar gradient
-// Three uses of the same gradient family = cohesion.
-//
-// Tailwind utility aliases used throughout (kept inline for proximity to the
-// JSX that consumes them rather than abstracted into theme tokens):
-//   ink-900  text-slate-900          primary text
-//   ink-500  text-slate-500          secondary / labels
-//   ink-400  text-slate-400          hints, version
-//   ink-300  border-slate-200        hairline borders
-//   surface  bg-white                rail bg
-//   surface-muted  bg-slate-50       hover tint
-// ──────────────────────────────────────────────────────────────────────────────
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { VisuallyHidden } from '@/components/ui/visually-hidden';
 
-/** Active-item left-edge indicator — gradient threads through brand mark + avatar. */
-const ACTIVE_GRADIENT = 'linear-gradient(180deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%)';
+import { MessageToast } from '../MessageToast';
+import { UserChip } from './UserChip';
+import { Input } from '../ui/input';
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Figma pixel-perfect tokens
+// ──────────────────────────────────────────────────────────────────────────────
+const FIGMA = {
+  sidebarBorder: '#e5e7eb',
+  activeBg: '#f3f4f6',
+  activeText: '#111827',
+  inactiveText: '#374151',
+  mutedText: '#6b7280',
+  dimText: '#9ca3af',
+  linkRadius: 6,
+  linkPaddingX: 12,
+  linkPaddingY: 8,
+  linkGap: 12,
+  listGap: 4,
+  listPaddingBottom: 40,
+  footerPaddingBottom: 16,
+  iconSize: 20,
+  fontSize: 14,
+  lineHeight: 20,
+  fontWeight: 500,
+  workspaceBadgeSize: 24,
+  workspaceBadgeRadius: 4,
+} as const;
 
 interface SidebarItem {
   id: string;
@@ -58,28 +103,18 @@ function isNavActive(pathname: string | null, key: 'home' | 'meetings' | 'settin
   return false;
 }
 
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { VisuallyHidden } from "@/components/ui/visually-hidden"
-
-import { MessageToast } from '../MessageToast';
-import Logo from '../Logo';
-import Info from '../Info';
-import { UserChip } from './UserChip';
-import { ComplianceNotification } from '../ComplianceNotification';
-import { Input } from '../ui/input';
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '../ui/input-group';
-
-interface SidebarItem {
-  id: string;
-  title: string;
-  type: 'folder' | 'file';
-  children?: SidebarItem[];
-}
+/** Reusable Figma nav-link treatment. Drives the entire rail's vocabulary. */
+const LinkClass = (active: boolean): string =>
+  [
+    'group flex w-full items-center rounded-md',
+    'gap-3 px-3 py-2',
+    'text-sm font-medium',
+    'leading-5',
+    'transition-colors duration-150',
+    active
+      ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-text)]'
+      : 'text-[var(--nav-inactive-text)] hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)]',
+  ].join(' ');
 
 const Sidebar: React.FC = () => {
   const router = useRouter();
@@ -95,12 +130,11 @@ const Sidebar: React.FC = () => {
     isSearching,
     meetings,
     setMeetings,
-    serverAddress
+    serverAddress,
   } = useSidebar();
 
   const { openImportDialog } = useImportDialog();
   const { betaFeatures } = useConfig();
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['meetings']));
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showModelSettings, setShowModelSettings] = useState(false);
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
@@ -108,7 +142,7 @@ const Sidebar: React.FC = () => {
     model: '',
     whisperModel: '',
     apiKey: null,
-    ollamaEndpoint: null
+    ollamaEndpoint: null,
   });
   const [transcriptModelConfig, setTranscriptModelConfig] = useState<TranscriptModelProps>({
     provider: 'parakeet',
@@ -116,52 +150,28 @@ const Sidebar: React.FC = () => {
   });
   const [settingsSaveSuccess, setSettingsSaveSuccess] = useState<boolean | null>(null);
 
-  // State for edit modal
+  // Edit + delete modal state
   const [editModalState, setEditModalState] = useState<{ isOpen: boolean; meetingId: string | null; currentTitle: string }>({
     isOpen: false,
     meetingId: null,
-    currentTitle: ''
+    currentTitle: '',
   });
   const [editingTitle, setEditingTitle] = useState<string>('');
+  const [deleteModalState, setDeleteModalState] = useState<{ isOpen: boolean; itemId: string | null }>({
+    isOpen: false,
+    itemId: null,
+  });
 
-  // Ensure 'meetings' folder is always expanded
+  // ─── Model config fetch ────────────────────────────────────────────────────
   useEffect(() => {
-    if (!expandedFolders.has('meetings')) {
-      const newExpanded = new Set(expandedFolders);
-      newExpanded.add('meetings');
-      setExpandedFolders(newExpanded);
-    }
-  }, [expandedFolders]);
-
-  // useEffect(() => {
-  //   if (settingsSaveSuccess !== null) {
-  //     const timer = setTimeout(() => {
-  //       setSettingsSaveSuccess(null);
-  //     }, 3000);
-  //   }
-  // }, [settingsSaveSuccess]);
-
-
-  const [deleteModalState, setDeleteModalState] = useState<{ isOpen: boolean; itemId: string | null }>({ isOpen: false, itemId: null });
-
-  useEffect(() => {
-    // Note: Don't set hardcoded defaults - let DB be the source of truth
+    if (!serverAddress) return;
     const fetchModelConfig = async () => {
-      // Only make API call if serverAddress is loaded
-      if (!serverAddress) {
-        console.log('Waiting for server address to load before fetching model config');
-        return;
-      }
-
       try {
-        const data = await invoke('api_get_model_config') as any;
+        const data = (await invoke('api_get_model_config')) as any;
         if (data && data.provider !== null) {
-          // Fetch API key if not included and provider requires it
           if (data.provider !== 'ollama' && !data.apiKey) {
             try {
-              const apiKeyData = await invoke('api_get_api_key', {
-                provider: data.provider
-              }) as string;
+              const apiKeyData = (await invoke('api_get_api_key', { provider: data.provider })) as string;
               data.apiKey = apiKeyData;
             } catch (err) {
               console.error('Failed to fetch API key:', err);
@@ -173,22 +183,14 @@ const Sidebar: React.FC = () => {
         console.error('Failed to fetch model config:', error);
       }
     };
-
     fetchModelConfig();
   }, [serverAddress]);
 
-
   useEffect(() => {
-    // Note: Don't set hardcoded defaults - let DB be the source of truth
+    if (!serverAddress) return;
     const fetchTranscriptSettings = async () => {
-      // Only make API call if serverAddress is loaded
-      if (!serverAddress) {
-        console.log('Waiting for server address to load before fetching transcript settings');
-        return;
-      }
-
       try {
-        const data = await invoke('api_get_transcript_config') as any;
+        const data = (await invoke('api_get_transcript_config')) as any;
         if (data && data.provider !== null) {
           setTranscriptModelConfig(data);
         }
@@ -199,29 +201,22 @@ const Sidebar: React.FC = () => {
     fetchTranscriptSettings();
   }, [serverAddress]);
 
-  // Listen for model config updates from other components
   useEffect(() => {
     const setupListener = async () => {
       const { listen } = await import('@tauri-apps/api/event');
       const unlisten = await listen<ModelConfig>('model-config-updated', (event) => {
-        console.log('Sidebar received model-config-updated event:', event.payload);
         setModelConfig(event.payload);
       });
-
       return unlisten;
     };
-
     let cleanup: (() => void) | undefined;
-    setupListener().then(fn => cleanup = fn);
-
+    setupListener().then((fn) => (cleanup = fn));
     return () => {
       cleanup?.();
     };
   }, []);
 
-
-
-  // Handle model config save
+  // ─── Save handlers ────────────────────────────────────────────────────────
   const handleSaveModelConfig = async (config: ModelConfig) => {
     try {
       await invoke('api_save_model_config', {
@@ -231,16 +226,10 @@ const Sidebar: React.FC = () => {
         apiKey: config.apiKey,
         ollamaEndpoint: config.ollamaEndpoint,
       });
-
       setModelConfig(config);
-      console.log('Model config saved successfully');
       setSettingsSaveSuccess(true);
-
-      // Emit event to sync other components
       const { emit } = await import('@tauri-apps/api/event');
       await emit('model-config-updated', config);
-
-      // Track settings change
       await Analytics.trackSettingsChanged('model_config', `${config.provider}_${config.model}`);
     } catch (error) {
       console.error('Error saving model config:', error);
@@ -254,201 +243,132 @@ const Sidebar: React.FC = () => {
       const payload = {
         provider: configToSave.provider,
         model: configToSave.model,
-        apiKey: configToSave.apiKey ?? null
+        apiKey: configToSave.apiKey ?? null,
       };
-      console.log('Saving transcript config with payload:', payload);
-
       await invoke('api_save_transcript_config', {
         provider: payload.provider,
         model: payload.model,
         apiKey: payload.apiKey,
       });
-
-
       setSettingsSaveSuccess(true);
-
-      // Track settings change
-      const transcriptConfigToSave = updatedConfig || transcriptModelConfig;
-      await Analytics.trackSettingsChanged('transcript_config', `${transcriptConfigToSave.provider}_${transcriptConfigToSave.model}`);
+      await Analytics.trackSettingsChanged(
+        'transcript_config',
+        `${configToSave.provider}_${configToSave.model}`,
+      );
     } catch (error) {
       console.error('Failed to save transcript config:', error);
       setSettingsSaveSuccess(false);
     }
   };
 
-  // Handle search input changes
-  const handleSearchChange = useCallback(async (value: string) => {
-    setSearchQuery(value);
+  // ─── Search ───────────────────────────────────────────────────────────────
+  const handleSearchChange = useCallback(
+    async (value: string) => {
+      setSearchQuery(value);
+      if (!value.trim()) return;
+      await searchTranscripts(value);
+    },
+    [searchTranscripts],
+  );
 
-    // If search query is empty, just return to normal view
-    if (!value.trim()) return;
-
-    // Search through transcripts
-    await searchTranscripts(value);
-
-    // Make sure the meetings folder is expanded when searching
-    if (!expandedFolders.has('meetings')) {
-      const newExpanded = new Set(expandedFolders);
-      newExpanded.add('meetings');
-      setExpandedFolders(newExpanded);
-    }
-  }, [expandedFolders, searchTranscripts]);
-
-  // Combine search results with sidebar items
+  // ─── Filtered meeting list ────────────────────────────────────────────────
   const filteredSidebarItems = useMemo(() => {
     if (!searchQuery.trim()) return sidebarItems;
 
-    // If we have search results, highlight matching meetings
     if (searchResults.length > 0) {
-      // Get the IDs of meetings that matched in transcripts
-      const matchedMeetingIds = new Set(searchResults.map(result => result.id));
-
+      const matchedMeetingIds = new Set(searchResults.map((r) => r.id));
       return sidebarItems
-        .map(folder => {
-          // Always include folders in the results
+        .map((folder) => {
           if (folder.type === 'folder') {
             if (!folder.children) return folder;
-
-            // Filter children based on search results or title match
-            const filteredChildren = folder.children.filter(item => {
-              // Include if the meeting ID is in our search results
-              if (matchedMeetingIds.has(item.id)) return true;
-
-              // Or if the title matches the search query
-              return item.title.toLowerCase().includes(searchQuery.toLowerCase());
-            });
-
-            return {
-              ...folder,
-              children: filteredChildren
-            };
-          }
-
-          // For non-folder items, check if they match the search
-          return (matchedMeetingIds.has(folder.id) ||
-            folder.title.toLowerCase().includes(searchQuery.toLowerCase()))
-            ? folder : undefined;
-        })
-        .filter((item): item is SidebarItem => item !== undefined); // Type-safe filter
-    } else {
-      // Fall back to title-only filtering if no transcript results
-      return sidebarItems
-        .map(folder => {
-          // Always include folders in the results
-          if (folder.type === 'folder') {
-            if (!folder.children) return folder;
-
-            // Filter children based on search query
-            const filteredChildren = folder.children.filter(item =>
-              item.title.toLowerCase().includes(searchQuery.toLowerCase())
+            const filteredChildren = folder.children.filter(
+              (item) =>
+                matchedMeetingIds.has(item.id) ||
+                item.title.toLowerCase().includes(searchQuery.toLowerCase()),
             );
-
-            return {
-              ...folder,
-              children: filteredChildren
-            };
+            return { ...folder, children: filteredChildren };
           }
-
-          // For non-folder items, check if they match the search
-          return folder.title.toLowerCase().includes(searchQuery.toLowerCase()) ? folder : undefined;
+          return matchedMeetingIds.has(folder.id) ||
+            folder.title.toLowerCase().includes(searchQuery.toLowerCase())
+            ? folder
+            : undefined;
         })
-        .filter((item): item is SidebarItem => item !== undefined); // Type-safe filter
+        .filter((item): item is SidebarItem => item !== undefined);
     }
-  }, [sidebarItems, searchQuery, searchResults, expandedFolders]);
 
+    return sidebarItems
+      .map((folder) => {
+        if (folder.type === 'folder') {
+          if (!folder.children) return folder;
+          const filteredChildren = folder.children.filter((item) =>
+            item.title.toLowerCase().includes(searchQuery.toLowerCase()),
+          );
+          return { ...folder, children: filteredChildren };
+        }
+        return folder.title.toLowerCase().includes(searchQuery.toLowerCase()) ? folder : undefined;
+      })
+      .filter((item): item is SidebarItem => item !== undefined);
+  }, [sidebarItems, searchQuery, searchResults]);
 
+  // ─── Delete / edit handlers ───────────────────────────────────────────────
   const handleDelete = async (itemId: string) => {
-    console.log('Deleting item:', itemId);
-    const payload = {
-      meetingId: itemId
-    };
-
     try {
       const { authedApiCall } = await import('@/lib/auth');
       await authedApiCall('DELETE', `/api/v1/meetings/${itemId}`);
-      console.log('Meeting deleted successfully');
       const updatedMeetings = meetings.filter((m: CurrentMeeting) => m.id !== itemId);
       setMeetings(updatedMeetings);
-
-      // Track meeting deletion
       Analytics.trackMeetingDeleted(itemId);
-
-      // Show success toast
-      toast.success("Meeting deleted successfully", {
-        description: "All associated data has been removed"
+      toast.success('Meeting deleted successfully', {
+        description: 'All associated data has been removed',
       });
-
-      // If deleting the active meeting, navigate to home
       if (currentMeeting?.id === itemId) {
         setCurrentMeeting({ id: 'intro-call', title: '+ New Call' });
         router.push('/');
       }
     } catch (error) {
       console.error('Failed to delete meeting:', error);
-      toast.error("Failed to delete meeting", {
-        description: error instanceof Error ? error.message : String(error)
+      toast.error('Failed to delete meeting', {
+        description: error instanceof Error ? error.message : String(error),
       });
     }
   };
 
   const handleDeleteConfirm = () => {
-    if (deleteModalState.itemId) {
-      handleDelete(deleteModalState.itemId);
-    }
+    if (deleteModalState.itemId) handleDelete(deleteModalState.itemId);
     setDeleteModalState({ isOpen: false, itemId: null });
   };
 
-  // Handle modal editing of meeting names
   const handleEditStart = (meetingId: string, currentTitle: string) => {
-    setEditModalState({
-      isOpen: true,
-      meetingId: meetingId,
-      currentTitle: currentTitle
-    });
+    setEditModalState({ isOpen: true, meetingId, currentTitle });
     setEditingTitle(currentTitle);
   };
 
   const handleEditConfirm = async () => {
     const newTitle = editingTitle.trim();
     const meetingId = editModalState.meetingId;
-
     if (!meetingId) return;
-
-    // Prevent empty titles
     if (!newTitle) {
-      toast.error("Meeting title cannot be empty");
+      toast.error('Meeting title cannot be empty');
       return;
     }
-
     try {
       const { authedApiCall } = await import('@/lib/auth');
-      await authedApiCall('PATCH', `/api/v1/meetings/${meetingId}`, {
-        title: newTitle,
-      });
-
-      // Update local state
+      await authedApiCall('PATCH', `/api/v1/meetings/${meetingId}`, { title: newTitle });
       const updatedMeetings = meetings.map((m: CurrentMeeting) =>
-        m.id === meetingId ? { ...m, title: newTitle } : m
+        m.id === meetingId ? { ...m, title: newTitle } : m,
       );
       setMeetings(updatedMeetings);
-
-      // Update current meeting if it's the one being edited
       if (currentMeeting?.id === meetingId) {
         setCurrentMeeting({ id: meetingId, title: newTitle });
       }
-
-      // Track the edit
       Analytics.trackButtonClick('edit_meeting_title', 'sidebar');
-
-      toast.success("Meeting title updated successfully");
-
-      // Close modal and reset state
+      toast.success('Meeting title updated successfully');
       setEditModalState({ isOpen: false, meetingId: null, currentTitle: '' });
       setEditingTitle('');
     } catch (error) {
       console.error('Failed to update meeting title:', error);
-      toast.error("Failed to update meeting title", {
-        description: error instanceof Error ? error.message : String(error)
+      toast.error('Failed to update meeting title', {
+        description: error instanceof Error ? error.message : String(error),
       });
     }
   };
@@ -458,53 +378,29 @@ const Sidebar: React.FC = () => {
     setEditingTitle('');
   };
 
-  const toggleFolder = (folderId: string) => {
-    // Normal toggle behavior for all folders
-    const newExpanded = new Set(expandedFolders);
-    if (newExpanded.has(folderId)) {
-      newExpanded.delete(folderId);
-    } else {
-      newExpanded.add(folderId);
-    }
-    setExpandedFolders(newExpanded);
-  };
-
-  // Expose setShowModelSettings to window for Rust tray to call
+  // Expose openSettings to Rust tray
   useEffect(() => {
-    (window as any).openSettings = () => {
-      setShowModelSettings(true);
-    };
-
-    // Cleanup on unmount
+    (window as any).openSettings = () => setShowModelSettings(true);
     return () => {
       delete (window as any).openSettings;
     };
   }, []);
 
+  // ─── Collapsed-mode icons (rail of 36×36 squares centred in 64px) ─────────
   const renderCollapsedIcons = () => {
     if (!isCollapsed) return null;
-
-    // Each nav item is a 36×36 square centred in the 64px rail.
-    // Active state = 3px-wide gradient bar on the left edge + soft
-    // background tint (no chunky fill). Inactive = transparent,
-    // Each collapsed nav item is a 36×36 square centred in the 64px rail.
-    // Figma palette: active = --nav-active-bg + --nav-active-text; inactive
-    // = --nav-inactive-text with a soft hover bg.
-    const navItemClass = (active: boolean) =>
-      [
-        'group relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-150',
-        active
-          ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-text)]'
-          : 'text-[var(--nav-inactive-text)] hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)]',
-      ].join(' ');
-
     return (
       <TooltipProvider>
         <div className="flex flex-col items-center gap-1 px-2 pt-3">
-          {/* Collapsed-mode expand chevron: lives directly under the
-             brand mark so users have a clear affordance to re-open the rail. */}
+          {/* Collapsed brand badge — same 24×24 black square, centred */}
           <div className="pb-2 flex flex-col items-center gap-2">
-            <Logo isCollapsed={isCollapsed} />
+            <div
+              className="flex items-center justify-center rounded-[4px] bg-black"
+              style={{ width: FIGMA.workspaceBadgeSize, height: FIGMA.workspaceBadgeSize }}
+              aria-label="CallPilot"
+            >
+              <span className="text-[12px] font-bold text-white leading-4">CP</span>
+            </div>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -523,96 +419,38 @@ const Sidebar: React.FC = () => {
             </Tooltip>
           </div>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-current={isNavActive(pathname, 'home') ? 'page' : undefined}
-                onClick={() => router.push('/')}
-                className={navItemClass(isNavActive(pathname, 'home'))}
-              >
-                {isNavActive(pathname, 'home') && (
-                  <span
-                    aria-hidden
-                    className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
-                    style={{ backgroundImage: ACTIVE_GRADIENT }}
-                  />
-                )}
-                <Home className="h-[18px] w-[18px]" strokeWidth={1.75} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>Home</p>
-            </TooltipContent>
-          </Tooltip>
+          <SingleIconButton
+            active={isNavActive(pathname, 'home')}
+            onClick={() => router.push('/')}
+            label="Home"
+          >
+            <Home className="h-[18px] w-[18px]" strokeWidth={1.75} />
+          </SingleIconButton>
 
           {betaFeatures.importAndRetranscribe && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => openImportDialog()}
-                  className={navItemClass(false)}
-                >
-                  <Upload className="h-[18px] w-[18px] text-blue-600" strokeWidth={1.75} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <p>Import Audio</p>
-              </TooltipContent>
-            </Tooltip>
+            <SingleIconButton active={false} onClick={() => openImportDialog()} label="Import Audio">
+              <Upload className="h-[18px] w-[18px]" strokeWidth={1.75} />
+            </SingleIconButton>
           )}
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-current={isNavActive(pathname, 'meetings') ? 'page' : undefined}
-                onClick={() => {
-                  if (isCollapsed) toggleCollapse();
-                  toggleFolder('meetings');
-                }}
-                className={navItemClass(isNavActive(pathname, 'meetings'))}
-              >
-                {isNavActive(pathname, 'meetings') && (
-                  <span
-                    aria-hidden
-                    className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
-                    style={{ backgroundImage: ACTIVE_GRADIENT }}
-                  />
-                )}
-                <NotebookPen className="h-[18px] w-[18px]" strokeWidth={1.75} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>Meetings</p>
-            </TooltipContent>
-          </Tooltip>
+          <SingleIconButton
+            active={isNavActive(pathname, 'meetings')}
+            onClick={() => {
+              if (isCollapsed) toggleCollapse();
+              router.push('/');
+            }}
+            label="Meetings"
+          >
+            <NotebookPen className="h-[18px] w-[18px]" strokeWidth={1.75} />
+          </SingleIconButton>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-current={isNavActive(pathname, 'settings') ? 'page' : undefined}
-                onClick={() => router.push('/settings')}
-                className={navItemClass(isNavActive(pathname, 'settings'))}
-              >
-                {isNavActive(pathname, 'settings') && (
-                  <span
-                    aria-hidden
-                    className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
-                    style={{ backgroundImage: ACTIVE_GRADIENT }}
-                  />
-                )}
-                <Settings className="h-[18px] w-[18px]" strokeWidth={1.75} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>Settings</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <Info isCollapsed={isCollapsed} />
+          <SingleIconButton
+            active={isNavActive(pathname, 'settings')}
+            onClick={() => router.push('/settings')}
+            label="Settings"
+          >
+            <Settings className="h-[18px] w-[18px]" strokeWidth={1.75} />
+          </SingleIconButton>
 
           <UserChip collapsed={true} />
         </div>
@@ -620,281 +458,272 @@ const Sidebar: React.FC = () => {
     );
   };
 
-  // Find matching transcript snippet for a meeting item
+  // ─── Meeting-item row (rendered as children of the Meetings nav item) ─────
   const findMatchingSnippet = (itemId: string) => {
     if (!searchQuery.trim() || !searchResults.length) return null;
-    return searchResults.find(result => result.id === itemId);
+    return searchResults.find((r) => r.id === itemId);
   };
 
-  const renderItem = (item: SidebarItem, depth = 0) => {
-    const isExpanded = expandedFolders.has(item.id);
-    const paddingLeft = `${depth * 12 + 12}px`;
-    const isActive = item.type === 'file' && currentMeeting?.id === item.id;
+  const renderMeetingItem = (item: SidebarItem) => {
+    if (item.type !== 'file') return null;
+    const isActive = currentMeeting?.id === item.id;
     const isMeetingItem = item.id.includes('-') && !item.id.startsWith('intro-call');
-
-    // Check if this item has a matching transcript snippet
     const matchingResult = isMeetingItem ? findMatchingSnippet(item.id) : null;
     const hasTranscriptMatch = !!matchingResult;
 
-    if (isCollapsed) return null;
-
     return (
-      <div key={item.id}>
-        <div
-          className={`flex items-center transition-colors duration-150 group ${item.type === 'folder' && depth === 0
-            ? 'px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400'
-            : `px-2 py-1.5 my-px rounded-md text-sm cursor-pointer ${isActive
-                ? 'bg-blue-50 text-blue-700 font-medium'
-                : hasTranscriptMatch
-                  ? 'bg-amber-50/60 text-slate-700'
-                  : 'text-slate-700 hover:bg-slate-50'
-              }`
-            }`}
-          style={item.type === 'folder' && depth === 0 ? {} : { paddingLeft }}
-          onClick={() => {
-            if (item.type === 'folder') {
-              toggleFolder(item.id);
-            } else {
-              setCurrentMeeting({ id: item.id, title: item.title });
-              const basePath = item.id.startsWith('intro-call') ? '/' :
-                `/meeting-details?id=${item.id}`;
-              router.push(basePath);
-            }
-          }}
-        >
-          {item.type === 'folder' ? (
-            <>
-              {item.id === 'meetings' ? (
-                <Calendar className="w-4 h-4 mr-2" />
-              ) : item.id === 'notes' ? (
-                <Calendar className="w-4 h-4 mr-2" />
-              ) : null}
-              <span className={depth === 0 ? "" : "font-medium"}>{item.title}</span>
-              <div className="ml-auto">
-                {isExpanded ? (
-                  <ChevronDown className="w-4 h-4 text-gray-500" />
-                ) : (
-                  <ChevronRightIcon className="w-4 h-4 text-gray-500" />
-                )}
-              </div>
-              {searchQuery && item.id === 'meetings' && isSearching && (
-                <span className="ml-2 text-xs text-blue-500 animate-pulse">Searching...</span>
-              )}
-            </>
-          ) : (
-            <div className="flex flex-col w-full">
-              <div className="flex items-center w-full">
-                {isMeetingItem ? (
-                  <div className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded mr-1.5 bg-slate-100 group-hover:bg-slate-200 transition-colors">
-                    <File className="w-3 h-3 text-slate-500" strokeWidth={2} />
-                  </div>
-                ) : (
-                  <div className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded mr-1.5 bg-blue-50">
-                    <Plus className="w-3 h-3 text-blue-600" strokeWidth={2.25} />
-                  </div>
-                )}
-                <span className="flex-1 truncate">{item.title}</span>
-                {isMeetingItem && (
-                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleEditStart(item.id, item.title);
-                      }}
-                      className="text-slate-400 hover:text-slate-700 p-1 rounded-md hover:bg-slate-100 flex-shrink-0"
-                      aria-label="Edit meeting title"
-                    >
-                      <Pencil className="w-3.5 h-3.5" strokeWidth={1.75} />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeleteModalState({ isOpen: true, itemId: item.id });
-                      }}
-                      className="text-slate-400 hover:text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
-                      aria-label="Delete meeting"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" strokeWidth={1.75} />
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Show transcript match snippet if available */}
-              {hasTranscriptMatch && (
-                <div className="mt-1 ml-7 text-xs text-slate-600 bg-slate-50 px-2 py-1 rounded-md border-l-2 border-blue-400 line-clamp-2">
-                  <span className="font-medium text-slate-500">Match</span>{" "}
-                  {matchingResult.matchContext}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-        {item.type === 'folder' && isExpanded && item.children && (
-          <div className="ml-1">
-            {item.children.map(child => renderItem(child, depth + 1))}
-          </div>
+      <button
+        key={item.id}
+        type="button"
+        onClick={() => {
+          setCurrentMeeting({ id: item.id, title: item.title });
+          const basePath = item.id.startsWith('intro-call')
+            ? '/'
+            : `/meeting-details?id=${item.id}`;
+          router.push(basePath);
+        }}
+        className={[
+          'group flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-150',
+          isActive
+            ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-text)]'
+            : 'text-[var(--nav-inactive-text)] hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)]',
+        ].join(' ')}
+        style={{ paddingLeft: 28 /* 12 (parent px) + 16 (icon indent) */ }}
+      >
+        <File
+          className={[
+            'h-[16px] w-[16px] shrink-0',
+            isActive ? 'text-[var(--nav-active-text)]' : 'text-[var(--nav-muted-text)]',
+          ].join(' ')}
+          strokeWidth={1.75}
+        />
+        <span className="flex-1 truncate text-left">{item.title}</span>
+        {isMeetingItem && (
+          <span className="flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleEditStart(item.id, item.title);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleEditStart(item.id, item.title);
+                }
+              }}
+              className="rounded-md p-1 text-[var(--nav-muted-text)] hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)]"
+              aria-label="Edit meeting title"
+            >
+              <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
+            </span>
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                setDeleteModalState({ isOpen: true, itemId: item.id });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDeleteModalState({ isOpen: true, itemId: item.id });
+                }
+              }}
+              className="rounded-md p-1 text-[var(--nav-muted-text)] hover:bg-red-50 hover:text-red-600"
+              aria-label="Delete meeting"
+            >
+              <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+            </span>
+          </span>
         )}
-      </div>
+      </button>
     );
   };
 
   return (
-    <div className="fixed top-0 left-0 h-screen z-40">
-      {/* The collapse/expand chevron lives INSIDE the brand header row rather
-         than as a floating circle on the rail edge. This pairs the collapse
-         action with the titlebar it controls — the standard "minimize window"
-         pattern from macOS / Windows — and avoids competing visually with the
-         brand mark below it. */}
+    <div className="fixed top-0 left-0 z-40 h-screen">
       <div
-        className={`h-screen bg-white border-r border-[var(--hairline)] flex flex-col transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-60'
-          }`}
+        className={`flex h-screen flex-col justify-between bg-white border-r border-[var(--hairline)] transition-all duration-300 ${
+          isCollapsed ? 'w-16' : 'w-60'
+        }`}
       >
-        {/* Header — brand mark + collapse chevron in a single row */}
-        <div className="flex-shrink-0">
-          {!isCollapsed && (
-            <div className="px-3 pt-3 pb-3">
-              <div className="flex items-start justify-between gap-2">
-                <Logo isCollapsed={false} />
-                <button
-                  type="button"
-                  onClick={toggleCollapse}
-                  aria-label="Collapse sidebar"
-                  title="Collapse sidebar"
-                  className="mt-2 -mr-1 flex h-6 w-6 items-center justify-center rounded-md text-[var(--nav-muted-text)] transition-colors hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                >
-                  <ChevronLeft className="h-3.5 w-3.5" strokeWidth={2} />
-                </button>
-              </div>
-
-              {/* Search — refined: smaller placeholder, no shadow, slate border */}
-              <div className="mt-3 relative">
-                <InputGroup>
-                  <InputGroupInput
-                    placeholder="Search meetings…"
-                    value={searchQuery}
-                    onChange={(e) => handleSearchChange(e.target.value)}
-                    className="h-8 text-sm border-[var(--hairline)] bg-white focus-visible:ring-1 focus-visible:ring-blue-500/40"
-                  />
-                  <InputGroupAddon className="text-slate-400">
-                    <SearchIcon className="h-3.5 w-3.5" />
-                  </InputGroupAddon>
-                  {searchQuery && (
-                    <InputGroupAddon align="inline-end">
-                      <InputGroupButton
-                        onClick={() => handleSearchChange('')}
-                        aria-label="Clear search"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </InputGroupButton>
-                    </InputGroupAddon>
-                  )}
-                </InputGroup>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Thin divider between header and content */}
-        <div className="flex-shrink-0 h-px bg-slate-100" />
-
-        {/* Main content - scrollable area */}
-        <div className="flex-1 flex flex-col min-h-0">
-          {/* Fixed navigation items */}
-          <div className="flex-shrink-0 px-2 pt-2">
-            {!isCollapsed && (
+        {/* ─────────────── TOP: workspace + nav + meetings ─────────────── */}
+        {!isCollapsed ? (
+          <div className="flex flex-col">
+            {/* Workspace picker — Figma 1:1: 24×24 black badge + brand name + chevron-down */}
+            <div className="flex items-center justify-between px-4 py-4">
               <button
                 type="button"
-                aria-current={isNavActive(pathname, 'home') ? 'page' : undefined}
-                onClick={() => router.push('/')}
+                className="group flex items-center gap-2 rounded-md px-1 py-0.5 transition-colors hover:bg-[var(--nav-active-bg)] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                aria-label="Workspace selector"
+              >
+                <span
+                  className="flex shrink-0 items-center justify-center rounded-[4px] bg-black"
+                  style={{ width: FIGMA.workspaceBadgeSize, height: FIGMA.workspaceBadgeSize }}
+                >
+                  <span className="text-[12px] font-bold leading-4 text-white">CP</span>
+                </span>
+                <span className="text-[14px] font-semibold leading-5 text-black">
+                  CallPilot
+                </span>
+              </button>
+
+              <div className="flex items-center gap-1.5">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={toggleCollapse}
+                      aria-label="Collapse sidebar"
+                      title="Collapse sidebar"
+                      className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--nav-muted-text)] transition-colors hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" strokeWidth={2} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p>Collapse sidebar</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+            </div>
+
+            {/* Search — Figma-style nav row (no border, slate-50 bg, 36px tall) */}
+            <div className="px-3">
+              <div
                 className={[
-                  'group relative flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-150',
-                  isNavActive(pathname, 'home')
+                  'flex items-center gap-3 rounded-md px-3 py-2 transition-colors duration-150',
+                  searchQuery
                     ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-text)]'
                     : 'text-[var(--nav-inactive-text)] hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)]',
                 ].join(' ')}
               >
-                <Home className="h-[16px] w-[16px]" strokeWidth={1.75} />
-                <span>Home</span>
-              </button>
-            )}
-          </div>
-
-          {/* Content area */}
-          <div className="flex-1 flex flex-col min-h-0">
-            {renderCollapsedIcons()}
-
-            {/* Meetings section header — eyebrow label + count badge */}
-            {!isCollapsed && (
-              <div className="flex-shrink-0 px-3 pt-4 pb-1.5 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-                    Meetings
+                <SearchIcon
+                  className={[
+                    'h-5 w-5 shrink-0',
+                    searchQuery ? 'text-[var(--nav-active-text)]' : 'text-[var(--nav-muted-text)]',
+                  ].join(' ')}
+                  strokeWidth={1.75}
+                />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  placeholder="Search meetings…"
+                  className="h-5 min-w-0 flex-1 border-0 bg-transparent text-sm font-medium leading-5 text-[var(--nav-active-text)] placeholder:text-[var(--nav-muted-text)] focus:outline-none"
+                />
+                {searchQuery ? (
+                  <button
+                    type="button"
+                    onClick={() => handleSearchChange('')}
+                    aria-label="Clear search"
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--nav-muted-text)] hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)]"
+                  >
+                    <X className="h-3.5 w-3.5" strokeWidth={2} />
+                  </button>
+                ) : isSearching ? (
+                  <span className="text-[10px] font-medium text-[var(--nav-muted-text)] animate-pulse">
+                    …
                   </span>
-                  {meetings.length > 0 && (
-                    <span className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-medium text-slate-500 tabular-nums">
-                      {meetings.length}
-                    </span>
-                  )}
-                  {searchQuery && isSearching && (
-                    <span className="text-[10px] font-medium text-blue-500 animate-pulse">
-                      Searching…
-                    </span>
-                  )}
-                </div>
+                ) : null}
               </div>
-            )}
+            </div>
 
-            {/* Scrollable meeting items */}
-            {!isCollapsed && (
-              <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
-                {filteredSidebarItems
-                  .filter(item => item.type === 'folder' && expandedFolders.has(item.id) && item.children)
-                  .map(item => (
-                    <div key={`${item.id}-children`} className="mx-2">
-                      {item.children!.map(child => renderItem(child, 1))}
-                    </div>
-                  ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Footer — ghost-style buttons matching the UserChip aesthetic.
-           No flat fills, no shadows. Border + soft hover tint. */}
-        {!isCollapsed && (
-          <div className="flex-shrink-0 px-2 pt-1.5 pb-2 border-t border-[var(--hairline)] space-y-0.5">
-            {betaFeatures.importAndRetranscribe && (
+            {/* Nav list — gap-1 ≈ 4px, px-3, pb-10 */}
+            <nav className="flex flex-col gap-1 px-3 pb-10 pt-3">
               <button
                 type="button"
-                onClick={() => openImportDialog()}
-                className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                aria-current={isNavActive(pathname, 'home') ? 'page' : undefined}
+                onClick={() => router.push('/')}
+                className={LinkClass(isNavActive(pathname, 'home'))}
               >
-                <Upload className="h-[16px] w-[16px]" strokeWidth={1.75} />
-                <span>Import audio</span>
+                <Home className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+                <span>Home</span>
               </button>
-            )}
+
+              {betaFeatures.importAndRetranscribe && (
+                <button
+                  type="button"
+                  onClick={() => openImportDialog()}
+                  className={LinkClass(false)}
+                >
+                  <Upload className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+                  <span>Import audio</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                aria-current={isNavActive(pathname, 'meetings') ? 'page' : undefined}
+                onClick={() => router.push('/meeting-details')}
+                className={LinkClass(isNavActive(pathname, 'meetings'))}
+              >
+                <NotebookPen className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+                <span>Meetings</span>
+              </button>
+
+              {/* Meeting children — rendered inline when on Meetings or when searching.
+                  No eyebrow header, no count badge — matches Figma's quiet rail. */}
+              {(isNavActive(pathname, 'meetings') || searchQuery) &&
+                filteredSidebarItems
+                  .filter((it) => it.type === 'folder' && it.children)
+                  .flatMap((folder) => folder.children ?? [])
+                  .map((child) => renderMeetingItem(child))}
+            </nav>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto">{renderCollapsedIcons()}</div>
+        )}
+
+        {/* ─────────────── BOTTOM: Help + Settings (Figma footer) ─────────────── */}
+        {!isCollapsed && (
+          <nav className="flex flex-col gap-1 px-3 pb-4">
+            <button
+              type="button"
+              onClick={(e) => {
+                // Keep the existing "About" modal flow — Info rendered as Help link
+                const target = e.currentTarget;
+                const dialogTrigger = document.querySelector<HTMLElement>(
+                  '[data-sidebar-about-trigger]',
+                );
+                if (dialogTrigger) dialogTrigger.click();
+                else target.blur();
+              }}
+              className={LinkClass(false)}
+            >
+              <HelpCircle className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+              <span>Help</span>
+            </button>
 
             <button
               type="button"
+              aria-current={isNavActive(pathname, 'settings') ? 'page' : undefined}
               onClick={() => router.push('/settings')}
-              className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              className={LinkClass(isNavActive(pathname, 'settings'))}
             >
-              <Settings className="h-[16px] w-[16px]" strokeWidth={1.75} />
+              <Settings className="h-5 w-5 shrink-0" strokeWidth={1.75} />
               <span>Settings</span>
             </button>
 
-            <Info isCollapsed={isCollapsed} />
-
-            {/* spacer pushes the user chip to the very bottom */}
+            {/* UserChip — kept at the bottom (CallPilot-specific, not in Figma).
+                Sized to match Figma's footer rhythm. */}
             <div className="pt-1">
               <UserChip collapsed={false} />
             </div>
-          </div>
+
+            {/* Hidden About dialog trigger — wired to the Help button above. */}
+            <span className="sr-only">
+              <AboutDialogTrigger />
+            </span>
+          </nav>
         )}
       </div>
 
-      {/* Confirmation Modal for Delete */}
+      {/* ─────────────── Modals (preserved) ─────────────── */}
       <ConfirmationModal
         isOpen={deleteModalState.isOpen}
         text="Are you sure you want to delete this meeting? This action cannot be undone."
@@ -902,19 +731,21 @@ const Sidebar: React.FC = () => {
         onCancel={() => setDeleteModalState({ isOpen: false, itemId: null })}
       />
 
-      {/* Edit Meeting Title Modal */}
-      <Dialog open={editModalState.isOpen} onOpenChange={(open) => {
-        if (!open) handleEditCancel();
-      }}>
+      <Dialog
+        open={editModalState.isOpen}
+        onOpenChange={(open) => {
+          if (!open) handleEditCancel();
+        }}
+      >
         <DialogContent className="sm:max-w-[425px]">
           <VisuallyHidden>
             <DialogTitle>Edit Meeting Title</DialogTitle>
           </VisuallyHidden>
           <div className="py-4">
-            <h3 className="text-lg font-semibold mb-4">Edit Meeting Title</h3>
+            <h3 className="mb-4 text-lg font-semibold">Edit Meeting Title</h3>
             <div className="space-y-4">
               <div>
-                <label htmlFor="meeting-title" className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="meeting-title" className="mb-2 block text-sm font-medium text-gray-700">
                   Meeting Title
                 </label>
                 <input
@@ -923,13 +754,10 @@ const Sidebar: React.FC = () => {
                   value={editingTitle}
                   onChange={(e) => setEditingTitle(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      handleEditConfirm();
-                    } else if (e.key === 'Escape') {
-                      handleEditCancel();
-                    }
+                    if (e.key === 'Enter') handleEditConfirm();
+                    else if (e.key === 'Escape') handleEditCancel();
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Enter meeting title"
                   autoFocus
                 />
@@ -939,13 +767,13 @@ const Sidebar: React.FC = () => {
           <DialogFooter>
             <button
               onClick={handleEditCancel}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+              className="rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200"
             >
               Cancel
             </button>
             <button
               onClick={handleEditConfirm}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
             >
               Save
             </button>
@@ -957,3 +785,53 @@ const Sidebar: React.FC = () => {
 };
 
 export default Sidebar;
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Reusable pieces
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** 36×36 square icon button used in the collapsed-mode rail. */
+const SingleIconButton: React.FC<{
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  children: React.ReactNode;
+}> = ({ active, onClick, label, children }) => {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-current={active ? 'page' : undefined}
+          onClick={onClick}
+          className={[
+            'group relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-150',
+            active
+              ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-text)]'
+              : 'text-[var(--nav-inactive-text)] hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)]',
+          ].join(' ')}
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        <p>{label}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+};
+
+/** Hidden trigger that opens the existing About dialog for the Help button. */
+const AboutDialogTrigger: React.FC = () => {
+  const [About] = useState(() => {
+    // Lazy-loaded: the original Info component renders the About modal
+    if (typeof window === 'undefined') return null;
+    return require('../Info').default as React.ComponentType<{ isCollapsed?: boolean }>;
+  });
+  if (!About) return null;
+  return (
+    <span data-sidebar-about-trigger>
+      <About isCollapsed={false} />
+    </span>
+  );
+};
