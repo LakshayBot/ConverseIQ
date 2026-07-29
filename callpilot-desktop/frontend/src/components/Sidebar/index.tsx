@@ -487,13 +487,15 @@ const Sidebar: React.FC = () => {
     // Each nav item is a 36×36 square centred in the 64px rail.
     // Active state = 3px-wide gradient bar on the left edge + soft
     // background tint (no chunky fill). Inactive = transparent,
-    // hover = slate-50 tint.
+    // Each collapsed nav item is a 36×36 square centred in the 64px rail.
+    // Figma palette: active = --nav-active-bg + --nav-active-text; inactive
+    // = --nav-inactive-text with a soft hover bg.
     const navItemClass = (active: boolean) =>
       [
-        'group relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors duration-150',
+        'group relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-150',
         active
-          ? 'bg-slate-50 text-slate-900'
-          : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900',
+          ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-text)]'
+          : 'text-[var(--nav-inactive-text)] hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)]',
       ].join(' ');
 
     return (
@@ -510,7 +512,7 @@ const Sidebar: React.FC = () => {
                   onClick={toggleCollapse}
                   aria-label="Expand sidebar"
                   title="Expand sidebar"
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--nav-muted-text)] transition-colors hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 >
                   <ChevronRightIcon className="h-3.5 w-3.5" strokeWidth={2} />
                 </button>
@@ -745,7 +747,7 @@ const Sidebar: React.FC = () => {
          pattern from macOS / Windows — and avoids competing visually with the
          brand mark below it. */}
       <div
-        className={`h-screen bg-white border-r border-slate-200 flex flex-col transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-64'
+        className={`h-screen bg-white border-r border-[var(--hairline)] flex flex-col transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-60'
           }`}
       >
         {/* Header — brand mark + collapse chevron in a single row */}
@@ -759,7 +761,7 @@ const Sidebar: React.FC = () => {
                   onClick={toggleCollapse}
                   aria-label="Collapse sidebar"
                   title="Collapse sidebar"
-                  className="mt-2 -mr-1 flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  className="mt-2 -mr-1 flex h-6 w-6 items-center justify-center rounded-md text-[var(--nav-muted-text)] transition-colors hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 >
                   <ChevronLeft className="h-3.5 w-3.5" strokeWidth={2} />
                 </button>
@@ -772,7 +774,7 @@ const Sidebar: React.FC = () => {
                     placeholder="Search meetings…"
                     value={searchQuery}
                     onChange={(e) => handleSearchChange(e.target.value)}
-                    className="h-8 text-sm border-slate-200 bg-white focus-visible:ring-1 focus-visible:ring-blue-500/40"
+                    className="h-8 text-sm border-[var(--hairline)] bg-white focus-visible:ring-1 focus-visible:ring-blue-500/40"
                   />
                   <InputGroupAddon className="text-slate-400">
                     <SearchIcon className="h-3.5 w-3.5" />
@@ -806,19 +808,12 @@ const Sidebar: React.FC = () => {
                 aria-current={isNavActive(pathname, 'home') ? 'page' : undefined}
                 onClick={() => router.push('/')}
                 className={[
-                  'group relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors duration-150',
+                  'group relative flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-150',
                   isNavActive(pathname, 'home')
-                    ? 'bg-slate-50 text-slate-900'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
+                    ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-text)]'
+                    : 'text-[var(--nav-inactive-text)] hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)]',
                 ].join(' ')}
               >
-                {isNavActive(pathname, 'home') && (
-                  <span
-                    aria-hidden
-                    className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full"
-                    style={{ backgroundImage: ACTIVE_GRADIENT }}
-                  />
-                )}
                 <Home className="h-[16px] w-[16px]" strokeWidth={1.75} />
                 <span>Home</span>
               </button>
@@ -868,7 +863,7 @@ const Sidebar: React.FC = () => {
         {/* Footer — ghost-style buttons matching the UserChip aesthetic.
            No flat fills, no shadows. Border + soft hover tint. */}
         {!isCollapsed && (
-          <div className="flex-shrink-0 px-2 pt-1.5 pb-2 border-t border-slate-100 space-y-0.5">
+          <div className="flex-shrink-0 px-2 pt-1.5 pb-2 border-t border-[var(--hairline)] space-y-0.5">
             {betaFeatures.importAndRetranscribe && (
               <button
                 type="button"
