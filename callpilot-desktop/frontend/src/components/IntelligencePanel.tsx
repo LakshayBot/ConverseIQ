@@ -36,9 +36,9 @@ const TYPE_META: Record<IntelligenceCard['type'], { icon: React.ReactNode; label
 };
 
 const SEVERITY_BORDER: Record<IntelligenceCard['severity'], string> = {
-  high: 'border-l-red-500',
-  medium: 'border-l-yellow-500',
-  low: 'border-l-blue-500',
+  high: 'border-l-[var(--opaline-error)]',
+  medium: 'border-l-[var(--opaline-primary)]',
+  low: 'border-l-[var(--opaline-secondary)]',
 };
 
 /**
@@ -171,21 +171,21 @@ const IntelligenceCardItem: React.FC<{ card: IntelligenceCard }> = ({ card }) =>
 
   return (
     <div
-      className={`bg-white rounded-md border border-[var(--grain-ink-200)] border-l-4 ${SEVERITY_BORDER[card.severity]} overflow-hidden`}
+      className={`bg-[var(--opaline-surface-container-lowest)] rounded-md border border-[var(--opaline-outline-variant)] border-l-4 ${SEVERITY_BORDER[card.severity]} overflow-hidden`}
     >
       <div className="p-3">
-        <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[var(--grain-ink-500)]">
-          <span className="text-[var(--grain-ink-700)]">{meta.icon}</span>
+        <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[var(--opaline-on-surface-variant)]">
+          <span className="text-[var(--opaline-on-surface-variant)]">{meta.icon}</span>
           <span>{meta.label}</span>
-          <span className="ml-auto text-[10px] font-semibold uppercase text-[var(--grain-ink-500)]">{card.severity}</span>
+          <span className="ml-auto text-[10px] font-semibold uppercase text-[var(--opaline-on-surface-variant)]">{card.severity}</span>
         </div>
-        <div className="mt-1 text-sm font-semibold text-[var(--grain-ink-900)]">{card.title}</div>
-        {card.body && <div className="mt-1 text-sm text-[var(--grain-ink-700)] whitespace-pre-wrap">{card.body}</div>}
+        <div className="mt-1 text-sm font-semibold text-[var(--opaline-on-surface)]">{card.title}</div>
+        {card.body && <div className="mt-1 text-sm text-[var(--opaline-on-surface-variant)] whitespace-pre-wrap">{card.body}</div>}
         {hasChunks && (
           <button
             type="button"
             onClick={() => setOpen((o) => !o)}
-            className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+            className="mt-2 inline-flex items-center gap-1 text-xs text-[var(--opaline-primary)] hover:underline"
           >
             {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
             View sources ({card.chunks.length})
@@ -194,7 +194,7 @@ const IntelligenceCardItem: React.FC<{ card: IntelligenceCard }> = ({ card }) =>
         {open && hasChunks && (
           <ul className="mt-2 space-y-2">
             {card.chunks.map((chunk, i) => (
-              <li key={i} className="text-xs text-[var(--grain-ink-500)] border-l-2 border-[var(--grain-ink-200)] pl-2">
+              <li key={i} className="text-xs text-[var(--opaline-on-surface-variant)] border-l-2 border-[var(--opaline-outline-variant)] pl-2">
                 {chunk}
               </li>
             ))}

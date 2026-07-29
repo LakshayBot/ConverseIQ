@@ -468,7 +468,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                         <button
                           onClick={handleToggleRecording}
                           disabled={isStarting || isProcessing || isValidatingModel}
-                          className={`w-12 h-12 flex items-center justify-center ${isStarting || isProcessing || isValidatingModel ? 'bg-gray-400' : 'bg-red-500 hover:bg-red-600'
+                          className={`w-12 h-12 flex items-center justify-center ${isStarting || isProcessing || isValidatingModel ? 'bg-[var(--opaline-on-surface-variant)]' : 'bg-[var(--opaline-primary)] hover:bg-[var(--opaline-on-primary-container)]'
                             } rounded-full text-white transition-colors relative`}
                         >
                           {isValidatingModel ? (
@@ -524,7 +524,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                               handleStopRecording();
                             }}
                             disabled={isStopping || isPausing || isResuming}
-                            className={`w-10 h-10 flex items-center justify-center ${isStopping || isPausing || isResuming ? 'bg-gray-400' : 'bg-red-500 hover:bg-red-600'
+                            className={`w-10 h-10 flex items-center justify-center ${isStopping || isPausing || isResuming ? 'bg-[var(--opaline-on-surface-variant)]' : 'bg-[var(--opaline-primary)] hover:bg-[var(--opaline-on-primary-container)]'
                               } rounded-full text-white transition-colors relative`}
                           >
                             <Square size={16} />
@@ -546,7 +546,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                     {barHeights.map((height, index) => (
                       <div
                         key={index}
-                        className={`w-1 rounded-full transition-all duration-200 ${isPaused ? 'bg-orange-500' : 'bg-red-500'
+                        className={`w-1 rounded-full transition-all duration-200 ${isPaused ? 'bg-[var(--opaline-primary)]' : 'bg-[var(--opaline-primary)]'
                           }`}
                         style={{
                           height: isRecording && !isPaused ? height : '4px',

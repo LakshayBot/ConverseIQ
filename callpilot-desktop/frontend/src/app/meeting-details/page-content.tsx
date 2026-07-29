@@ -178,7 +178,7 @@ const PageContent: React.FC<PageContentProps> = ({
              when they're just reading past content. */}
           <div className="flex-1 min-w-0 overflow-y-auto">
             <div className="max-w-3xl mx-auto p-6">
-              <div className="bg-white border border-gray-200 rounded-md p-4">
+              <div className="bg-[var(--opaline-surface-container-lowest)] border border-[var(--opaline-outline-variant)] rounded-xl p-4">
                 <VirtualizedTranscriptView
                   segments={segments ?? []}
                   isRecording={false}
@@ -202,15 +202,15 @@ const PageContent: React.FC<PageContentProps> = ({
              IntelligenceCards. Mirrors the home-page IntelligencePanel so the
              visual treatment is identical. Hidden on small screens to keep
              the transcript readable. */}
-          <aside className="hidden xl:flex w-[360px] flex-col gap-3 border-l border-gray-200 bg-gray-50 p-4 overflow-y-auto">
+          <aside className="hidden xl:flex w-[360px] flex-col gap-3 border-l border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)] p-4 overflow-y-auto">
             <div className="flex items-baseline justify-between">
-              <h2 className="text-sm font-semibold text-gray-700">Intelligence</h2>
-              <span className="text-[10px] uppercase tracking-wide text-gray-400">
+              <h2 className="text-label-md text-[var(--opaline-on-surface)]">Intelligence</h2>
+              <span className="text-[10px] uppercase tracking-wide text-[var(--opaline-on-surface-variant)]">
                 {pastCards.length > 0 ? `${pastCards.length} card${pastCards.length === 1 ? '' : 's'}` : 'past'}
               </span>
             </div>
             {cardsLoading ? (
-              <div className="flex items-center justify-center py-8 text-xs text-gray-400">
+              <div className="flex items-center justify-center py-8 text-xs text-[var(--opaline-on-surface-variant)]">
                 <LoaderIcon className="animate-spin size-4 mr-2" />
                 Loading past intelligence…
               </div>

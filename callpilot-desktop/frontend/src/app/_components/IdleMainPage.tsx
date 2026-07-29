@@ -177,7 +177,7 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
 
         {/* ── 3. Recent meetings + Knowledge bank ───────────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <section className="rounded-lg border border-[var(--grain-ink-200)] bg-white p-5">
+          <section className="rounded-2xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-6">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)]">
                 Recent meetings
@@ -224,34 +224,33 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
             )}
           </section>
 
-          <section className="rounded-lg border border-[var(--grain-ink-200)] bg-white p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)]">
+          <section className="rounded-2xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-label-sm text-[var(--opaline-on-surface-variant)]">
                 Knowledge bank
               </h2>
-              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--grain-rep-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--grain-rep)]">
-                <span className="h-1 w-1 rounded-full bg-[var(--grain-rep)]" aria-hidden />
+              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--opaline-primary-container)] px-2 py-0.5 text-[10px] font-semibold text-[var(--opaline-on-primary-container)]">
+                <span className="h-1 w-1 rounded-full bg-[var(--opaline-primary)]" aria-hidden />
                 Ready
               </span>
             </div>
             <div className="space-y-3">
               <div className="flex items-baseline justify-between">
-                <span className="text-xs text-[var(--grain-ink-500)]">Indexed documents</span>
-                <span className="text-2xl font-semibold tabular-nums text-[var(--grain-ink-900)]">
-                  {/* placeholder until /api/v1/knowledge/stats is wired */}
-                  —
+                <span className="text-body-sm text-[var(--opaline-on-surface-variant)]">Indexed documents</span>
+                <span className="text-headline-md tabular-nums text-[var(--opaline-on-surface)]">
+                  0
                 </span>
               </div>
               <div className="flex items-baseline justify-between">
-                <span className="text-xs text-[var(--grain-ink-500)]">Coverage</span>
-                <span className="font-mono text-xs text-[var(--grain-ink-700)]">
+                <span className="text-body-sm text-[var(--opaline-on-surface-variant)]">Coverage</span>
+                <span className="text-body-sm text-[var(--opaline-on-surface-variant)]">
                   Pricing · Competition · Objections
                 </span>
               </div>
               <button
                 type="button"
                 onClick={() => router.push('/settings')}
-                className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-[var(--grain-ink-500)] hover:text-[var(--grain-ink-900)] transition-colors"
+                className="mt-2 inline-flex items-center gap-1 text-label-sm text-[var(--opaline-primary)] hover:text-[var(--opaline-on-primary-container)] transition-colors"
               >
                 Manage knowledge sources
                 <ArrowRight className="h-3 w-3" strokeWidth={2} />
@@ -315,7 +314,7 @@ interface StepProps {
 }
 
 const Step: React.FC<StepProps> = ({ n, icon, title, body }) => (
-  <div className="rounded-lg border border-[var(--grain-ink-200)] bg-white p-4">
+  <div className="rounded-2xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-5">
     <div className="flex items-baseline gap-2 mb-2">
       <span className="font-mono text-[10px] text-[var(--grain-ink-500)] tabular-nums">{n}</span>
       <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-[var(--grain-paper-2)] text-[var(--grain-ink-700)]">

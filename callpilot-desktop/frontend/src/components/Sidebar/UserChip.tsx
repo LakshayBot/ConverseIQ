@@ -16,13 +16,17 @@ import { LogOut, ChevronUp } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useAuth } from '@/contexts/AuthContext';
 
+// Opaline-tinted avatar palettes. The first entry is the primary brand
+// gradient (terracotta → on-primary-container dark). The alternates
+// are chosen from the Opaline tonal vocabulary so no avatar ever clashes
+// with the muted terracotta theme.
 const AVATAR_PALETTES: ReadonlyArray<readonly [string, string]> = [
-  ['#3b82f6', '#8b5cf6'], // blue → violet  (default brand-ish)
-  ['#6366f1', '#ec4899'], // indigo → pink
-  ['#0ea5e9', '#10b981'], // sky → emerald
-  ['#f59e0b', '#ef4444'], // amber → red
-  ['#14b8a6', '#6366f1'], // teal → indigo
-  ['#a855f7', '#f43f5e'], // violet → rose
+  ['#93483c', '#64241b'], // primary → on-primary-container (brand)
+  ['#e58a7b', '#93483c'], // primary-container → primary
+  ['#ffb4a7', '#763227'], // inverse-primary → on-primary-fixed-variant
+  ['#545f72', '#223144'], // secondary → inverse-surface
+  ['#bcc7dd', '#545f72'], // secondary-fixed-dim → secondary
+  ['#5b5f61', '#35393b'], // tertiary → on-tertiary-container
 ];
 
 function hashEmail(email: string): number {
