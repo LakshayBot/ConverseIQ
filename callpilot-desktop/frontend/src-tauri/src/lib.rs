@@ -648,6 +648,7 @@ pub fn run() {
             api::test_backend_connection,
             api::callpilot_test_connection,
             api::callpilot_api_request,
+            api::callpilot_api_upload,
             api::debug_backend_connection,
             api::open_external_url,
             api::set_callpilot_api_url,

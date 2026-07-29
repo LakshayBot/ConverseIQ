@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { ArrowLeft, Settings2, Mic, Database as DatabaseIcon, SparkleIcon, FlaskConical, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Settings2, Mic, Database as DatabaseIcon, SparkleIcon, FlaskConical, Library, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
 import { motion } from 'framer-motion';
@@ -10,6 +10,7 @@ import { RecordingSettings } from '@/components/RecordingSettings';
 import { PreferenceSettings } from '@/components/PreferenceSettings';
 import { BetaSettings } from '@/components/BetaSettings';
 import { CallPilotServerSettings } from '@/components/CallPilotServerSettings';
+import { KnowledgeUpload } from '@/components/KnowledgeUpload';
 import { useConfig } from '@/contexts/ConfigContext';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
@@ -19,6 +20,7 @@ const TABS = [
   { value: 'callpilot', label: 'CallPilot', icon: SparkleIcon },
   { value: 'recording', label: 'Recordings', icon: Mic },
   { value: 'Transcriptionmodels', label: 'Transcription', icon: DatabaseIcon },
+  { value: 'knowledge', label: 'Knowledge', icon: Library },
   { value: 'beta', label: 'Beta', icon: FlaskConical }
 ] as const;
 
@@ -123,6 +125,9 @@ export default function SettingsPage() {
                 transcriptModelConfig={transcriptModelConfig}
                 setTranscriptModelConfig={setTranscriptModelConfig}
               />
+            </TabsContent>
+            <TabsContent value="knowledge" className="mt-6">
+              <KnowledgeUpload />
             </TabsContent>
             <TabsContent value="beta" className="mt-6">
               <BetaSettings />

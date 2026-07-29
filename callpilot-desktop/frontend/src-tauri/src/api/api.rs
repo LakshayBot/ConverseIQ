@@ -1585,3 +1585,69 @@ pub async fn callpilot_api_request<R: Runtime>(
         }
     }
 }
+
+/// Multipart upload sibling of `callpilot_api_request`. The .NET
+/// `POST /api/v1/knowledge/upload` endpoint requires multipart/form-data
+/// (it reads `request.Form.Files[0]`), so the JSON proxy above can't
+/// carry it. The frontend reads the picked file via the existing
+/// `read_audio_file` Tauri command (Tauri extends the File API with
+/// `.path`), then sends the bytes here. The Rust side builds a real
+/// multipart body and forwards it to the .NET endpoint with the same
+/// auth + response handling as the JSON proxy.
+#[tauri::command]
+pub async fn callpilot_api_upload<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+    file_name: String,
+    content_type: String,
+    file_bytes: Vec<u8>,
+    auth_token: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let server_url = get_server_address(&app).await?;
+    let url = format!("{}{}", server_url.trim_end_matches('/'), path);
+    log_debug!("callpilot_api_upload {} ({} bytes)", url, file_bytes.len());
+
+    let part = reqwest::multipart::Part::bytes(file_bytes)
+        .file_name(file_name.clone())
+        .mime_str(&content_type)
+        .map_err(|e| format!("Invalid content type '{}': {}", content_type, e))?;
+    let form = reqwest::multipart::Form::new().part("file", part);
+
+    let client = reqwest::Client::new();
+    let mut request = client.post(&url).multipart(form);
+
+    if let Some(token) = auth_token {
+        if !token.is_empty() {
+            request = request.header("Authorization", format!("Bearer {}", token));
+        }
+    }
+
+    match request.timeout(std::time::Duration::from_secs(60)).send().await {
+        Ok(response) => {
+            let status = response.status().as_u16();
+            let text = response.text().await.unwrap_or_default();
+            if status >= 200 && status < 300 {
+                if text.is_empty() {
+                    Ok(serde_json::json!({ "ok": true, "status": status }))
+                } else {
+                    match serde_json::from_str(&text) {
+                        Ok(v) => Ok(v),
+                        Err(_) => Ok(serde_json::json!({ "data": text })),
+                    }
+                }
+            } else {
+                Err(format!("HTTP {}: {}", status, text))
+            }
+        }
+        Err(e) => {
+            let msg = if e.is_timeout() {
+                "Upload timed out".to_string()
+            } else if e.is_connect() {
+                format!("Could not connect to {}. Is the Docker container running?", server_url)
+            } else {
+                format!("Upload failed: {}", e)
+            };
+            Err(msg)
+        }
+    }
+}
