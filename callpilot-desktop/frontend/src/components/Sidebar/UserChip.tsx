@@ -10,6 +10,13 @@
 // The avatar uses a deterministic gradient derived from the email hash so
 // every account gets a stable, distinct colour without an uploaded avatar
 // or Gravatar hop. Letter glyph is the first character of the local-part.
+//
+// Popover surface: the default PopoverContent uses `bg-popover` which
+// isn't a Tailwind color in this project (the Opaline override only
+// exposed the tokens we actually use). Without an explicit background
+// the popover renders transparent. `bg-white` + a 1px hairline + a
+// soft shadow give the menu a clear opaque surface that matches the
+// rest of the sidebar.
 
 import React, { useMemo, useState } from 'react';
 import { LogOut, ChevronUp } from 'lucide-react';
@@ -28,6 +35,12 @@ const AVATAR_PALETTES: ReadonlyArray<readonly [string, string]> = [
   ['#bcc7dd', '#545f72'], // secondary-fixed-dim → secondary
   ['#5b5f61', '#35393b'], // tertiary → on-tertiary-container
 ];
+
+// Opaque surface for the popover. Centralised so the same treatment
+// applies to both collapsed and expanded popover surfaces.
+const POPOVER_SURFACE_CLASS =
+  'w-64 p-0 overflow-hidden rounded-md border border-[var(--opaline-outline-variant)] ' +
+  'bg-white shadow-md';
 
 function hashEmail(email: string): number {
   // FNV-1a — small, fast, stable across platforms.
@@ -70,7 +83,7 @@ export const UserChip: React.FC<UserChipProps> = ({ collapsed }) => {
             type="button"
             aria-label={email ? `Account: ${email}` : 'Account menu'}
             title={email || 'Account'}
-            className="group mx-auto mt-2 flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold text-white shadow-sm ring-1 ring-black/5 transition-transform hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="group mx-auto flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold text-white shadow-sm ring-1 ring-black/5 transition-transform hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             style={{
               backgroundImage: `linear-gradient(135deg, ${from}, ${to})`,
             }}
@@ -82,7 +95,7 @@ export const UserChip: React.FC<UserChipProps> = ({ collapsed }) => {
           side="right"
           align="end"
           sideOffset={8}
-          className="w-64 p-0 overflow-hidden"
+          className={POPOVER_SURFACE_CLASS}
         >
           <UserMenu email={email} initial={initial} from={from} to={to} onSignOut={logout} />
         </PopoverContent>
@@ -117,7 +130,7 @@ export const UserChip: React.FC<UserChipProps> = ({ collapsed }) => {
         side="top"
         align="start"
         sideOffset={8}
-        className="w-64 p-0 overflow-hidden"
+        className={POPOVER_SURFACE_CLASS}
       >
         <UserMenu email={email} initial={initial} from={from} to={to} onSignOut={logout} />
       </PopoverContent>
@@ -135,7 +148,7 @@ interface UserMenuProps {
 
 const UserMenu: React.FC<UserMenuProps> = ({ email, initial, from, to, onSignOut }) => {
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col bg-white">
       <div className="flex items-center gap-3 px-3 py-3">
         <span
           className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white shadow-sm ring-1 ring-black/5"

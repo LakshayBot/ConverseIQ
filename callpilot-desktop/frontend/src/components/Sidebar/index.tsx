@@ -451,8 +451,6 @@ const Sidebar: React.FC = () => {
           >
             <Settings className="h-[18px] w-[18px]" strokeWidth={1.75} />
           </SingleIconButton>
-
-          <UserChip collapsed={true} />
         </div>
       </TooltipProvider>
     );
@@ -679,48 +677,54 @@ const Sidebar: React.FC = () => {
           <div className="flex-1 overflow-y-auto">{renderCollapsedIcons()}</div>
         )}
 
-        {/* ─────────────── BOTTOM: Help + Settings (Figma footer) ─────────────── */}
-        {!isCollapsed && (
-          <nav className="flex flex-col gap-1 px-3 pb-4">
-            <button
-              type="button"
-              onClick={(e) => {
-                // Keep the existing "About" modal flow — Info rendered as Help link
-                const target = e.currentTarget;
-                const dialogTrigger = document.querySelector<HTMLElement>(
-                  '[data-sidebar-about-trigger]',
-                );
-                if (dialogTrigger) dialogTrigger.click();
-                else target.blur();
-              }}
-              className={LinkClass(false)}
-            >
-              <HelpCircle className="h-5 w-5 shrink-0" strokeWidth={1.75} />
-              <span>Help</span>
-            </button>
+        {/* ─────────────── BOTTOM: pinned footer (UserChip in both modes) ───────────────
+             The UserChip is rendered OUTSIDE the collapsed icon list so it stays
+             pinned to the very bottom of the rail in both collapsed and expanded
+             states. In collapsed mode the footer is just the avatar (centered in
+             the 64px rail); in expanded mode it also carries Help + Settings. */}
+        <div className="flex-shrink-0 border-t border-[var(--hairline)] px-2 py-2">
+          {isCollapsed ? (
+            <UserChip collapsed={true} />
+          ) : (
+            <nav className="flex flex-col gap-1">
+              <button
+                type="button"
+                onClick={(e) => {
+                  // Keep the existing "About" modal flow — Info rendered as Help link
+                  const target = e.currentTarget;
+                  const dialogTrigger = document.querySelector<HTMLElement>(
+                    '[data-sidebar-about-trigger]',
+                  );
+                  if (dialogTrigger) dialogTrigger.click();
+                  else target.blur();
+                }}
+                className={LinkClass(false)}
+              >
+                <HelpCircle className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+                <span>Help</span>
+              </button>
 
-            <button
-              type="button"
-              aria-current={isNavActive(pathname, 'settings') ? 'page' : undefined}
-              onClick={() => router.push('/settings')}
-              className={LinkClass(isNavActive(pathname, 'settings'))}
-            >
-              <Settings className="h-5 w-5 shrink-0" strokeWidth={1.75} />
-              <span>Settings</span>
-            </button>
+              <button
+                type="button"
+                aria-current={isNavActive(pathname, 'settings') ? 'page' : undefined}
+                onClick={() => router.push('/settings')}
+                className={LinkClass(isNavActive(pathname, 'settings'))}
+              >
+                <Settings className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+                <span>Settings</span>
+              </button>
 
-            {/* UserChip — kept at the bottom (CallPilot-specific, not in Figma).
-                Sized to match Figma's footer rhythm. */}
-            <div className="pt-1">
-              <UserChip collapsed={false} />
-            </div>
+              <div className="pt-1">
+                <UserChip collapsed={false} />
+              </div>
 
-            {/* Hidden About dialog trigger — wired to the Help button above. */}
-            <span className="sr-only">
-              <AboutDialogTrigger />
-            </span>
-          </nav>
-        )}
+              {/* Hidden About dialog trigger — wired to the Help button above. */}
+              <span className="sr-only">
+                <AboutDialogTrigger />
+              </span>
+            </nav>
+          )}
+        </div>
       </div>
 
       {/* ─────────────── Modals (preserved) ─────────────── */}
