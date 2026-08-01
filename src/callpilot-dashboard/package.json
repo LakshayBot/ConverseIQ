@@ -2,6 +2,12 @@
   "name": "callpilot-dashboard",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.6.5",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "sharp"
+    ]
+  },
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",
