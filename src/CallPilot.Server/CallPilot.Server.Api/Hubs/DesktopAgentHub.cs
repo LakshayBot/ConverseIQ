@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using CallPilot.Server.Domain.Meetings;
 using CallPilot.Server.Infrastructure.AI;
 using CallPilot.Server.Infrastructure.Data;
@@ -10,6 +11,39 @@ namespace CallPilot.Server.Api.Hubs;
 [Authorize]
 public class DesktopAgentHub : Hub
 {
+    // Per-meeting rolling debounce: (eventType, entity) → last fire time.
+    // Backstop for the engine-side window — duplicates are suppressed here
+    // even if the AI engine's debounce is bypassed or an older engine version
+    // is in play.
+    private static readonly ConcurrentDictionary<Guid, ConcurrentDictionary<(string, string?), DateTime>>
+        _recentEvents = new();
+    private static readonly TimeSpan EventDebounceWindow = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan DebouncePruneAge = TimeSpan.FromMinutes(2);
+
+    private static bool IsDuplicateEvent(Guid meetingId, string eventType, string? entityName)
+    {
+        var now = DateTime.UtcNow;
+        var bucket = _recentEvents.GetOrAdd(meetingId, _ => new ConcurrentDictionary<(string, string?), DateTime>());
+        var key = (eventType, entityName);
+        if (bucket.TryGetValue(key, out var last) && now - last < EventDebounceWindow)
+        {
+            return true;
+        }
+        bucket[key] = now;
+        // Bounded memory: purge stale entries once the bucket grows.
+        if (bucket.Count > 64)
+        {
+            foreach (var stale in bucket
+                         .Where(kv => now - kv.Value > DebouncePruneAge)
+                         .Select(kv => kv.Key)
+                         .ToList())
+            {
+                bucket.TryRemove(stale, out _);
+            }
+        }
+        return false;
+    }
+
     private readonly ILogger<DesktopAgentHub> _logger;
     private readonly AiCoordinatorService _aiCoordinator;
     private readonly EventDetectionService _eventDetector;
@@ -143,6 +177,13 @@ public class DesktopAgentHub : Hub
         var events = await _eventDetector.DetectEventsForMeetingAsync(segment.Text, meetingId.ToString());
         foreach (var evt in events)
         {
+            if (IsDuplicateEvent(meetingId, evt.EventType, evt.EntityName))
+            {
+                _logger.LogDebug(
+                    "Suppressed duplicate event {Type}/{Entity} for meeting {MeetingId}",
+                    evt.EventType, evt.EntityName, meetingId);
+                continue;
+            }
             _diagnostics.TrackEvent(frame.MeetingId, evt.EventType);
             var conversationEvent = new Domain.Meetings.ConversationEvent(
                 meetingId,
@@ -186,6 +227,10 @@ public class DesktopAgentHub : Hub
                     recommendation.Type,
                     recommendation.Title,
                     recommendation.Summary,
+                    recommendation.TalkingPoint,
+                    recommendation.KeyFacts,
+                    recommendation.Priority,
+                    triggerEventId = conversationEvent.Id,
                     recommendation.Confidence,
                     recommendation.References,
                     recommendation.GeneratedAt

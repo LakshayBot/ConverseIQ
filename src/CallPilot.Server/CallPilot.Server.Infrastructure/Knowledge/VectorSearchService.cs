@@ -18,6 +18,11 @@ public class VectorSearchService
 
     public async Task<IReadOnlyList<KnowledgeChunk>> SearchAsync(float[] queryVector, int topK = 5, Guid? userId = null)
     {
+        // Structured product-card chunks (LLM-enriched) are cleaner and less
+        // likely to carry letterhead/contact boilerplate — give them a
+        // ranking boost over raw extraction chunks.
+        const double EnrichedChunkBoost = 1.2;
+
         try
         {
             var query = _dbContext.KnowledgeChunks
@@ -40,6 +45,10 @@ public class VectorSearchService
 
                 var chunkVector = chunk.Embedding.GetVector();
                 var similarity = CosineSimilarity(queryVector, chunkVector);
+                if (chunk.Source == "enriched")
+                {
+                    similarity *= EnrichedChunkBoost;
+                }
 
                 scoredChunks.Add((chunk, similarity));
             }

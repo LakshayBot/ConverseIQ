@@ -331,7 +331,6 @@ app.MapGet("/api/v1/diagnostics", (MeetingDiagnosticsService diag) =>
 });
 
 app.MapAuthenticationEndpoints();
-app.MapProviderEndpoints();
 app.MapKnowledgeEndpoints();
 app.MapHub<DesktopAgentHub>("/hubs/desktop-agent");
 app.MapHub<DashboardHub>("/hubs/dashboard");
@@ -614,7 +613,7 @@ app.MapPost("/api/v1/meetings/{id:guid}/process", async (
     // without changes.
     var groupName = $"meeting_{id}";
 
-    var events = await eventDetector.DetectEventsAsync(text);
+    var events = await eventDetector.DetectEventsAsync(text, id.ToString());
     var persistedEvents = new List<object>();
     var recommendations = new List<object>();
 
@@ -654,6 +653,10 @@ app.MapPost("/api/v1/meetings/{id:guid}/process", async (
                 rec.Type,
                 rec.Title,
                 rec.Summary,
+                rec.TalkingPoint,
+                rec.KeyFacts,
+                rec.Priority,
+                triggerEventId = conversationEvent.Id,
                 rec.Confidence,
                 rec.References,
                 rec.GeneratedAt

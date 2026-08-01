@@ -16,10 +16,13 @@ public class EventDetectionService
     }
 
     public async Task<IReadOnlyList<DetectedEvent>> DetectEventsAsync(string text)
+        => await DetectEventsAsync(text, meetingId: null);
+
+    public async Task<IReadOnlyList<DetectedEvent>> DetectEventsAsync(string text, string? meetingId)
     {
         try
         {
-            var response = await _httpClient.PostAsJsonAsync("/api/v1/ai/events", new { text });
+            var response = await _httpClient.PostAsJsonAsync("/api/v1/ai/events", new { text, meeting_id = meetingId });
 
             if (!response.IsSuccessStatusCode)
             {
@@ -31,7 +34,7 @@ public class EventDetectionService
             var events = result?.Events ?? [];
 
             // ── Phase 2: Fire-and-forget competitive intel for unknown entities ──
-            _ = Task.Run(() => TriggerCompetitiveIntelAsync(text, meetingId: null));
+            _ = Task.Run(() => TriggerCompetitiveIntelAsync(text, meetingId));
 
             return events;
         }
@@ -44,7 +47,7 @@ public class EventDetectionService
 
     public async Task<IReadOnlyList<DetectedEvent>> DetectEventsForMeetingAsync(string text, string meetingId)
     {
-        var events = await DetectEventsAsync(text);
+        var events = await DetectEventsAsync(text, meetingId);
 
         // Fire-and-forget with meeting context for dashboard broadcast
         _ = Task.Run(() => TriggerCompetitiveIntelAsync(text, meetingId));

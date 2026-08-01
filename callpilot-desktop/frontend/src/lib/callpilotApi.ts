@@ -218,6 +218,9 @@ export interface PastRecommendation {
   type: string;
   title: string;
   summary: string;
+  talkingPoint: string | null;
+  keyFacts: string[] | null;
+  priority: string | null;
   confidence: number;
   references: string[] | null;
   triggerEvent: string | null;
@@ -263,12 +266,12 @@ const PAST_EVENT_TYPE_BY_CARD: Record<string, IntelligenceCard['type']> = {
 };
 
 const PAST_REC_TYPE_BY_CARD: Record<string, IntelligenceCard['type']> = {
-  product_match: 'product_match',
-  product: 'product_match',
-  competitor: 'competitor_detected',
-  objection: 'objection',
-  pricing: 'pricing_discussion',
-  technical: 'technical_question',
+  ProductMentioned: 'product_match',
+  CompetitorMentioned: 'competitor_detected',
+  Objection: 'objection',
+  PricingQuestion: 'pricing_discussion',
+  PricingDiscussion: 'pricing_discussion',
+  TechnicalQuestion: 'technical_question',
 };
 
 function severityFromConfidence(c: number | undefined): IntelligenceCard['severity'] {
@@ -310,16 +313,27 @@ export function buildPastIntelligenceCards(
 
   // Recommendations appended so they cluster naturally after their trigger event.
   for (const r of recommendations) {
-    const recType = (r.type ?? '').toLowerCase();
-    const cardType = PAST_REC_TYPE_BY_CARD[recType] ?? 'product_match';
+    const cardType = PAST_REC_TYPE_BY_CARD[r.type ?? ''] ?? 'product_match';
     if (!r.title) continue;
     if (seenTitles.has(r.title)) continue;
     seenTitles.add(r.title);
+    const body =
+      r.talkingPoint || (r.keyFacts && r.keyFacts.length > 0)
+        ? `${r.talkingPoint ?? ''}${
+            r.keyFacts && r.keyFacts.length > 0
+              ? `\n\n${r.keyFacts.map((f) => `• ${f}`).join('\n')}`
+              : ''
+          }`.trim()
+        : (r.summary ?? '');
     cards.push({
       type: cardType,
       title: r.title,
-      body: r.summary ?? '',
-      severity: severityFromConfidence(r.confidence),
+      body,
+      // Server-side priority (structured LLM output) is authoritative;
+      // confidence heuristic only applies on the no-LLM fallback path.
+      severity:
+        (r.priority as IntelligenceCard['severity'] | null | undefined) ??
+        severityFromConfidence(r.confidence),
       chunks: Array.isArray(r.references) ? r.references : [],
     });
   }

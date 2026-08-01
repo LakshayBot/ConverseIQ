@@ -47,6 +47,10 @@ interface RecommendationPayload {
   type?: string;
   title?: string;
   summary?: string;
+  talkingPoint?: string | null;
+  keyFacts?: string[] | null;
+  priority?: string | null;
+  triggerEventId?: string | null;
   confidence?: number;
   references?: string[] | null;
   generatedAt?: string;
@@ -62,11 +66,12 @@ const CARD_TYPE_BY_EVENT: Record<string, IntelligenceCard['type']> = {
 };
 
 const CARD_TYPE_BY_REC: Record<string, IntelligenceCard['type']> = {
-  product_match: 'product_match',
-  competitor: 'competitor_detected',
-  objection: 'objection',
-  pricing: 'pricing_discussion',
-  technical: 'technical_question',
+  ProductMentioned: 'product_match',
+  CompetitorMentioned: 'competitor_detected',
+  Objection: 'objection',
+  PricingQuestion: 'pricing_discussion',
+  PricingDiscussion: 'pricing_discussion',
+  TechnicalQuestion: 'technical_question',
 };
 
 function severityFromConfidence(c: number | undefined): IntelligenceCard['severity'] {
@@ -76,29 +81,29 @@ function severityFromConfidence(c: number | undefined): IntelligenceCard['severi
   return 'low';
 }
 
-function cardFromEvent(p: EventPayload): IntelligenceCard | null {
-  const eventType = p.eventType ?? '';
-  const cardType = CARD_TYPE_BY_EVENT[eventType];
-  if (!cardType) return null;
-  const titleEntity = p.entityName ? `: ${p.entityName}` : '';
-  return {
-    type: cardType,
-    title: `${eventType}${titleEntity}`,
-    body: p.supportingTranscript ?? '',
-    severity: severityFromConfidence(p.confidence),
-    chunks: p.supportingTranscript ? [p.supportingTranscript] : [],
-  };
-}
-
 function cardFromRecommendation(p: RecommendationPayload): IntelligenceCard | null {
-  const recType = (p.type ?? '').toLowerCase();
-  const cardType = CARD_TYPE_BY_REC[recType] ?? 'product_match';
+  const cardType = CARD_TYPE_BY_REC[p.type ?? ''] ?? 'product_match';
   if (!p.title) return null;
+  // Structured LLM output takes precedence over the opaque summary: the card
+  // body is the talking point + key-fact bullets.
+  const body =
+    p.talkingPoint || (p.keyFacts && p.keyFacts.length > 0)
+      ? `${p.talkingPoint ?? ''}${
+          p.keyFacts && p.keyFacts.length > 0
+            ? `\n\n${p.keyFacts.map((f) => `• ${f}`).join('\n')}`
+            : ''
+        }`.trim()
+      : (p.summary ?? '');
   return {
     type: cardType,
     title: p.title,
-    body: p.summary ?? '',
-    severity: severityFromConfidence(p.confidence),
+    body,
+    // Server-side priority (from the structured LLM output) is the source of
+    // truth; the confidence heuristic only applies on the no-LLM fallback
+    // path. The backend validates the value to the high|medium|low union.
+    severity:
+      (p.priority as IntelligenceCard['severity'] | null | undefined) ??
+      severityFromConfidence(p.confidence),
     chunks: Array.isArray(p.references) ? p.references : [],
   };
 }
@@ -181,14 +186,58 @@ export function useIntelligenceStream(sessionId: string | null) {
         setCards((prev) => [card, ...prev].slice(0, MAX_CARDS_STORED));
       };
 
+      // EventDetected → lightweight "detecting…" placeholder; the matching
+      // RecommendationGenerated replaces it in place, so every trigger
+      // renders exactly one card. Placeholders without a recommendation are
+      // cleaned up after a short timeout.
+      const PLACEHOLDER_TIMEOUT_MS = 10_000;
+      const pendingRef = new Map<string, { key: string; timer: number }>();
+      const pendingKeyOf = (c: IntelligenceCard) =>
+        (c as IntelligenceCard & { _key?: string })._key;
+
+      const removePendingByKey = (key: string) => {
+        setCards((prev) => prev.filter((c) => pendingKeyOf(c) !== key));
+      };
+
+      const addPending = (eventId: string, card: IntelligenceCard) => {
+        const key = `evt-${eventId}`;
+        const timer = window.setTimeout(() => {
+          pendingRef.delete(eventId);
+          removePendingByKey(key);
+        }, PLACEHOLDER_TIMEOUT_MS);
+        pendingRef.set(eventId, { key, timer });
+        setCards((prev) => [{ ...card, _key: key }, ...prev].slice(0, MAX_CARDS_STORED));
+      };
+
+      const resolvePending = (eventId: string, card: IntelligenceCard) => {
+        const pending = pendingRef.get(eventId);
+        if (!pending) {
+          addCard(card);
+          return;
+        }
+        window.clearTimeout(pending.timer);
+        pendingRef.delete(eventId);
+        setCards((prev) => prev.map((c) => (pendingKeyOf(c) === pending.key ? card : c)));
+      };
+
       conn.on('EventDetected', (p: EventPayload) => {
-        const card = cardFromEvent(p);
-        if (card) addCard(card);
+        const cardType = CARD_TYPE_BY_EVENT[p.eventType ?? ''];
+        if (!cardType) return;
+        const titleEntity = p.entityName ? `: ${p.entityName}` : '';
+        addPending(String(p.id ?? `no-id-${Date.now()}`), {
+          type: cardType,
+          title: `Detecting${titleEntity ? ` ${titleEntity}` : ''}…`,
+          body: '',
+          severity: severityFromConfidence(p.confidence),
+          chunks: [],
+        });
       });
 
       conn.on('RecommendationGenerated', (p: RecommendationPayload) => {
         const card = cardFromRecommendation(p);
-        if (card) addCard(card);
+        if (!card) return;
+        if (p.triggerEventId) resolvePending(String(p.triggerEventId), card);
+        else addCard(card);
       });
 
       const refreshState = () => {

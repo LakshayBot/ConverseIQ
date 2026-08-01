@@ -475,7 +475,7 @@ async def detect_events(request: dict):
     if not text:
         raise HTTPException(status_code=400, detail="No text provided")
 
-    events = _get_event_detector().detect_all(text)
+    events = _get_event_detector().detect_all(text, meeting_id=request.get("meeting_id"))
     return {"events": events, "count": len(events)}
 
 

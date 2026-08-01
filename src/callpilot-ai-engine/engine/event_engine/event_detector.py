@@ -1,7 +1,13 @@
 import re
+import time
 from typing import Optional
 
 from engine.services.trie_scanner import scan_text  # Aho-Corasick trie
+
+# Rolling debounce window: the same (eventType, entity) mentioned again for
+# the same meeting within this window is suppressed — no new event, no new card.
+DEBOUNCE_WINDOW_SECONDS = 60.0
+_debounce: dict[tuple, float] = {}
 
 PRICING_PATTERNS = [
     r"\b(pric(e|ing)|cost|budget|expensive|cheap|affordable|discount)\b",
@@ -95,7 +101,7 @@ class EventDetector:
                 }
         return None
 
-    def detect_all(self, text: str) -> list[dict]:
+    def detect_all(self, text: str, meeting_id: Optional[str] = None) -> list[dict]:
         events: list[dict] = []
 
         # Dynamic entity detection via Aho-Corasick trie (replaces hardcoded 28 competitors)
@@ -114,4 +120,23 @@ class EventDetector:
         for event in events:
             event["supportingTranscript"] = text
 
-        return events
+        # Suppress repeats of the same trigger within the window. The key is
+        # scoped per meeting so parallel meetings don't interfere, and
+        # unscoped (meeting_id=None) callers share a global window.
+        now = time.monotonic()
+        key_base = (meeting_id or "global",)
+        fresh: list[dict] = []
+        for event in events:
+            key = key_base + (event["eventType"], event.get("entityName") or "")
+            last = _debounce.get(key)
+            if last is not None and now - last < DEBOUNCE_WINDOW_SECONDS:
+                continue
+            _debounce[key] = now
+            fresh.append(event)
+
+        # Occasional prune so the dict never grows unbounded.
+        if len(_debounce) > 512:
+            for k in [k for k, v in _debounce.items() if now - v >= DEBOUNCE_WINDOW_SECONDS]:
+                del _debounce[k]
+
+        return fresh

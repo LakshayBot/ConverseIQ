@@ -186,6 +186,9 @@ public class CallPilotDbContext : DbContext
             entity.Property(r => r.Type).HasMaxLength(100).IsRequired();
             entity.Property(r => r.Title).HasMaxLength(200).IsRequired();
             entity.Property(r => r.Summary).HasColumnType("text").IsRequired();
+            entity.Property(r => r.TalkingPoint).HasColumnType("text");
+            entity.Property(r => r.KeyFacts).HasColumnType("jsonb");
+            entity.Property(r => r.Priority).HasMaxLength(10);
             entity.Property(r => r.References).HasColumnType("jsonb");
             entity.Property(r => r.TriggerEvent).HasMaxLength(100);
             entity.Property(r => r.Provider).HasMaxLength(50);
