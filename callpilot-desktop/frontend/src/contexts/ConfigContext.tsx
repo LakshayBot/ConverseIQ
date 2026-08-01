@@ -436,17 +436,17 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         setNotificationSettings(null);
       }
 
-      // Load storage locations
+      // Load storage locations independently so one failure doesn't block the others
       const [dbDir, modelsDir, recordingsDir] = await Promise.all([
-        invoke<string>('get_database_directory'),
-        invoke<string>('whisper_get_models_directory'),
-        invoke<string>('get_default_recordings_folder_path')
+        invoke<string>('get_database_directory').catch(() => null),
+        invoke<string>('whisper_get_models_directory').catch(() => null),
+        invoke<string>('get_default_recordings_folder_path').catch(() => null)
       ]);
 
       setStorageLocations({
-        database: dbDir,
-        models: modelsDir,
-        recordings: recordingsDir
+        database: dbDir ?? '',
+        models: modelsDir ?? '',
+        recordings: recordingsDir ?? ''
       });
 
       // Mark as loaded

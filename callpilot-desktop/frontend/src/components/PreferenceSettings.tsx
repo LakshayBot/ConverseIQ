@@ -200,7 +200,7 @@ export function PreferenceSettings() {
           <div className="p-4 border rounded-lg bg-gray-50">
             <div className="font-medium mb-2">Meeting Recordings</div>
             <div className="text-sm text-gray-600 mb-3 break-all font-mono text-xs">
-              {storageLocations?.recordings || 'Loading...'}
+              {storageLocations?.recordings || 'Unavailable'}
             </div>
             <button
               onClick={() => handleOpenFolder('recordings')}
