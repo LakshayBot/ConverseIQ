@@ -1,7 +1,7 @@
 [package]
 name = "callpilot-audio"
 version = "0.4.0"
-description = "CallPilot — Live Sales Intelligence desktop agent (Tauri audio core)"
+description = "CallPilot - Live Sales Intelligence desktop agent (Tauri audio core)"
 authors = ["CallPilot Contributors"]
 license = "MIT"
 edition = "2021"

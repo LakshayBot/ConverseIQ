@@ -181,7 +181,7 @@ public static class KnowledgeEndpoints
                 });
             }
 
-            // For each match, fetch the most useful chunk text — prefer the
+            // For each match, fetch the most useful chunk text - prefer the
             // chunk the entity was extracted from, otherwise the first chunk
             // of the document.  Truncate excerpts to 280 chars.
             var chunkIds = matches
@@ -242,7 +242,7 @@ public static class KnowledgeEndpoints
         // heartbeat so the dashboard can show a detailed progress bar
         // without re-pulling the full document.  The stage log is a
         // jsonb column on the same row, so the SELECT is still one
-        // row and a jsonb read — cheap enough to poll every ~1.5s.
+        // row and a jsonb read - cheap enough to poll every ~1.5s.
         group.MapGet("/{id:guid}/status", async (
             ClaimsPrincipal user,
             Guid id,

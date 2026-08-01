@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 
 type Mode = 'login' | 'register';
 
-// RFC-5322-ish but pragmatic — matches the .NET validator's intent.
+// RFC-5322-ish but pragmatic - matches the .NET validator's intent.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function LoginScreen() {

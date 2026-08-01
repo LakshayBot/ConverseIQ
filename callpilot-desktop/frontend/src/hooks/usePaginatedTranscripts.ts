@@ -103,7 +103,7 @@ export function usePaginatedTranscripts({
         }
     }, [meetingId]);
 
-    // Load transcripts at specific offset — fetches all segments in one shot
+    // Load transcripts at specific offset - fetches all segments in one shot
     // since the .NET endpoint is not paginated server-side. For typical
     // meeting sizes (<5k segments) this is fine; if a meeting ever exceeds
     // this, we can add a `?offset=&limit=` query string later.
@@ -153,7 +153,7 @@ export function usePaginatedTranscripts({
                 setTranscripts(newTranscripts);
             }
 
-            // The .NET endpoint returns the full list — there's no server-side
+            // The .NET endpoint returns the full list - there's no server-side
             // pagination, so we mark has_more=false once we've loaded everything
             // and store the total count for the "Showing X of Y" footer.
             setHasMore(false);

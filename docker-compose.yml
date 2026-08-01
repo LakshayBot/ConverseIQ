@@ -51,7 +51,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      # Don't add `ollama` here — it lives on the `ollama` profile so
+      # Don't add `ollama` here - it lives on the `ollama` profile so
       # deployments that don't need it can skip it.  The AI engine's
       # enrichment service is fail-open, so a missing Ollama is logged
       # and skipped rather than failing the upload.

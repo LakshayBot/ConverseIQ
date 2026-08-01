@@ -105,7 +105,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
             // start_recording_with_devices_and_meeting). Falling back to a
             // local timestamp breaks the intelligence WebSocket fan-out
             // because the engine ingest posts under session_id and the
-            // panel subscribes under the .NET UUID — they have to match.
+            // panel subscribes under the .NET UUID - they have to match.
             const meetingId =
               event?.payload?.meeting_id ||
               `meeting-${Date.now()}`;
@@ -204,11 +204,11 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
     /**
      * Bubble the tail of `arr` into the correct chronological position.
      * Cheaper than a full sort because the Rust worker emits monotonically
-     * increasing sequence_ids — new transcripts only ever need to bubble
+     * increasing sequence_ids - new transcripts only ever need to bubble
      * up by a few slots when they arrive out of order (rare, only when
      * the VAD snapshot race fires).
      *
-     * Compares (chunk_start_time, sequence_id) tuple — primary key is
+     * Compares (chunk_start_time, sequence_id) tuple - primary key is
      * chunk_start_time, with sequence_id as a stable tiebreaker.
      */
     const bubbleSort = (arr: Transcript[]) => {
@@ -245,7 +245,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
 
       // Process all available sequential transcripts.
       // The Rust STT worker emits monotonically increasing sequence_ids,
-      // so the hot path is a straight append — typical O(N) for the
+      // so the hot path is a straight append - typical O(N) for the
       // append + O(N log N) one-time sort. The old code re-sorted the
       // entire transcript array on every partial; with 300ms cadence that
       // dominated per-frame work once the meeting grew past ~50 segments.
@@ -419,7 +419,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
           // a single React state update. queueMicrotask runs *after* the
           // current synchronous emit loop drains (so a Rust burst of 4 partials
           // collapses to one render) but *before* the next paint, so the user
-          // sees text as soon as the browser is ready to paint — no visible
+          // sees text as soon as the browser is ready to paint - no visible
           // 10ms setTimeout stutter.
           if (!processingMicrotask) {
             processingMicrotask = Promise.resolve().then(() => {
@@ -436,12 +436,12 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
           // so:
           //   • partials: only the dedup-aware setTranscripts runs (no-op
           //     against the buffered copy once processBufferedTranscripts
-          //     fires 10ms later) — no /process POST.
+          //     fires 10ms later) - no /process POST.
           //   • finals: setTranscripts is again a no-op against the
           //     buffered copy, AND POST /api/v1/meetings/{id}/process fires
           //     so EventDetectionService → engine → SignalR broadcast runs.
           // If currentMeetingIdRef.current is null (recording-started
-          // landed late), addTranscript logs and skips — the next final
+          // landed late), addTranscript logs and skips - the next final
           // will succeed.
           addTranscript(update);
         });
@@ -457,16 +457,16 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
 
     return () => {
       console.log('🧹 CLEANUP: Cleaning up MAIN transcript listener...');
-      // processingMicrotask is a one-shot promise — nothing to clear
+      // processingMicrotask is a one-shot promise - nothing to clear
       // (if it hasn't fired yet it will resolve to a no-op state since
       // setTranscripts on a stale closure is harmless).
       if (unlistenFn) {
-        // Wrap unlisten in try/catch — Tauri 2's webview runtime throws
+        // Wrap unlisten in try/catch - Tauri 2's webview runtime throws
         // "TypeError: undefined is not an object (evaluating
         // 'listeners[eventId].handlerId')" when an unregister call hits
         // a stale eventId (typical when the page reloads or the listener
-        // registration races with the cleanup). The error is harmless —
-        // the listener will eventually be GC'd — but it surfaces as an
+        // registration races with the cleanup). The error is harmless -
+        // the listener will eventually be GC'd - but it surfaces as an
         // unhandled runtime error and breaks the React render. Swallow
         // it here so the UI keeps working.
         try {
@@ -596,7 +596,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
             console.warn('[DIAG] /process failed (non-fatal):', err);
           });
       } else {
-        console.log('[DIAG] final transcript arrived but currentMeetingId is null — skipping /process');
+        console.log('[DIAG] final transcript arrived but currentMeetingId is null - skipping /process');
       }
     }
   }, []);

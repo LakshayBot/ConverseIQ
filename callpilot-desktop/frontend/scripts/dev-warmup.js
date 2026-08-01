@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * dev-warmup — runs `next dev` and blocks until the first compile is done.
+ * dev-warmup - runs `next dev` and blocks until the first compile is done.
  *
  * Why: Tauri 2's dev orchestration polls `devUrl` and opens the webview the
  * moment the dev server returns 200 on `/`. Next.js's `next dev` answers 200
@@ -13,7 +13,7 @@
  *   (timeout: http://localhost:3118/_next/static/chunks/app/layout.js)
  *
  * The fix: kick `next dev` off in a child process, then poll the dev URL and
- * its referenced layout chunk until both are 200 — only then does this
+ * its referenced layout chunk until both are 200 - only then does this
  * script return. Tauri sees `beforeDevCommand` exit cleanly and the dev
  * server is already warm, so the webview's first request succeeds.
  *
@@ -25,7 +25,7 @@ const http = require('http');
 
 const PORT = parseInt(process.env.PORT || '3118', 10);
 const DEV_URL = `http://localhost:${PORT}`;
-const READY_TIMEOUT_MS = 180_000; // 3 minutes — first compile on cold cache
+const READY_TIMEOUT_MS = 180_000; // 3 minutes - first compile on cold cache
 const POLL_INTERVAL_MS = 500;
 
 function get(url) {
@@ -69,7 +69,7 @@ async function pollUntilReady() {
           const chunk = await get(chunkUrl);
           if (chunk.status === 200 && chunk.body.length > 1024) {
             console.log(
-              `[dev-warmup] ready after ${elapsed}ms — chunk ${m[0]} ` +
+              `[dev-warmup] ready after ${elapsed}ms - chunk ${m[0]} ` +
                 `(${chunk.body.length} bytes)`,
             );
             return;
@@ -127,7 +127,7 @@ async function main() {
 
   try {
     await pollUntilReady();
-    // Detach our polling — let `next dev` keep running so Tauri can keep the
+    // Detach our polling - let `next dev` keep running so Tauri can keep the
     // dev server alive. Our job is done; Tauri will own the lifecycle from
     // here (with our PID as the `beforeDevCommand` foreground process).
   } catch (e) {

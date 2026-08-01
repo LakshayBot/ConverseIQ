@@ -2,7 +2,7 @@
 set -e
 
 echo "================================================"
-echo " CallPilot AI — Rebuild & Deploy"
+echo " CallPilot AI - Rebuild & Deploy"
 echo "================================================"
 
 echo ""
@@ -51,7 +51,7 @@ echo "================================================"
 if [ $HEALTHY -eq 3 ]; then
     echo " All services running"
 else
-    echo " $HEALTHY/3 services healthy — check docker compose ps"
+    echo " $HEALTHY/3 services healthy - check docker compose ps"
 fi
 echo ""
 echo " Dashboard: http://localhost:3000"

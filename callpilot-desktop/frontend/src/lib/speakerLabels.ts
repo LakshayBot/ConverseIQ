@@ -1,6 +1,6 @@
 // Speaker label mapping for CallPilot.
 //
-// Meetily doesn't diarize — every transcript segment has only `text`. We
+// Meetily doesn't diarize - every transcript segment has only `text`. We
 // infer a label from the originating audio source when available
 // (`audio_source: 'mic' | 'system' | 'unknown'`) and otherwise render a
 // neutral label.

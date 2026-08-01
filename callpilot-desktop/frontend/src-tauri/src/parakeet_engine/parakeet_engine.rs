@@ -594,7 +594,7 @@ impl ParakeetEngine {
         let base_url = if model_name.contains("-v2-") {
             "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main"
         } else {
-            // Default to v3 for v3 models — same HuggingFace repo, both versions live there
+            // Default to v3 for v3 models - same HuggingFace repo, both versions live there
             "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main"
         };
 

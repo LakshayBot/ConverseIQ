@@ -768,10 +768,10 @@ impl AudioPipeline {
             recording_sender_for_mixed: None,  // Will be set by manager
             // LIVE STREAMING: emit a partial every 800ms while the user is still speaking
             last_interim_emit: std::time::Instant::now(),
-            // Live partial cadence — how often to emit an interim transcription
+            // Live partial cadence - how often to emit an interim transcription
             // while the speaker is still in-speech. 300ms strikes the right
             // balance: long enough that Parakeet/Whisper have meaningful audio
-            // to work with (their floor is ~100ms @ 16kHz — see the
+            // to work with (their floor is ~100ms @ 16kHz - see the
             // `interim_samples >= 1600` check below), short enough that the UI
             // doesn't visibly trail the speaker. The previous 800ms value was
             // almost a full second of dead air between partials, which felt

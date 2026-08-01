@@ -9,7 +9,7 @@ overwritten with the GLiNER-extracted entities.
 Each entry has:
   - ``entity_text``  the canonical trie key (lowercase, short form)
   - ``entity_type``  one of product | feature | integration | pricing
-  - ``document_id``  empty string for seeds — the UI shows "Seed knowledge base"
+  - ``document_id``  empty string for seeds - the UI shows "Seed knowledge base"
 
 Source: ``samples/sales-call-script-secure.txt`` and the Secure Meters product
 brochure.  Add a row here when a brand is missing from a freshly-deployed
@@ -20,13 +20,13 @@ from __future__ import annotations
 
 from typing import List
 
-# A short description for the seed rows — shown in the product details card
+# A short description for the seed rows - shown in the product details card
 # when the only source is the seed list.  The card reads this verbatim so
 # keep it under 200 chars and salesperson-friendly.
 SEED_DESCRIPTIONS: dict[str, str] = {
     "prodigy": (
         "Three-phase CT-operated meter with built-in current transformers. "
-        "No external CTs or accessories — cable passes directly through the meter."
+        "No external CTs or accessories - cable passes directly through the meter."
     ),
     "apex 100": (
         "High-end class 0.2S precision meter for transmission and bulk power "
@@ -43,7 +43,7 @@ SEED_DESCRIPTIONS: dict[str, str] = {
     ),
     "sprint 210": (
         "Modular three-phase meter with pluggable GPRS and mesh radio modules. "
-        "Fully DLMS COSEM compliant — communication modules swap in the field "
+        "Fully DLMS COSEM compliant - communication modules swap in the field "
         "without factory recalibration."
     ),
     "sprint 350": (
@@ -52,7 +52,7 @@ SEED_DESCRIPTIONS: dict[str, str] = {
     ),
     "i-credit 510": (
         "Single-phase meter with slide-out communication module. Field-"
-        "replaceable comms — no recalibration, no factory return."
+        "replaceable comms - no recalibration, no factory return."
     ),
     "liberty+": (
         "Single-phase token-less smart meter. Encrypted vend codes, no keypad."
@@ -82,14 +82,14 @@ SEED_DESCRIPTIONS: dict[str, str] = {
         "communications."
     ),
     "ecd 310": (
-        "GSM/GPRS modem — three-phase variant for industrial installations."
+        "GSM/GPRS modem - three-phase variant for industrial installations."
     ),
     "integrator": (
         "Web-based Head-End System (HES) for multi-vendor meter reading. "
         "Supports DLMS and Modbus protocols."
     ),
     "enerlyser": (
-        "AT&C loss analysis software — aggregates billing and feeder data to "
+        "AT&C loss analysis software - aggregates billing and feeder data to "
         "pinpoint loss pockets in the distribution network."
     ),
 }
@@ -126,7 +126,7 @@ SEED_ENTITIES: List[dict] = [
     _seed("ecd 310"),
     _seed("integrator"),
     _seed("enerlyser"),
-    # Common standards / protocols (feature-type) — frequently mentioned in
+    # Common standards / protocols (feature-type) - frequently mentioned in
     # sales calls when discussing compliance.
     _seed("dlms cosem", etype="integration"),
     _seed("ami", etype="feature"),

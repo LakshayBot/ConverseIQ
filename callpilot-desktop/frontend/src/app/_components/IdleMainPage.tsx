@@ -1,34 +1,34 @@
 'use client';
 
-// IdleMainPage — the workspace shown on the home page when no recording
+// IdleMainPage - the workspace shown on the home page when no recording
 // is active. Replaces the previous generic "Welcome to callpilot /
 // Start recording to see live transcription" placeholder which made the
 // app look like an empty starter template.
 //
 // Reference for the visual language: a focused, mission-ready workspace
-// the moment a sales rep opens the app. Not a marketing splash page —
+// the moment a sales rep opens the app. Not a marketing splash page -
 // left-aligned composition (not centred), dense and quiet, every
 // sub-element earns its place by teaching something about the product.
 //
 // Layout (top → bottom in the same column):
-//   1. Status row — system-readiness dots + labels (mic / engine / backend)
+//   1. Status row - system-readiness dots + labels (mic / engine / backend)
 //   2. Headline + body + primary CTA + secondary actions
-//   3. Recent meetings (left) + Knowledge bank (right) — both real data
-//   4. How-it-works strip — three numbered cards explaining the pipeline
+//   3. Recent meetings (left) + Knowledge bank (right) - both real data
+//   4. How-it-works strip - three numbered cards explaining the pipeline
 //
-// Tokens (no new hex families — sits inside the existing palette):
+// Tokens (no new hex families - sits inside the existing palette):
 //   --ink-900 #0f172a   primary text
 //   --ink-500 #64748b   secondary
 //   --ink-300 #cbd5e1   tertiary / dividers
 //   --surface #ffffff   card bg
 //   --surface-muted #f8fafc   secondary card bg
-//   brand gradient (blue → indigo → violet) — the primary CTA + active status
+//   brand gradient (blue → indigo → violet) - the primary CTA + active status
 //
 // Signature element: the system-readiness status row at the top. Three
 // small dots + labels (MIC / ENGINE / BACKEND) tell the rep that the
 // whole pipeline is alive before they hit record. Uses the brand
 // gradient as the active color. This is what distinguishes the page
-// from "an empty starter template" — the moment the app opens, the
+// from "an empty starter template" - the moment the app opens, the
 // user sees a working mission-control surface.
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -36,6 +36,7 @@ import { Mic, Brain, Server, ArrowRight, FileText, History } from 'lucide-react'
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { useRouter } from 'next/navigation';
 import { authedApiCall } from '@/lib/auth';
+import { meetingDisplayTitle } from '@/lib/meetingTitle';
 
 interface IdleMainPageProps {
   onStartRecording: () => void;
@@ -48,9 +49,9 @@ const BRAND_GRADIENT = 'linear-gradient(135deg, #3b82f6 0%, #6366f1 50%, #8b5cf6
 // ──────────────────────────────────────────────────────────────────────────────
 
 function formatRelativeTime(iso: string | undefined): string {
-  if (!iso) return '—';
+  if (!iso) return '-';
   const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return '—';
+  if (Number.isNaN(t)) return '-';
   const diff = Date.now() - t;
   const min = Math.floor(diff / 60_000);
   if (min < 1) return 'just now';
@@ -63,9 +64,9 @@ function formatRelativeTime(iso: string | undefined): string {
 }
 
 function formatMeetingTimestamp(iso: string | undefined): string {
-  if (!iso) return '—';
+  if (!iso) return '-';
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
+  if (Number.isNaN(d.getTime())) return '-';
   const today = new Date();
   const sameDay =
     d.getFullYear() === today.getFullYear() &&
@@ -86,7 +87,7 @@ function formatMeetingTimestamp(iso: string | undefined): string {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Knowledge document shape (mirror of /api/v1/knowledge payload) — kept
+// Knowledge document shape (mirror of /api/v1/knowledge payload) - kept
 // minimal here so the IdleMainPage doesn't drag in the full KnowledgeUpload
 // type stack.
 // ──────────────────────────────────────────────────────────────────────────────
@@ -130,7 +131,7 @@ const StatusDot: React.FC<StatusDotProps> = ({ icon, label, state }) => {
         ? 'text-[var(--grain-ink-500)]'
         : 'text-[var(--grain-ink-300)]';
   return (
-    <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] ${textColor}`}>
+    <span className={`inline-flex items-center gap-1.5 font-mono text-[11px] font-medium uppercase tracking-[0.06em] ${textColor}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} aria-hidden />
       {icon}
       {label}
@@ -148,7 +149,7 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
 
   const recentMeetings = useMemo(() => meetings.slice(0, 4), [meetings]);
 
-  // Knowledge document list — fetched from the .NET endpoint so the
+  // Knowledge document list - fetched from the .NET endpoint so the
   // Knowledge Bank card mirrors the Recent Meetings card pattern (same
   // row layout, same visual weight). Failures are silent: the card
   // gracefully shows the empty state.
@@ -184,7 +185,7 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
 
         {/* ── 2. Hero ───────────────────────────────────────────────── */}
         <div className="space-y-4">
-          <h1 className="text-3xl font-semibold tracking-tight text-[var(--grain-ink-900)] leading-tight">
+          <h1 className="font-display text-3xl font-semibold tracking-tight text-[var(--grain-ink-900)] leading-tight">
             Run a live sales call with
             <br />
             <span className="text-[var(--grain-accent)]">
@@ -194,7 +195,7 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
           <p className="text-sm text-[var(--grain-ink-500)] leading-relaxed max-w-2xl">
             Hit record to capture the conversation. Competitors, objections,
             pricing questions, and product mentions surface in the right
-            rail the moment they&apos;re spoken — pulled from your knowledge
+            rail the moment they&apos;re spoken - pulled from your knowledge
             bank and matched against what your prospect is actually asking.
           </p>
 
@@ -225,7 +226,7 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <section className="rounded-2xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-6">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)]">
+              <h2 className="font-display text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)]">
                 Recent meetings
               </h2>
               <span className="text-[10px] font-medium text-[var(--grain-ink-500)] tabular-nums">
@@ -253,8 +254,11 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
                       <FileText className="h-3.5 w-3.5" strokeWidth={2} />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-[var(--grain-ink-900)]">
-                        {m.title || 'Untitled session'}
+                      <div
+                        className="truncate text-sm font-medium text-[var(--grain-ink-900)]"
+                        title={m.title && m.title !== 'Untitled session' ? m.title : undefined}
+                      >
+                        {meetingDisplayTitle(m)}
                       </div>
                       <div className="font-mono text-[10px] text-[var(--grain-ink-500)] tabular-nums">
                         {formatMeetingTimestamp(m.createdAt)}
@@ -272,7 +276,7 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
 
           <section className="rounded-2xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-6">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)]">
+              <h2 className="font-display text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)]">
                 Knowledge bank
               </h2>
               <span className="text-[10px] font-medium text-[var(--grain-ink-500)] tabular-nums">
@@ -329,14 +333,14 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) 
 
         {/* ── 4. How it works strip ─────────────────────────────────── */}
         <section>
-          <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)] mb-3">
+          <h2 className="font-display text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)] mb-3">
             How CallPilot works
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Step
               n="01"
               title="Capture"
-              body="Mic + system audio are transcribed locally by Parakeet — nothing leaves the machine."
+              body="Mic + system audio are transcribed locally by Parakeet - nothing leaves the machine."
             />
             <Step
               n="02"
@@ -378,11 +382,11 @@ interface StepProps {
 }
 
 const Step: React.FC<StepProps> = ({ n, title, body }) => (
-  <div className="rounded-2xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-5">
-    <div className="flex items-baseline gap-2 mb-2">
-      <span className="font-mono text-[10px] text-[var(--grain-ink-500)] tabular-nums">{n}</span>
-      <span className="text-sm font-semibold text-[var(--grain-ink-900)]">{title}</span>
-    </div>
+    <div className="rounded-2xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-5">
+      <div className="flex items-baseline gap-2 mb-2">
+        <span className="font-mono text-[10px] text-[var(--grain-ink-500)] tabular-nums">{n}</span>
+        <span className="font-display text-sm font-semibold text-[var(--grain-ink-900)]">{title}</span>
+      </div>
     <p className="text-xs text-[var(--grain-ink-500)] leading-relaxed">{body}</p>
   </div>
 );

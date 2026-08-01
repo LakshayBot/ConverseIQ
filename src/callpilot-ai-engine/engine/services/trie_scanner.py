@@ -3,13 +3,13 @@
 Built from document_entities stored in PostgreSQL via the .NET API.
 Replaces the hardcoded 28-competitor substring scan with O(n+m) matching.
 
-The automaton is fast but **does substring matching, not word matching** — so
+The automaton is fast but **does substring matching, not word matching** - so
 a 3-character trie entry would fire inside "handheld" or "john han".  To keep
 false positives like ``ProductMentioned: han`` out of the live call we:
 
   * Reject any trie entry shorter than ``MIN_ENTITY_LEN`` (4 chars) unless it
     is in :data:`ACRONYM_ALLOWLIST` (DLMS, AMI, etc.).
-  * Apply a word-boundary post-filter to every Aho-Corasick hit — the matched
+  * Apply a word-boundary post-filter to every Aho-Corasick hit - the matched
     substring must start and end on a non-word character (or the string
     boundary).
   * In :func:`scan_text`, run the input through :mod:`text_normalizer` so
@@ -63,7 +63,7 @@ def _has_word_boundary(text_lower: str, start: int, end: int) -> bool:
     """True iff the substring text_lower[start:end] is bounded by non-word chars.
 
     Multi-word patterns (e.g. "apex 100") only need a word boundary at the
-    start of the first word and the end of the last word — the inner space
+    start of the first word and the end of the last word - the inner space
     is part of the pattern.
     """
     if start > 0 and text_lower[start - 1] in _WORD_CHARS:
@@ -97,7 +97,7 @@ def build_trie(entities: List[dict]) -> ahocorasick.Automaton | None:
     Only product, feature, integration, and pricing entities are indexed.
 
     Returns the new automaton, or ``None`` if no indexable entities were
-    supplied.  Callers should treat ``None`` as "no trie available" — the
+    supplied.  Callers should treat ``None`` as "no trie available" - the
     matching :func:`scan_text` will simply return ``[]`` instead of crashing.
     """
     global _trie
@@ -147,7 +147,7 @@ def build_trie(entities: List[dict]) -> ahocorasick.Automaton | None:
 
     if indexed == 0:
         # ahocorasick's Automaton is left in a non-iterable state when
-        # make_automaton() is called with zero patterns — the first .iter()
+        # make_automaton() is called with zero patterns - the first .iter()
         # call raises AttributeError.  Leave the global as None so
         # scan_text() short-circuits cleanly.
         _trie = None

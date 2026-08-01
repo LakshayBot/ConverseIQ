@@ -1,6 +1,6 @@
 """GLiNER entity extraction from document text.
 
-Runs only at document ingest time — never on the live-call hot path.
+Runs only at document ingest time - never on the live-call hot path.
 Extracts: competitors, product names, integrations, pricing tiers, features.
 """
 from __future__ import annotations
@@ -10,12 +10,12 @@ from typing import Optional, Set
 
 logger = logging.getLogger(__name__)
 
-# GLiNER is lazily loaded — the model is ~600 MB and we don't want to
+# GLiNER is lazily loaded - the model is ~600 MB and we don't want to
 # block startup.  Call get_extractor() to obtain the singleton.
 _extractor: Optional["EntityExtractor"] = None
 
 # Labels passed to GLiNER that map to our internal entity types.
-# NOTE: 'competitor' is intentionally excluded — competitors are detected
+# NOTE: 'competitor' is intentionally excluded - competitors are detected
 # dynamically via the competitor_classifier (heuristic + LLM), not via GLiNER.
 GLINER_LABELS = [
     "product name",
@@ -42,7 +42,7 @@ ACRONYM_ALLOWLIST: Set[str] = {
 }
 
 # Common English stop-words / fragments that GLiNER occasionally emits as
-# "product name" hits.  Kept small and obvious — anything more aggressive
+# "product name" hits.  Kept small and obvious - anything more aggressive
 # and we start dropping real product tokens.
 STOP_WORDS: Set[str] = {
     "the", "and", "for", "with", "this", "that", "it", "is", "are",
@@ -145,7 +145,7 @@ def get_extractor() -> EntityExtractor:
 
 
 async def extract_entities(text: str, confidence_threshold: float = 0.3) -> list[dict]:
-    """Async wrapper — runs the GLiNER call in a thread executor."""
+    """Async wrapper - runs the GLiNER call in a thread executor."""
     import asyncio
 
     extractor = get_extractor()

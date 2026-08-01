@@ -1,6 +1,6 @@
 'use client';
 
-// KnowledgeUpload — desktop-friendly mirror of the web app's knowledge
+// KnowledgeUpload - desktop-friendly mirror of the web app's knowledge
 // page. Lives as a tab inside the Settings shell so users can:
 //   1. Pick a PDF / DOCX / Markdown / TXT file from the OS file dialog
 //   2. Choose fast (in-process PDF/MD extraction) or structured (Docling + LLM)
@@ -13,7 +13,7 @@
 //     standard File object with a `.path` so we can read the file via the
 //     existing `read_audio_file` Tauri command (passes file bytes + filename +
 //     content type to the new `callpilot_api_upload` command, which builds
-//     a multipart request — the .NET endpoint requires multipart).
+//     a multipart request - the .NET endpoint requires multipart).
 //   - All other endpoints (GET /knowledge, GET /knowledge/{id},
 //     DELETE /knowledge/{id}, GET /knowledge/{id}/status,
 //     GET /knowledge/{id}/raw-output) go through the standard
@@ -34,14 +34,15 @@ import {
   AlertCircle,
   X,
   Zap,
-  Brain,
+  Sparkles,
+  Check,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
 import { authedApiCall } from '@/lib/auth';
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Types — mirror src/callpilot-dashboard/src/lib/api.ts so the two
+// Types - mirror src/callpilot-dashboard/src/lib/api.ts so the two
 // surfaces stay field-for-field compatible.
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -157,11 +158,31 @@ function isLlmTerminal(s: string | null | undefined): boolean {
   return s === 'enriched' || s === 'enrichment_failed';
 }
 
+// Terminal means "nothing left to poll for".  Fast-mode docs are done as
+// soon as processing finishes.  Structured docs have an async enrichment
+// pass that starts AFTER processing is Indexed - so they only become
+// terminal once enrichment has settled, otherwise the poll can stop in
+// the Indexed + enrichmentStatus=null window and freeze the progress bar
+// just before enrichment begins.  A structured doc whose enrichment
+// never started (legacy rows) is treated as done after a 10-minute
+// idle window so the poll doesn't run forever.
 function isDocTerminal(d: DocumentStatus | KnowledgeDocument): boolean {
   const processing = (d as any).processingStatus;
   const enrichment = (d as any).enrichmentStatus;
-  const mainDone = TERMINAL_PROCESSING.has(processing) || String(processing || '').startsWith(FAILURE_PREFIX);
-  return Boolean(mainDone) && (isLlmTerminal(enrichment) || enrichment == null);
+  const mode = (d as any).mode;
+  const mainDone =
+    TERMINAL_PROCESSING.has(processing) ||
+    String(processing || '').startsWith(FAILURE_PREFIX);
+  if (!mainDone) return false;
+  if (mode !== 'structured') return true;
+  if (isLlmTerminal(enrichment)) return true;
+  if (enrichment == null) {
+    const ts = (d as any).lastUpdatedAt
+      ? new Date((d as any).lastUpdatedAt).getTime()
+      : 0;
+    if (ts > 0 && Date.now() - ts > 10 * 60 * 1000) return true;
+  }
+  return false;
 }
 
 function formatBytes(bytes: number): string {
@@ -180,7 +201,7 @@ const ProcessingPill: React.FC<{ value: string }> = ({ value }) => {
   const bg = isError
     ? 'bg-[var(--opaline-error-container)] text-[var(--opaline-on-error-container)]'
     : isDone
-      ? 'bg-[var(--opaline-primary-container)] text-[var(--opaline-on-primary-container)]'
+      ? 'bg-[var(--opaline-primary)] text-[var(--opaline-on-primary)]'
       : 'bg-[var(--opaline-surface-container-high)] text-[var(--opaline-on-surface-variant)]';
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${bg}`}>
@@ -193,7 +214,7 @@ const EnrichmentPill: React.FC<{ value: string | null; mode?: string }> = ({ val
   if (mode === 'fast' || value == null) return null;
   if (value === 'enriched') {
     return (
-      <span className="inline-flex items-center rounded-full bg-[var(--opaline-secondary-container)] text-[var(--opaline-on-secondary-container)] px-2 py-0.5 text-[10px] font-semibold">
+      <span className="inline-flex items-center rounded-full border border-[var(--opaline-secondary)] px-2 py-0.5 text-[10px] font-semibold text-[var(--opaline-secondary)]">
         enriched
       </span>
     );
@@ -369,13 +390,34 @@ const DocumentRow: React.FC<{
   onDelete: (id: string) => void;
   onView: (id: string) => void;
 }> = ({ doc, live, onDelete, onView }) => {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const confirmTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (confirmTimerRef.current !== null) window.clearTimeout(confirmTimerRef.current);
+    };
+  }, []);
+
+  const handleDeleteClick = () => {
+    if (!confirmingDelete) {
+      setConfirmingDelete(true);
+      if (confirmTimerRef.current !== null) window.clearTimeout(confirmTimerRef.current);
+      confirmTimerRef.current = window.setTimeout(() => setConfirmingDelete(false), 3000);
+      return;
+    }
+    if (confirmTimerRef.current !== null) window.clearTimeout(confirmTimerRef.current);
+    setConfirmingDelete(false);
+    onDelete(doc.id);
+  };
+
   const processingStatus = live?.processingStatus ?? doc.processingStatus;
   const enrichmentStatus = live?.enrichmentStatus ?? doc.enrichmentStatus;
   const chunkCount = live?.chunkCount ?? doc.chunkCount;
   const entityCount = live?.entityCount ?? 0;
   const showStepper = live && !isDocTerminal({ ...doc, ...live });
   // Show the progress bar whenever the enrichment progress is populated,
-  // even post-terminal — partial successes are still worth surfacing.
+  // even post-terminal - partial successes are still worth surfacing.
   const enrichmentProgress = live?.enrichmentProgress ?? null;
   const showProgressBar =
     !!enrichmentProgress &&
@@ -389,17 +431,26 @@ const DocumentRow: React.FC<{
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="truncate text-sm font-semibold text-[var(--opaline-on-surface)]">{doc.fileName}</p>
+            <p className="truncate text-sm font-semibold text-[var(--grain-ink-900)]">{doc.fileName}</p>
             <ProcessingPill value={processingStatus} />
             <EnrichmentPill value={enrichmentStatus} mode={doc.mode} />
           </div>
-          <p className="mt-1 text-xs text-[var(--opaline-on-surface-variant)]">
-            {formatBytes(doc.fileSizeBytes)} · {chunkCount} chunks
-            {entityCount > 0 && ` · ${entityCount} entities`} · {new Date(doc.createdAt).toLocaleDateString()}
+          <p className="mt-1 max-w-full truncate font-mono text-xs text-[var(--grain-ink-500)]">
+            <span>{formatBytes(doc.fileSizeBytes)}</span>
+            <span className="mx-1 opacity-60" aria-hidden>·</span>
+            <span>{chunkCount} chunks</span>
+            {entityCount > 0 && (
+              <>
+                <span className="mx-1 opacity-60" aria-hidden>·</span>
+                <span>{entityCount} entities</span>
+              </>
+            )}
+            <span className="mx-1 opacity-60" aria-hidden>·</span>
+            <span>{new Date(doc.createdAt).toLocaleDateString()}</span>
             {doc.mode && (
               <>
-                {' · '}
-                <span className="text-[var(--opaline-on-surface-variant)] opacity-70">{doc.mode}</span>
+                <span className="mx-1 opacity-60" aria-hidden>·</span>
+                <span className="opacity-70">{doc.mode}</span>
               </>
             )}
           </p>
@@ -408,17 +459,22 @@ const DocumentRow: React.FC<{
           <button
             type="button"
             onClick={() => onView(doc.id)}
-            className="rounded-md px-3 py-1 text-xs font-medium text-[var(--opaline-primary)] transition-colors hover:bg-[var(--opaline-surface-container-low)]"
+            className="rounded-md px-3 py-1 text-xs font-medium text-[var(--grain-ink-500)] transition-colors hover:bg-[var(--grain-paper-2)] hover:text-[var(--grain-ink-900)]"
           >
             View
           </button>
           <button
             type="button"
-            onClick={() => onDelete(doc.id)}
-            aria-label="Delete document"
-            className="rounded-md p-1.5 text-[var(--opaline-on-surface-variant)] transition-colors hover:bg-[var(--opaline-error-container)] hover:text-[var(--opaline-on-error-container)]"
+            onClick={handleDeleteClick}
+            aria-label={confirmingDelete ? 'Confirm delete' : 'Delete document'}
+            title={confirmingDelete ? 'Click again to confirm' : 'Delete document'}
+            className={`rounded-md p-1.5 transition-colors ${
+              confirmingDelete
+                ? 'bg-[var(--opaline-error-container)] text-[var(--opaline-on-error-container)]'
+                : 'text-[var(--grain-ink-500)] hover:bg-[var(--opaline-error-container)] hover:text-[var(--opaline-on-error-container)]'
+            }`}
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            {confirmingDelete ? <Check className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
           </button>
         </div>
       </div>
@@ -499,17 +555,31 @@ export const KnowledgeUpload: React.FC = () => {
     }
   };
 
-  // Poll in-flight docs at 1.5s intervals (matches the web app cadence)
+  // Poll in-flight docs at a steady 1.5s interval (matches the web app
+  // cadence).  Docs/statuses are read through refs so the interval is
+  // created ONCE - previously the effect depended on `liveStatuses`,
+  // which restarted it on every status update (and re-fired `tick()`
+  // immediately each time, turning the 1.5s poll into a busy loop of
+  // back-to-back requests).
+  const docsRef = useRef(docs);
   useEffect(() => {
-    if (docs.length === 0) return;
-    const inFlight = docs.filter((d) => {
-      const live = liveStatuses[d.id];
-      return !isDocTerminal(live ?? d);
-    });
-    if (inFlight.length === 0) return;
+    docsRef.current = docs;
+  }, [docs]);
+  const liveStatusesRef = useRef(liveStatuses);
+  useEffect(() => {
+    liveStatusesRef.current = liveStatuses;
+  }, [liveStatuses]);
 
+  useEffect(() => {
     let cancelled = false;
     const tick = async () => {
+      const currentDocs = docsRef.current;
+      const inFlight = currentDocs.filter((d) => {
+        const live = liveStatusesRef.current[d.id];
+        return !isDocTerminal(live ?? d);
+      });
+      if (inFlight.length === 0) return;
+
       const results = await Promise.all(
         inFlight.map(async (d) => {
           try {
@@ -528,7 +598,9 @@ export const KnowledgeUpload: React.FC = () => {
       results.forEach((r) => {
         if (r) updates[r[0]] = r[1];
       });
-      setLiveStatuses((prev) => ({ ...prev, ...updates }));
+      setLiveStatuses((prev) =>
+        Object.keys(updates).length > 0 ? { ...prev, ...updates } : prev,
+      );
     };
     void tick();
     const interval = setInterval(() => void tick(), POLL_INTERVAL_MS);
@@ -536,7 +608,7 @@ export const KnowledgeUpload: React.FC = () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [docs, liveStatuses]);
+  }, []);
 
   // ─── Upload handling ──────────────────────────────────────────────────────
   // The desktop uses the native OS file picker via @tauri-apps/plugin-dialog
@@ -569,7 +641,7 @@ export const KnowledgeUpload: React.FC = () => {
     setUploading(true);
     try {
       // Read the file bytes (read_audio_file works for any binary blob, not
-      // just audio — the name is historical from the import flow).
+      // just audio - the name is historical from the import flow).
       const bytes = await invoke<number[]>('read_audio_file', { filePath: picked });
       const fileBytes = new Uint8Array(bytes);
 
@@ -588,7 +660,7 @@ export const KnowledgeUpload: React.FC = () => {
       try {
         token = (await invoke<string | null>('get_auth_access_token')) ?? null;
       } catch {
-        // No session — let the server reject with 401.
+        // No session - let the server reject with 401.
       }
 
       const result = await invoke<KnowledgeDocument>('callpilot_api_upload', {
@@ -674,63 +746,101 @@ export const KnowledgeUpload: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h2 className="text-headline-md text-[var(--opaline-on-surface)]">Knowledge Documents</h2>
-          <p className="mt-1 text-body-sm text-[var(--opaline-on-surface-variant)]">
-            Upload product docs, battle cards, objection guides — the AI extracts entities from them so live calls surface the right recommendations.
-          </p>
-        </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          {/* Mode toggle */}
-          <div className="inline-flex rounded-xl border border-[var(--opaline-outline-variant)] overflow-hidden text-label-sm">
-            <button
-              type="button"
-              onClick={() => setMode('fast')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 transition-colors ${
-                mode === 'fast'
-                  ? 'bg-[var(--opaline-primary)] text-[var(--opaline-on-primary)]'
-                  : 'bg-[var(--opaline-surface-container-lowest)] text-[var(--opaline-on-surface-variant)] hover:bg-[var(--opaline-surface-container-low)]'
-              }`}
-              title="In-process extraction. Sub-second, no LLM pass."
-            >
-              <Zap className="h-3.5 w-3.5" />
-              Fast
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('structured')}
-              className={`inline-flex items-center gap-1.5 border-l border-[var(--opaline-outline-variant)] px-3 py-1.5 transition-colors ${
-                mode === 'structured'
-                  ? 'bg-[var(--opaline-primary)] text-[var(--opaline-on-primary)]'
-                  : 'bg-[var(--opaline-surface-container-lowest)] text-[var(--opaline-on-surface-variant)] hover:bg-[var(--opaline-surface-container-low)]'
-              }`}
-              title="Docling + async LLM enrichment. Slower but richer."
-            >
-              <Brain className="h-3.5 w-3.5" />
-              Structured + LLM
-            </button>
+      {/* Upload card */}
+      <section className="rounded-2xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="font-display text-lg font-semibold tracking-tight text-[var(--grain-ink-900)]">
+              Knowledge documents
+            </h2>
+            <p className="mt-1 max-w-xl text-xs leading-relaxed text-[var(--grain-ink-500)]">
+              Upload product docs, battle cards, objection guides - the AI extracts entities
+              from them so live calls surface the right recommendations.
+            </p>
           </div>
 
-          {/* Upload button — opens the native OS file picker via the Tauri
+          {/* Upload button - opens the native OS file picker via the Tauri
               dialog plugin. <input type="file"> doesn't expose .path in the
               Tauri webview, so we go directly through the plugin. */}
           <button
             type="button"
             onClick={handleUpload}
             disabled={uploading}
-            className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-label-md text-[var(--opaline-on-primary)] transition-colors ${
+            className={`group inline-flex items-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium shadow-sm ring-1 ring-black/5 transition-colors ${
               uploading
-                ? 'bg-[var(--opaline-on-surface-variant)] cursor-not-allowed'
-                : 'bg-[var(--opaline-primary)] hover:bg-[var(--opaline-on-primary-container)]'
+                ? 'cursor-not-allowed bg-[var(--grain-ink-300)] text-white'
+                : 'bg-[var(--grain-ink-900)] text-white hover:bg-[var(--grain-ink-700)]'
             }`}
           >
             {uploading ? <LoaderIcon className="h-4 w-4 animate-spin" /> : <UploadIcon className="h-4 w-4" />}
             {uploading ? 'Uploading…' : 'Upload document'}
           </button>
         </div>
-      </div>
+
+        {/* Ingest mode - selectable option cards instead of a segmented bar */}
+        <div className="mt-5">
+          <p className="font-display text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)]">
+            Ingest mode
+          </p>
+          <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setMode('fast')}
+              aria-pressed={mode === 'fast'}
+              className={`rounded-xl border p-4 text-left transition-colors ${
+                mode === 'fast'
+                  ? 'border-[var(--opaline-primary)] bg-[var(--opaline-tone-4)]'
+                  : 'border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] hover:bg-[var(--opaline-surface-container-low)]'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Zap
+                  strokeWidth={2}
+                  className={`h-4 w-4 ${
+                    mode === 'fast' ? 'text-[var(--opaline-primary)]' : 'text-[var(--grain-ink-500)]'
+                  }`}
+                />
+                <span className="text-sm font-semibold text-[var(--grain-ink-900)]">Fast</span>
+                {mode === 'fast' && (
+                  <CheckCircle2 className="ml-auto h-4 w-4 text-[var(--opaline-primary)]" />
+                )}
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-[var(--grain-ink-500)]">
+                In-process extraction. Sub-second, no LLM pass.
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMode('structured')}
+              aria-pressed={mode === 'structured'}
+              className={`rounded-xl border p-4 text-left transition-colors ${
+                mode === 'structured'
+                  ? 'border-[var(--opaline-primary)] bg-[var(--opaline-tone-4)]'
+                  : 'border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] hover:bg-[var(--opaline-surface-container-low)]'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Sparkles
+                  strokeWidth={2}
+                  className={`h-4 w-4 ${
+                    mode === 'structured' ? 'text-[var(--opaline-primary)]' : 'text-[var(--grain-ink-500)]'
+                  }`}
+                />
+                <span className="text-sm font-semibold text-[var(--grain-ink-900)]">
+                  Structured + LLM
+                </span>
+                {mode === 'structured' && (
+                  <CheckCircle2 className="ml-auto h-4 w-4 text-[var(--opaline-primary)]" />
+                )}
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-[var(--grain-ink-500)]">
+                Docling + async LLM enrichment. Slower but richer product cards.
+              </p>
+            </button>
+          </div>
+        </div>
+      </section>
 
       {error && (
         <div className="rounded-xl border border-[var(--opaline-error-container)] bg-[var(--opaline-error-container)] px-3 py-2 text-sm text-[var(--opaline-on-error-container)]">
@@ -749,6 +859,14 @@ export const KnowledgeUpload: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)]">
+              Your documents
+            </h2>
+            <span className="text-[10px] font-medium text-[var(--grain-ink-500)] tabular-nums">
+              {docsForRender.length}
+            </span>
+          </div>
           {docsForRender.map(({ doc, live }) => (
             <DocumentRow
               key={doc.id}

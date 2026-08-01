@@ -1,7 +1,7 @@
 import type { Config } from "tailwindcss";
 
 /* ──────────────────────────────────────────────────────────────────────────
-   Tailwind config — Opaline design system
+   Tailwind config - Opaline design system
    ──────────────────────────────────────────────────────────────────────────
    Bridges the Opaline CSS variables (in globals.css) into Tailwind so
    components can use them as utility classes:
@@ -12,7 +12,7 @@ import type { Config } from "tailwindcss";
      font-display / font-body
 
    Legacy aliases (primary / secondary / accent / destructive) are kept
-   so existing components continue to work — they now resolve to Opaline.
+   so existing components continue to work - they now resolve to Opaline.
    ────────────────────────────────────────────────────────────────────────── */
 
 export default {
@@ -21,8 +21,23 @@ export default {
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
+  darkMode: ['class'],
   theme: {
     extend: {
+      keyframes: {
+        'accordion-down': {
+          from: { height: '0' },
+          to: { height: 'var(--radix-accordion-content-height)' },
+        },
+        'accordion-up': {
+          from: { height: 'var(--radix-accordion-content-height)' },
+          to: { height: '0' },
+        },
+      },
+      animation: {
+        'accordion-down': 'accordion-down 0.2s ease-out',
+        'accordion-up': 'accordion-up 0.2s ease-out',
+      },
       colors: {
         /* Opaline authoritative palette */
         opaline: {
@@ -80,27 +95,40 @@ export default {
           'on-background':             'var(--opaline-on-background)',
         },
 
-        /* Legacy shadcn aliases — repointed to Opaline */
+        /* Legacy shadcn aliases - repointed to Opaline */
         background: 'var(--background)',
         foreground: 'var(--foreground)',
         primary:    'var(--primary)',
         secondary:  'var(--secondary)',
         accent:     'var(--accent)',
         destructive:'var(--destructive)',
+        border:     'var(--border)',
+        input:      'var(--input)',
+        ring:       'var(--ring)',
+        muted: {
+          DEFAULT:  'var(--muted)',
+          foreground: 'var(--muted-foreground)',
+        },
+        popover: {
+          DEFAULT:  'var(--popover)',
+          foreground: 'var(--popover-foreground)',
+        },
+        card: {
+          DEFAULT:  'var(--card)',
+          foreground: 'var(--card-foreground)',
+        },
       },
       fontFamily: {
-        /* Inter is the single global font for the project. The
-           design.md split (Manrope for display, Inter for body) was
-           abandoned in app code because the visual mismatch between
-           the sidebar and the main content was jarring. The Tailwind
-           `font-display` alias is kept for compatibility but routes
-           to the same Inter family. */
-        display: ['var(--font-inter)', 'Inter', 'system-ui', 'sans-serif'],
-        body:    ['var(--font-inter)', 'Inter', 'system-ui', 'sans-serif'],
+        /* Typography families - loaded via next/font in layout.tsx:
+           display = Space Grotesk (--font-display), mono = JetBrains Mono
+           (--font-mono), body = Inter (--font-body / --font-inter). */
+        display: ['var(--font-display)', 'Space Grotesk', 'system-ui', 'sans-serif'],
+        body:    ['var(--font-body)', 'var(--font-inter)', 'Inter', 'system-ui', 'sans-serif'],
         sans:    ['var(--font-inter)', 'Inter', 'system-ui', 'sans-serif'],
+        mono:    ['var(--font-mono)', 'JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       fontSize: {
-        /* Opaline typography scale — exposed as Tailwind fontSize keys
+        /* Opaline typography scale - exposed as Tailwind fontSize keys
            so app code can use `text-headline-lg` etc. via the
            utility classes in globals.css. */
         'display': ['32px', { lineHeight: '1.2', fontWeight: '700' }],
@@ -130,5 +158,6 @@ export default {
   },
   plugins: [
     require('@tailwindcss/typography'),
+    require('tailwindcss-animate'),
   ],
 } satisfies Config;

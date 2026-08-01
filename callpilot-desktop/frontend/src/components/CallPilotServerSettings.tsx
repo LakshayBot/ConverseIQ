@@ -57,7 +57,7 @@ export const CallPilotServerSettings: React.FC = () => {
     if (result.ok) {
       setTestResult({ ok: true, message: `Connected (HTTP ${result.status})` });
     } else {
-      setTestResult({ ok: false, message: result.error ?? `HTTP ${result.status ?? '—'}` });
+      setTestResult({ ok: false, message: result.error ?? `HTTP ${result.status ?? '-'}` });
     }
   };
 
@@ -80,7 +80,7 @@ export const CallPilotServerSettings: React.FC = () => {
     try {
       await logout();
       toast.success('Signed out');
-      // AuthGate will unmount the shell on the next render — no router needed.
+      // AuthGate will unmount the shell on the next render - no router needed.
     } catch (e) {
       console.error('[settings] sign out failed:', e);
       toast.error('Could not sign out', {

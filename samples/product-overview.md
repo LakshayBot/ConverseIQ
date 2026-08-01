@@ -25,18 +25,18 @@ Contextual talking points and objection handling guidance generated in real time
 
 ## Pricing
 
-### Starter Plan — $29/user/month
+### Starter Plan - $29/user/month
 - Live transcription
 - Basic competitor detection
 - 5 knowledge documents
 
-### Professional Plan — $79/user/month
+### Professional Plan - $79/user/month
 - Full competitor intelligence
 - 50 knowledge documents
 - AI recommendations
 - Custom battle cards
 
-### Enterprise Plan — Custom pricing
+### Enterprise Plan - Custom pricing
 - Unlimited documents
 - Custom integrations
 - Dedicated deployment

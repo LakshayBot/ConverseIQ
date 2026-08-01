@@ -20,7 +20,7 @@ export interface EventPayload {
   entityName: string | null;
   confidence: number;
   detectedAt: string;
-  /** GLiNER label / internal entity_type — e.g. "product", "feature", "integration" */
+  /** GLiNER label / internal entity_type - e.g. "product", "feature", "integration" */
   category: string | null;
   /** The transcript segment that triggered the event, capped at 1000 chars */
   supportingTranscript: string | null;
@@ -37,7 +37,7 @@ interface RecommendationPayload {
 }
 
 /**
- * Dedupe window — within this many seconds, the same (eventType, entityName)
+ * Dedupe window - within this many seconds, the same (eventType, entityName)
  * pair is treated as a single event.  Without dedupe the trie's substring
  * match can fire on every partial transcript update and flood the badge list
  * with copies of the same product.
@@ -71,7 +71,7 @@ export function useSignalR(meetingId: string | null) {
 
     const token = getAccessToken();
     if (!token) {
-      setError('Not authenticated — please log in first');
+      setError('Not authenticated - please log in first');
       return;
     }
 

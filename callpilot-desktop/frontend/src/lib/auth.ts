@@ -1,4 +1,4 @@
-// Frontend auth client. The ONLY place the webview ever sees tokens —
+// Frontend auth client. The ONLY place the webview ever sees tokens -
 // short-lived access tokens for outgoing requests; the refresh token stays
 // server-side (managed by the `refresh_access_token` Tauri command).
 //
@@ -133,13 +133,13 @@ export async function register(email: string, password: string): Promise<AuthSes
 
 /**
  * Best-effort sign-out. We always clear the local session, even if the
- * server-side logout call fails — the access token will expire on its own
+ * server-side logout call fails - the access token will expire on its own
  * and the refresh token is server-revoked on the next attempt.
  */
 export async function logout(): Promise<void> {
   const session = await getSession().catch(() => null);
 
-  // Build the logout body. If we don't have a refresh token (rare — would
+  // Build the logout body. If we don't have a refresh token (rare - would
   // mean the local store was corrupted), skip the server call.
   if (session?.refreshToken) {
     try {
@@ -150,7 +150,7 @@ export async function logout(): Promise<void> {
         session.accessToken,
       );
     } catch (e) {
-      // Swallow — we still want to wipe the local session.
+      // Swallow - we still want to wipe the local session.
       console.warn('[auth] server-side logout failed:', e);
     }
   }
@@ -175,7 +175,7 @@ export async function tryRestoreSession(): Promise<AuthSession | null> {
     };
   } catch (e) {
     console.warn('[auth] session restore failed:', e);
-    // The server rejected the refresh token — the Rust side already cleared
+    // The server rejected the refresh token - the Rust side already cleared
     // the store in that case, so the next login starts fresh.
     return null;
   }
@@ -201,7 +201,7 @@ export async function getSession(): Promise<AuthSession | null> {
 /**
  * Authenticated REST helper. Use this for any endpoint beyond `/auth/*`.
  * Reads the current access token server-side and attaches it as a bearer
- * header — the token never lives in the webview for longer than one call.
+ * header - the token never lives in the webview for longer than one call.
  */
 export async function authedApiCall<T>(
   method: string,
@@ -212,7 +212,7 @@ export async function authedApiCall<T>(
   try {
     token = (await invoke<string | null>('get_auth_access_token')) ?? null;
   } catch {
-    // No session — fall through and let the server reject with 401.
+    // No session - fall through and let the server reject with 401.
   }
   return apiCall<T>(method, path, body, token);
 }

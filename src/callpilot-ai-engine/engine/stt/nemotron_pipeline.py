@@ -1,5 +1,5 @@
 """
-Nemotron Speech Streaming pipeline — cache-aware, energy-VAD gated.
+Nemotron Speech Streaming pipeline - cache-aware, energy-VAD gated.
 
 Implements the inference patterns from:
   • modal-projects/modal-nvidia-asr  (cache-aware streaming, concurrent slots)
@@ -7,9 +7,9 @@ Implements the inference patterns from:
 
 Lazy-loads the model on first use so server startup stays fast even when
 NeMo takes 30+ seconds to initialise. Uses two serialisation locks:
-  • `inference_lock`  (asyncio.Lock) — held by the WebSocket handler while
+  • `inference_lock`  (asyncio.Lock) - held by the WebSocket handler while
                                 the executor runs a batch transcribe
-  • `_inference_lock` (threading.Lock) — held by the sync streaming path
+  • `_inference_lock` (threading.Lock) - held by the sync streaming path
                                 inside `_transcribe_accumulated`
 The two locks together prevent concurrent CPU-bound NeMo inference on a
 single host, regardless of whether the caller is an asyncio task or a
@@ -40,7 +40,7 @@ from engine.config.nemotron_config import (
 
 logger = logging.getLogger(__name__)
 
-# torch is imported lazily inside methods that need it — keeps the import cost
+# torch is imported lazily inside methods that need it - keeps the import cost
 # off the critical path and lets the rest of the module load before NeMo
 # resolves its ~hundreds-of-MB dependency tree.
 
@@ -136,7 +136,7 @@ class NemotronPipeline:
                 self._loading = False
 
     def _load_model(self) -> None:
-        """Synchronous model load — runs in thread pool to avoid blocking the event loop."""
+        """Synchronous model load - runs in thread pool to avoid blocking the event loop."""
         import nemo.collections.asr as nemo_asr  # noqa: F401
 
         logger.info(
@@ -161,7 +161,7 @@ class NemotronPipeline:
         return NemotronSession(session_id=session_id)
 
     def reset_session(self, sess: NemotronSession) -> None:
-        """Hard reset after finalisation — clears all accumulated state."""
+        """Hard reset after finalisation - clears all accumulated state."""
         sess.accumulated_audio = np.array([], dtype=np.float32)
         sess.emitted_frames = 0
         sess.previous_hypotheses = None
@@ -174,7 +174,7 @@ class NemotronPipeline:
     # ── streaming transcription ───────────────────────────────────────────
     # Minimum audio (ms) before the first inference attempt.
     # Nemotron processes 160ms chunks natively, but short audio often
-    # returns empty text — wasting ~500ms of NeMo overhead.  320ms gives
+    # returns empty text - wasting ~500ms of NeMo overhead.  320ms gives
     # the model enough signal for a meaningful first word without adding
     # noticeable latency.
     _MIN_STREAMING_CHUNK_MS: int = int(os.getenv("NEMOTRON_MIN_CHUNK_MS", "320"))
@@ -236,7 +236,7 @@ class NemotronPipeline:
             logger.exception("Nemotron streaming batch inference failed")
             return sess.current_text  # return last known good text
 
-        # ⚠ Always advance emitted_frames after inference — even if text is
+        # ⚠ Always advance emitted_frames after inference - even if text is
         # empty.  Without this, short-audio inferences that return "" never
         # update the pointer, so every 40ms chunk triggers a fresh (queued)
         # inference and the system never catches up.
@@ -254,7 +254,7 @@ class NemotronPipeline:
         """Run batch transcribe() on accumulated audio.
 
         For streaming partials (use_full_buffer=False): only transcribes the
-        last _MAX_PARTIAL_WINDOW_SECONDS of audio — keeps latency flat
+        last _MAX_PARTIAL_WINDOW_SECONDS of audio - keeps latency flat
         regardless of meeting length.
 
         For finalize (use_full_buffer=True): transcribes the full buffer for
@@ -345,7 +345,7 @@ class NemotronPipeline:
     def finalize(self, sess: NemotronSession) -> str:
         """Return the final transcript of all accumulated audio (batch mode).
 
-        Uses the robust transcribe() API — no fragile conformer_stream_step.
+        Uses the robust transcribe() API - no fragile conformer_stream_step.
         Returns the delta (new text) vs the last emitted partial.
         """
         if not self._loaded or self.model is None:
@@ -378,7 +378,7 @@ class NemotronPipeline:
     # ── batch transcription (REST endpoint) ─────────────────────────────────
 
     def transcribe_batch(self, audio: np.ndarray) -> Tuple[str, float]:
-        """Batch-mode transcription — processes entire audio at once.
+        """Batch-mode transcription - processes entire audio at once.
 
         Returns (transcript, duration_seconds).
         """
@@ -401,7 +401,7 @@ class NemotronPipeline:
     # ── VAD ────────────────────────────────────────────────────────────────
 
     def detect_silence(self, chunk: np.ndarray, sess: NemotronSession) -> bool:
-        """Energy-based VAD — returns True after NEMOTRON_VAD_SILENCE_MS of quiet.
+        """Energy-based VAD - returns True after NEMOTRON_VAD_SILENCE_MS of quiet.
 
         Simple RMS thresholding at -60 dB (rms < 0.001).  This is intentionally
         simpler than Silero VAD to avoid the PyTorch + onnxruntime dependency

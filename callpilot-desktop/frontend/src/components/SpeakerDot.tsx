@@ -1,6 +1,6 @@
 'use client';
 
-// SpeakerDot — tiny filled-circle indicator that replaces the old
+// SpeakerDot - tiny filled-circle indicator that replaces the old
 // speaker chip (REP / PROSPECT) in the transcript row.
 //
 // Why a dot and not a chip: the Stitch "Grain" reference uses a single

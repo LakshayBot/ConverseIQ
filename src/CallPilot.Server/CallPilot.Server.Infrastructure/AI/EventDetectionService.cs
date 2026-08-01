@@ -80,7 +80,7 @@ public class EventDetectionService
                 }
                 catch
                 {
-                    // fire-and-forget — individual failures are non-blocking
+                    // fire-and-forget - individual failures are non-blocking
                 }
             }
         }

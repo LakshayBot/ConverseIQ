@@ -19,7 +19,7 @@ var desktopAudioOption = new Option<bool>("--enable-desktop-audio", () => true, 
 var rootCommand = new RootCommand("CallPilot Desktop Agent - Real-time audio streaming client");
 
 var micDeviceOption = new Option<string?>("--mic-device", () => null, "avfoundation audio device index (e.g. ':1' for MacBook mic). Run with --list-devices to see options");
-var fileInputOption = new Option<string?>("--file-input", () => null, "Play audio file through the pipeline (MP3/WAV/etc.) — no physical device needed");
+var fileInputOption = new Option<string?>("--file-input", () => null, "Play audio file through the pipeline (MP3/WAV/etc.) - no physical device needed");
 var sourceOption = new Option<string>("--source", () => "microphone", "Audio source type: 'microphone' (your voice → 'Salesperson') or 'desktop' (speaker audio → 'Customer-1')");
 var listDevicesOption = new Option<bool>("--list-devices", () => false, "List available audio capture devices and exit");
 

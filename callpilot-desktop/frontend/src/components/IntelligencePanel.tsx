@@ -21,7 +21,7 @@ interface Props {
   cards: IntelligenceCard[];
   connected: boolean;
   error: string | null;
-  /** Current session ID — surfaced in the panel so the user can confirm the
+  /** Current session ID - surfaced in the panel so the user can confirm the
    *  active meeting at a glance. */
   sessionId?: string | null;
 }
@@ -42,7 +42,7 @@ const SEVERITY_BORDER: Record<IntelligenceCard['severity'], string> = {
 };
 
 /**
- * Visual state of the intelligence stream — drives both the empty-state card
+ * Visual state of the intelligence stream - drives both the empty-state card
  * (icon, palette, copy) and the small pill in the top right. Centralising
  * the four states here keeps the two surfaces in sync.
  */
@@ -72,7 +72,7 @@ const STATE_META: Record<StreamState, StateMeta> = {
     iconColor: 'text-[var(--grain-ink-500)]',
     pill: { dot: 'bg-[var(--grain-ink-500)] animate-pulse', bg: 'bg-[var(--grain-paper-2)]', text: 'text-[var(--grain-ink-700)]', border: 'border-[var(--grain-ink-200)]', label: 'Opening stream' },
     title: 'Opening intelligence stream…',
-    subtitle: 'Connecting to the CallPilot AI engine — usually takes a second.',
+    subtitle: 'Connecting to the CallPilot AI engine - usually takes a second.',
   },
   live: {
     icon: <Sparkles className="h-5 w-5" />,
@@ -128,6 +128,54 @@ const EmptyState: React.FC<{
 };
 
 /**
+ * Idle-state preview: instead of a large fixed-height empty panel, show a
+ * compact low-opacity ghost of a real product card (type row + title bar +
+ * placeholder lines + the state pill) so users know what to expect from the
+ * rail before they ever start a call.
+ */
+const IdleGhostPreview: React.FC<{
+  meta: StateMeta;
+  sessionId?: string | null;
+}> = ({ meta, sessionId }) => {
+  const { pill } = meta;
+  return (
+    <div className="space-y-2">
+      <div className="rounded-lg border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-4 opacity-70" aria-hidden>
+        {/* Type row - mirrors a live intelligence card header */}
+        <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[var(--opaline-on-surface-variant)]">
+          <span className="text-[var(--opaline-on-surface-variant)]">{meta.icon}</span>
+          <span>Product match</span>
+          <span className="ml-auto text-[10px] font-semibold">-</span>
+        </div>
+        {/* Title bar */}
+        <div className="mt-2 h-3 w-3/4 rounded-sm bg-[var(--opaline-surface-container-high)] animate-pulse" />
+        {/* Placeholder lines */}
+        <div className="mt-2.5 space-y-1.5">
+          <div className="h-2 w-full rounded-sm bg-[var(--opaline-surface-container-high)]" />
+          <div className="h-2 w-5/6 rounded-sm bg-[var(--opaline-surface-container-high)]" />
+          <div className="h-2 w-2/3 rounded-sm bg-[var(--opaline-surface-container-high)]" />
+        </div>
+      </div>
+      <p className="px-1 text-[11px] leading-relaxed text-[var(--grain-ink-500)]">
+        Cards like this appear here the moment a competitor, objection, or
+        product is mentioned during the call.
+      </p>
+      <span
+        className={`ml-1 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[10px] font-medium border ${pill.bg} ${pill.text} ${pill.border}`}
+      >
+        <span className={`h-1.5 w-1.5 rounded-full ${pill.dot}`} />
+        {pill.label}
+      </span>
+      {sessionId && (
+        <div className="ml-1 text-[10px] text-[var(--grain-ink-500)] font-mono break-all">
+          session: {sessionId}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/**
  * Resolves the panel state from the props the page already tracks.
  *   error   → 'offline'
  *   connected → 'live'  (cards may still be empty until the first event)
@@ -147,6 +195,9 @@ export const IntelligencePanel: React.FC<Props> = ({ cards, connected, error, se
   if (!cards.length) {
     const state = resolveStreamState(connected, error, hasSession);
     const meta = STATE_META[state];
+    if (state === 'idle') {
+      return <IdleGhostPreview meta={meta} sessionId={sessionId} />;
+    }
     // Offline gets the engine error message folded into the subtitle.
     const subtitleOverride =
       state === 'offline' && error

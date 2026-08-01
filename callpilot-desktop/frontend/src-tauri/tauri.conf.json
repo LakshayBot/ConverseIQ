@@ -12,7 +12,7 @@
     "app": {
         "windows": [
             {
-                "title": "CallPilot — Live Sales Intelligence",
+                "title": "CallPilot - Live Sales Intelligence",
                 "width": 1100,
                 "height": 700,
                 "resizable": true,

@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /* ──────────────────────────────────────────────────────────────────────────
-   Opaline design system — 2026-07-29
+   Opaline design system - 2026-07-29
    ──────────────────────────────────────────────────────────────────────────
    Authoritative source: ~/.claude/projects/.../design.md (Opaline System).
    Muted terracotta primary (#93483c) on a cool/warm "opaline" surface
@@ -24,7 +24,7 @@
      background, on-background, surface-variant.
 
    Legacy aliases (--grain-* and --nav-*) are REPOINTED at Opaline so
-   existing components continue to work — visual shift is the intended
+   existing components continue to work - visual shift is the intended
    effect of the migration.
    ────────────────────────────────────────────────────────────────────────── */
 
@@ -104,6 +104,14 @@
 }
 
 @layer base {
+  :root {
+    /* Typography family aliases - loaded via next/font in layout.tsx:
+       --font-display (Space Grotesk), --font-mono (JetBrains Mono),
+       --font-body (Inter). Reference these when styling titles /
+       system-data text so the whole app swaps families from one place. */
+    --font-body: var(--font-inter);
+  }
+
   * { @apply border-border; }
 
   body {
@@ -139,7 +147,7 @@
     scrollbar-color: #dac1bd transparent;
   }
 
-  /* BlockNote overrides — unchanged */
+  /* BlockNote overrides - unchanged */
   .bn-container, .bn-editor, .ProseMirror, .bn-block-outer, .bn-default-styles {
     width: 100% !important;
     max-width: none !important;
@@ -172,7 +180,7 @@
   .live-caret { animation: none; opacity: 0.85; }
 }
 
-/* Slim transcript scrollbar — broadcast style */
+/* Slim transcript scrollbar - broadcast style */
 .transcript-scroll {
   scrollbar-width: thin;
   scrollbar-color: #dac1bd transparent;
@@ -187,7 +195,7 @@
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
-   Opaline — full color palette (authoritative)
+   Opaline - full color palette (authoritative)
    ────────────────────────────────────────────────────────────────────────── */
 :root {
   /* ── Surfaces ─────────────────────────────────────────────────────────── */
@@ -276,7 +284,7 @@
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
-   Legacy aliases — Figma / Grain / shadcn tokens repointed at Opaline
+   Legacy aliases - Figma / Grain / shadcn tokens repointed at Opaline
    ──────────────────────────────────────────────────────────────────────────
    These names are referenced by existing components. They now resolve
    to Opaline values. Speaker colors (rep/prospect) are NOT in Opaline
@@ -294,7 +302,7 @@
   --tab-divider:       var(--opaline-surface-container);
   --tab-active-border: var(--opaline-primary);
 
-  /* Grain paper band — repointed */
+  /* Grain paper band - repointed */
   --grain-paper:           var(--opaline-surface);
   --grain-paper-2:         var(--opaline-surface-container-low);
   --grain-paper-3:         var(--opaline-surface-container);
@@ -309,7 +317,7 @@
   --grain-rep-soft:        var(--opaline-surface-container-high);
   --grain-prospect-soft:   var(--opaline-surface-container-high);
 
-  /* Speaker dots — kept as bespoke values (not part of Opaline) */
+  /* Speaker dots - kept as bespoke values (not part of Opaline) */
   --grain-rep:             #84c95f;
   --grain-prospect:        #7d5df6;
   --rep-circle:            #84c95f;
@@ -317,21 +325,18 @@
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
-   Opaline typography scale — utility classes
+   Opaline typography scale - utility classes
    ──────────────────────────────────────────────────────────────────────────
    Use as className="text-headline-xl" etc. All screen sizes in the design
    doc except headline-lg-mobile use the same value; mobile uses
    text-headline-lg-mobile to scale down on small viewports.
    ────────────────────────────────────────────────────────────────────────── */
 @layer utilities {
-  /* Inter is the single global font for the project. The design.md split
-     (Manrope for headlines, Inter for body) was abandoned in app code
-     because the visual mismatch between the sidebar and the main
-     content was jarring. Inter renders well at every weight from 400
-     up to 700, so the typography scale still has clear hierarchy
-     without needing a second family. */
+  /* Display/headline utilities use Space Grotesk (--font-display);
+     body + label utilities below keep Inter (--font-body). Families are
+     loaded via next/font in layout.tsx and can be swapped from there. */
   .text-headline-xl {
-    font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
+    font-family: var(--font-display, 'Space Grotesk', system-ui, sans-serif);
     font-size: 48px;
     font-weight: 700;
     line-height: 56px;
@@ -339,7 +344,7 @@
   }
 
   .text-headline-lg {
-    font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
+    font-family: var(--font-display, 'Space Grotesk', system-ui, sans-serif);
     font-size: 32px;
     font-weight: 600;
     line-height: 40px;
@@ -347,7 +352,7 @@
   }
 
   .text-headline-lg-mobile {
-    font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
+    font-family: var(--font-display, 'Space Grotesk', system-ui, sans-serif);
     font-size: 24px;
     font-weight: 600;
     line-height: 32px;
@@ -355,7 +360,7 @@
   }
 
   .text-headline-md {
-    font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
+    font-family: var(--font-display, 'Space Grotesk', system-ui, sans-serif);
     font-size: 24px;
     font-weight: 600;
     line-height: 32px;
@@ -400,7 +405,7 @@
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
-   Glassmorphism helper — Level 2 elevation
+   Glassmorphism helper - Level 2 elevation
    ────────────────────────────────────────────────────────────────────────── */
 @layer utilities {
   .opaline-glass {

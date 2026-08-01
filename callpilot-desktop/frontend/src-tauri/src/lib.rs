@@ -91,7 +91,7 @@ async fn start_recording<R: Runtime>(
         mic_device_name,
         system_device_name,
         meeting_name.clone(),
-        None, // meeting_id — tray-initiated recordings don't go through the .NET Gateway
+        None, // meeting_id - tray-initiated recordings don't go through the .NET Gateway
     )
     .await
     {
@@ -264,7 +264,7 @@ async fn is_audio_level_monitoring() -> bool {
     audio::simple_level_monitor::is_monitoring()
 }
 
-// Analytics removed — no PostHog, no event tracking.
+// Analytics removed - no PostHog, no event tracking.
 // Whisper commands are now handled by whisper_engine::commands module
 
 #[tauri::command]
@@ -286,7 +286,7 @@ async fn start_recording_with_devices<R: Runtime>(
     mic_device_name: Option<String>,
     system_device_name: Option<String>,
 ) -> Result<(), String> {
-    // No meeting_id available from this older wrapper — the canonical
+    // No meeting_id available from this older wrapper - the canonical
     // desktop path (useRecordingStart) goes through
     // start_recording_with_devices_and_meeting directly with the .NET UUID.
     start_recording_with_devices_and_meeting(app, mic_device_name, system_device_name, None, None).await
@@ -322,7 +322,7 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
     // entry point (`start_recording_with_devices_and_meeting`) is always
     // the one that runs, regardless of whether the caller passed device
     // names. This eliminates the previous (None, None) special-case branch
-    // that routed through `start_recording_with_meeting_name` — that
+    // that routed through `start_recording_with_meeting_name` - that
     // function's emit payload didn't carry meeting_id in older builds, so
     // any path through it surfaced the webview as meeting_id=null and
     // TranscriptContext fell back to a `meeting-{Date.now()}` local id.
@@ -465,7 +465,7 @@ pub fn run() {
             log::info!("Application setup complete");
 
             // Register AppState (was previously the DatabaseManager wrapper
-            // for the SQLite layer — kept as an empty marker struct so
+            // for the SQLite layer - kept as an empty marker struct so
             // existing Tauri command signatures that take `State<'_, AppState>`
             // continue to compile and work after the SQLite→.NET migration).
             _app.manage(state::AppState {});
@@ -698,7 +698,7 @@ pub fn run() {
             audio::permissions::check_screen_recording_permission_command,
             audio::permissions::request_screen_recording_permission_command,
             audio::permissions::trigger_system_audio_permission_command,
-            // Database import / setup commands removed — SQLite layer was
+            // Database import / setup commands removed - SQLite layer was
             // dropped in the SQLite→.NET migration; meetings now live on
             // Postgres via the .NET Gateway.
             whisper_engine::commands::open_models_folder,

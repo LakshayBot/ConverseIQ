@@ -6,7 +6,7 @@ The detector combines:
     negative-signal detection
 
 These tests focus on the parts that don't require GLiNER (which is the
-ingest-time extractor — tested separately in test_entity_extractor).
+ingest-time extractor - tested separately in test_entity_extractor).
 
 The old `detect_competitors` API was replaced by the trie.  Tests that
 referenced the old API have been removed.
@@ -98,7 +98,7 @@ class TestTrieEntityDetection:
         assert "dlms cosem" in names
 
     def test_han_does_not_fire(self):
-        # Aho-Corasick substring would match "han" inside "hand" — but the
+        # Aho-Corasick substring would match "han" inside "hand" - but the
         # trie has a min-length gate that drops "han" at insert time, so it
         # can't even get into the trie.  Verify "hand" alone does not fire.
         events = self.detector.detect_trie_entities("Please hand the brochure to the customer.")
@@ -110,14 +110,14 @@ class TestTrieEntityDetection:
         # word-boundary check would only fire for the standalone "hancock".
         events = self.detector.detect_trie_entities("Johnson Hancock signed off on it.")
         names = [e["entityName"] for e in events]
-        # No "han" — that was the original bug.  No false "apex 100" or other
+        # No "han" - that was the original bug.  No false "apex 100" or other
         # unrelated brand either.
         assert "han" not in names
         assert "prodigy" not in names
         assert "apex 100" not in names
 
     def test_duplicate_dedup(self):
-        # Same product mentioned twice in the same text — event should
+        # Same product mentioned twice in the same text - event should
         # appear once, not twice.
         events = self.detector.detect_trie_entities(
             "Prodigy is great. We really like Prodigy."
@@ -158,7 +158,7 @@ class TestSecureMetersSalesScript:
     """
 
     SCRIPTS = [
-        # (mention-spoken, canonical-key) — what we expect the detector to find
+        # (mention-spoken, canonical-key) - what we expect the detector to find
         ("prodigy is a three phase CT operated meter", "prodigy"),
         ("apex 100 is the high end precision meter", "apex 100"),
         ("apex one hundred handles that for you", "apex 100"),
@@ -172,7 +172,7 @@ class TestSecureMetersSalesScript:
         ("enerlyser is the AT&C loss tool", "enerlyser"),
         ("fully dlms cosem compliant", "dlms cosem"),
         ("delisk compliant solution", "dlms cosem"),
-        # NOTE: competitors (Landis+Gyr, etc.) intentionally NOT here — they
+        # NOTE: competitors (Landis+Gyr, etc.) intentionally NOT here - they
         # are not in the trie.  The trie_scanner.build_trie() skips
         # entity_type=="competitor" because competitors go through the
         # Phase-2 competitor_orchestrator (heuristic + LLM + Tavily).

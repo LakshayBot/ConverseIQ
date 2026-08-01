@@ -15,7 +15,7 @@ AI_ENGINE_URL = "http://localhost:8001"
 MP3_PATH = os.path.join(os.path.dirname(__file__), "Video_transcription_audio.mp3")
 TRUTH_PATH = os.path.join(os.path.dirname(__file__), "Video_transcription_Pitch")
 MEETING_ID = "benchmark-sales-pitch"
-CHUNK_MS = 500  # 500ms chunks to match _min_new_samples — minimizes HTTP overhead
+CHUNK_MS = 500  # 500ms chunks to match _min_new_samples - minimizes HTTP overhead
 SAMPLE_RATE = 16000
 
 def load_ground_truth():

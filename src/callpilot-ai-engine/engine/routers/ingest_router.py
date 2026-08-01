@@ -10,7 +10,7 @@ page numbers, and chunk-type labels. Consumed by the .NET
 `KnowledgeUploadHandler` when the upload (or reindex) is marked
 `mode=structured`.
 
-This endpoint is intentionally slow (5-60s on CPU) — Docling runs layout
+This endpoint is intentionally slow (5-60s on CPU) - Docling runs layout
 analysis, table recognition, and (optionally) OCR on the input. The .NET
 client uses a long timeout when calling it.
 
@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/documents", tags=["ingest"])
 
 
-# 50 MB cap — same as the .NET upload limit. Larger files should be processed
+# 50 MB cap - same as the .NET upload limit. Larger files should be processed
 # out-of-band, not through the interactive upload path.
 MAX_BYTES = 50 * 1024 * 1024
 
@@ -151,7 +151,7 @@ async def enrich_document(payload: dict = Body(...)) -> StreamingResponse:
                 products_total += page_products
                 emitted += 1
                 yield (json.dumps({"kind": "page", **result}) + "\n").encode("utf-8")
-        except Exception as exc:  # noqa: BLE001 — last-line-of-defence
+        except Exception as exc:  # noqa: BLE001 - last-line-of-defence
             logger.exception("enrich stream generator crashed: %s", exc)
             yield (json.dumps({"kind": "error", "error": str(exc)}) + "\n").encode("utf-8")
 

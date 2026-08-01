@@ -20,13 +20,13 @@ Fail-open design
   function returns ``[]`` and the caller keeps the original Docling chunks.
   The upload pipeline must NEVER block on a missing LLM.
 * Per-page timeout: 30 s via :func:`asyncio.wait_for` (Groq is fast, 30 s is
-  generous; the Groq client's own timeout is also 30 s).  No retries —
+  generous; the Groq client's own timeout is also 30 s).  No retries -
   failed pages are simply unenriched.  The whole job is wrapped in
   try/except so nothing escapes back to the .NET caller; the document
   keeps the original Docling chunks and the .NET side sets
   ``enrichment_failed``.
-* Pages are processed concurrently — up to 3 in flight at any moment
-  (``asyncio.gather`` + ``Semaphore(3)``) — so a 20-page document finishes
+* Pages are processed concurrently - up to 3 in flight at any moment
+  (``asyncio.gather`` + ``Semaphore(3)``) - so a 20-page document finishes
   in roughly a third of the wall time of a sequential loop, while
   bounding load on Groq's rate limiter.
 * JSON parse failures: log a warning, return ``[]``.  In practice
@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 # ── Configuration ──────────────────────────────────────────────────────────
 # Read at module load so tests can monkeypatch via env.  Not from a config
-# module — keeping this self-contained so the service can be tested in
+# module - keeping this self-contained so the service can be tested in
 # isolation.
 
 
@@ -62,14 +62,14 @@ class _MissingGroqKey(RuntimeError):
     """Raised when GROQ_API_KEY is not set in the environment.
 
     Treated as a recoverable error by the fail-open wrapper in
-    :func:`enrich_page` — the page just gets an empty enrichment result
+    :func:`enrich_page` - the page just gets an empty enrichment result
     and the .NET side sets ``enrichment_failed``.  Surfaced as a distinct
     type so the warning log makes the root cause obvious.
     """
 
 
 def _get_groq_api_key() -> str:
-    # No default — a missing key is a deployment misconfiguration.  We
+    # No default - a missing key is a deployment misconfiguration.  We
     # raise a typed exception so the caller's fail-open wrapper can log
     # "GROQ_API_KEY missing" specifically instead of a generic
     # AuthenticationError, and so test setups that forget to set the
@@ -77,7 +77,7 @@ def _get_groq_api_key() -> str:
     key = os.getenv("GROQ_API_KEY")
     if not key:
         raise _MissingGroqKey(
-            "GROQ_API_KEY is not set — get a free key at console.groq.com "
+            "GROQ_API_KEY is not set - get a free key at console.groq.com "
             "(no credit card required) and set it in the environment."
         )
     return key
@@ -113,7 +113,7 @@ class _GroqResult:
     so the dashboard can distinguish "no products found" (LLM was fine,
     just nothing to extract) from "enrichment failed" (LLM/auth/network
     problem).  ``error_message`` is the first 500 chars of the underlying
-    exception text — useful for surfacing "Invalid API Key" in the UI
+    exception text - useful for surfacing "Invalid API Key" in the UI
     without flooding logs.
     """
     content: Optional[str]
@@ -152,14 +152,14 @@ class EnrichedProduct:
     def to_chunk_text(self) -> str:
         """Render this product card as a single rich text string for embedding.
 
-        Format is stable — tests assert on it, and the .NET handler copies it
+        Format is stable - tests assert on it, and the .NET handler copies it
         verbatim into ``KnowledgeChunk.Text``.
         """
         def _join_or_none(label: str, items: List[str]) -> str:
             cleaned = [s.strip() for s in (items or []) if s and s.strip()]
             return f"{label}: {', '.join(cleaned)}." if cleaned else ""
 
-        # "<name>. <headline>. Category: X. ..."  — the period after name
+        # "<name>. <headline>. Category: X. ..."  - the period after name
         # matters: it separates the entity from its tagline for the
         # embedding model and keeps retrieval-readable.
         parts: list[str] = [f"{self.name}."]
@@ -220,7 +220,7 @@ def _build_prompt(page_text: str) -> str:
 # ── JSON extraction & parsing ──────────────────────────────────────────────
 
 # Groq is called with response_format={"type": "json_object"} so the model
-# is forced to return a single JSON object — no markdown fences, no
+# is forced to return a single JSON object - no markdown fences, no
 # preamble.  We still keep the defensive parser below in case the API
 # contract changes or a future model misbehaves; the call to
 # json.loads() should never fail in normal operation.
@@ -230,7 +230,7 @@ def _build_prompt(page_text: str) -> str:
 # (```json, ```JSON, ```) and the matching trailing ``` line.  Anything
 # between the fences is preserved verbatim.  If a stray ``` appears
 # inside the JSON body the regex will not match, which is the right
-# outcome — json.loads will then fail and the caller can surface a
+# outcome - json.loads will then fail and the caller can surface a
 # parse_error in the UI.
 _FENCE_RE = re.compile(
     r"^\s*```(?:json|JSON)?\s*\n?(.*?)\n?\s*```\s*$",
@@ -242,7 +242,7 @@ def _strip_markdown_fences(raw: str) -> str:
     """Return ``raw`` with a single outer markdown code fence removed.
 
     Returns the original string unchanged if no fence is present, or if
-    the input is empty.  This is a defensive layer — Groq's
+    the input is empty.  This is a defensive layer - Groq's
     ``response_format=json_object`` should never return fenced JSON, but
     a future model or a non-Groq fallback might.
     """
@@ -272,7 +272,7 @@ def _parse_enrichment_response(raw: str) -> list[EnrichedProduct]:
         logger.warning("Enrichment response is not an object: %r", type(data).__name__)
         return []
 
-    # Pick out the page_type once at the top level — it's stamped on every
+    # Pick out the page_type once at the top level - it's stamped on every
     # product in the return value so the caller can filter by it.
     raw_page_type = data.get("page_type", "other")
     page_type = raw_page_type if raw_page_type in PAGE_TYPES else "other"
@@ -287,7 +287,7 @@ def _parse_enrichment_response(raw: str) -> list[EnrichedProduct]:
             continue
         name = (item.get("name") or "").strip()
         if not name:
-            continue  # skip nameless entries — the LLM occasionally emits
+            continue  # skip nameless entries - the LLM occasionally emits
                       # stray "no name" rows
         out.append(EnrichedProduct(
             name=name,
@@ -321,7 +321,7 @@ def _as_str_list(value: Any) -> List[str]:
 # Use a shared AsyncGroq client so connection pooling works across pages of
 # the same document.  Lazy-instantiated so the module can be imported
 # without GROQ_API_KEY being set (the key is read at first call, not at
-# import time — lets the FastAPI app boot in environments where the
+# import time - lets the FastAPI app boot in environments where the
 # enrichment endpoint is disabled).
 _groq_client: Any = None
 
@@ -370,7 +370,7 @@ async def _call_groq(prompt: str) -> "_GroqResult":
     except _MissingGroqKey as exc:
         logger.warning("Groq enrichment: %s", exc)
         return _GroqResult(content=None, outcome_status="missing_key", error_message=str(exc), duration_ms=_elapsed_ms(t0))
-    except Exception as exc:  # noqa: BLE001 — fail-open
+    except Exception as exc:  # noqa: BLE001 - fail-open
         logger.warning("Groq client init failed: %s", exc)
         return _GroqResult(content=None, outcome_status="unknown", error_message=str(exc), duration_ms=_elapsed_ms(t0))
 
@@ -382,7 +382,7 @@ async def _call_groq(prompt: str) -> "_GroqResult":
             response_format={"type": "json_object"},
             timeout=30,
         )
-    except Exception as exc:  # noqa: BLE001 — fail-open
+    except Exception as exc:  # noqa: BLE001 - fail-open
         # Covers the full Groq exception hierarchy (APIError, APIConnectionError,
         # RateLimitError, APITimeoutError, BadRequestError on bad model name,
         # etc.) plus any unexpected transport error.  All are fail-open:
@@ -415,9 +415,9 @@ def _classify_groq_exception(exc: BaseException) -> str:
     if name == "APIConnectionError":
         return "connection_error"
     if name in ("AuthenticationError", "PermissionDeniedError"):
-        return "http_4xx"  # 401/403 — surfaces as "auth failed" in the UI
+        return "http_4xx"  # 401/403 - surfaces as "auth failed" in the UI
     if name in ("BadRequestError", "NotFoundError"):
-        return "http_4xx"  # 400/404 — bad model name, malformed request
+        return "http_4xx"  # 400/404 - bad model name, malformed request
     if name in ("RateLimitError", "InternalServerError", "APIError"):
         # RateLimitError is 429; InternalServerError/APIError is 5xx-ish
         return "http_5xx" if name != "RateLimitError" else "http_5xx"
@@ -479,7 +479,7 @@ async def _call_groq_with_retry(prompt: str) -> _GroqResult:
     "Please try again in Xs" hint), wait the hinted time (+20%
     buffer, capped at ``MAX_RETRY_WAIT_S``) and retry, up to
     ``MAX_RATE_LIMIT_RETRIES`` times.  Other failure modes (auth,
-    timeout, connection) are returned immediately without retry —
+    timeout, connection) are returned immediately without retry -
     they won't be fixed by waiting.
 
     Surfaces ``retry_count`` on the result so the dashboard can
@@ -488,7 +488,7 @@ async def _call_groq_with_retry(prompt: str) -> _GroqResult:
     result = await _call_groq(prompt)
     if result.outcome_status != "http_5xx" or not result.error_message:
         return result
-    # http_5xx without a "Please try again" hint — Groq is having a
+    # http_5xx without a "Please try again" hint - Groq is having a
     # generic outage; retrying won't help.
     if _parse_retry_after_seconds(result.error_message) is None:
         return result
@@ -504,7 +504,7 @@ async def _call_groq_with_retry(prompt: str) -> _GroqResult:
         result = await _call_groq(prompt)
         result.retry_count = attempt
         # Stop on success or on a non-rate-limit failure (auth,
-        # parse, etc.) — only rate-limit errors benefit from waiting.
+        # parse, etc.) - only rate-limit errors benefit from waiting.
         if result.outcome_status != "http_5xx":
             return result
         if _parse_retry_after_seconds(result.error_message or "") is None:
@@ -555,7 +555,7 @@ async def enrich_page(page_text: str) -> _PageResult:
     prompt = _build_prompt(page_text.strip())
     try:
         groq_result = await _call_groq_with_retry(prompt)
-    except Exception as exc:  # noqa: BLE001 — fail-open, last line of defence
+    except Exception as exc:  # noqa: BLE001 - fail-open, last line of defence
         logger.warning("enrich_page: unexpected exception in _call_groq: %s", exc)
         return _PageResult(
             products=[],
@@ -564,7 +564,7 @@ async def enrich_page(page_text: str) -> _PageResult:
         )
 
     if groq_result.outcome_status != "ok" or not groq_result.content:
-        # Transport / auth / parse failure — the LLM never gave us parseable JSON.
+        # Transport / auth / parse failure - the LLM never gave us parseable JSON.
         # Map parse-error specifically.
         status = groq_result.outcome_status
         if status == "ok" and not groq_result.content:
@@ -607,7 +607,7 @@ async def enrich_page(page_text: str) -> _PageResult:
 
     try:
         products = _parse_enrichment_response(groq_result.content)
-    except Exception as exc:  # noqa: BLE001 — fail-open
+    except Exception as exc:  # noqa: BLE001 - fail-open
         logger.warning("enrich_page: parse failure: %s", exc)
         return _PageResult(
             products=[],
@@ -637,7 +637,7 @@ async def enrich_page(page_text: str) -> _PageResult:
 
 # Per-page ceiling.  Kept in sync with the Groq client's own timeout
 # (also 30s in ``_call_groq``) so asyncio.wait_for() is the authoritative
-# cap.  Groq is fast — typical page completes in ~1 s; 30 s is generous
+# cap.  Groq is fast - typical page completes in ~1 s; 30 s is generous
 # headroom for rate-limit backoff or transient network blips.
 PAGE_TIMEOUT_S: float = 30.0
 
@@ -650,7 +650,7 @@ PAGE_TIMEOUT_S: float = 30.0
 # `1779097554_Secure_Product-Booklet_India.pdf` (18 pages) hit Groq's 6000
 # TPM limit mid-document with PAGE_CONCURRENCY=3: 3 pages in flight at
 # once means ~6-15s of overlap and token usage far above the free-tier
-# budget. The user explicitly chose reliability over wall time — the
+# budget. The user explicitly chose reliability over wall time - the
 # product booklet took 18 * 5s = 90s wall time at PAGE_CONCURRENCY=1 +
 # 5s pacing, vs ~30s when 3 pages raced and half of them 429'd.
 PAGE_CONCURRENCY: int = 1
@@ -674,7 +674,7 @@ async def enrich_pages(pages: list[dict]) -> list[dict]:
     ``duration_ms``, and an optional ``error`` message.
 
     Pages where enrichment failed, timed out, or returned no products have
-    ``products = []`` and ``page_type = "other"`` — the .NET handler treats
+    ``products = []`` and ``page_type = "other"`` - the .NET handler treats
     this as "keep original Docling chunks for this page".
 
     Fire-and-forget semantics: the whole job is wrapped in try/except so
@@ -693,7 +693,7 @@ async def enrich_pages(pages: list[dict]) -> list[dict]:
             # already serializes the work via the semaphore, but a 5s gap
             # between consecutive requests is what actually keeps us under
             # the 6000 TPM limit. The first page in the batch starts
-            # immediately — the pacing matters for pages 2..N.
+            # immediately - the pacing matters for pages 2..N.
             if MIN_PAGE_INTERVAL_S > 0 and p.get("page", 0) > 1:
                 await asyncio.sleep(MIN_PAGE_INTERVAL_S)
             try:
@@ -703,11 +703,11 @@ async def enrich_pages(pages: list[dict]) -> list[dict]:
                 products = result.products
                 outcome = result.outcome
             except asyncio.TimeoutError:
-                # Per-page cap hit — skip just this page, keep the original
+                # Per-page cap hit - skip just this page, keep the original
                 # Docling chunks for it, and let the rest of the document
                 # finish.  A single slow page must never kill the job.
                 logger.warning(
-                    "enrich_page timed out after %.0fs on page %d — "
+                    "enrich_page timed out after %.0fs on page %d - "
                     "keeping original Docling chunks",
                     PAGE_TIMEOUT_S, page_no,
                 )
@@ -715,9 +715,9 @@ async def enrich_pages(pages: list[dict]) -> list[dict]:
                 outcome = {"status": "timeout", "model": _get_model(),
                            "duration_ms": int(PAGE_TIMEOUT_S * 1000),
                            "error": f"per-page timeout of {PAGE_TIMEOUT_S:.0f}s exceeded"}
-            except Exception as exc:  # noqa: BLE001 — fail-open
+            except Exception as exc:  # noqa: BLE001 - fail-open
                 logger.exception(
-                    "enrich_page raised on page %d: %s — "
+                    "enrich_page raised on page %d: %s - "
                     "keeping original Docling chunks",
                     page_no, exc,
                 )
@@ -734,11 +734,11 @@ async def enrich_pages(pages: list[dict]) -> list[dict]:
     try:
         # Run all pages through the semaphore with up to PAGE_CONCURRENCY
         # in flight.  return_exceptions=True so one bad task can't break the
-        # gather — we still coerce any stray exception into an empty result
+        # gather - we still coerce any stray exception into an empty result
         # below, matching the per-page fail-open contract.
         tasks = [_enrich_one(p) for p in pages]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-    except Exception as exc:  # noqa: BLE001 — last-line-of-defence
+    except Exception as exc:  # noqa: BLE001 - last-line-of-defence
         # gather(return_exceptions=True) shouldn't raise, but if anything
         # catastrophic happens (event loop closed, CancelledError bubbling
         # out, etc.) we still want to return a clean empty result so the
@@ -782,10 +782,10 @@ async def enrich_pages_streaming(pages: list[dict]):
     Same input shape as :func:`enrich_pages`, same per-page dict shape
     in the output (``page``, ``products``, ``page_type``, ``outcome``).
     Uses :func:`asyncio.as_completed` so the caller sees each page the
-    instant its LLM call returns — the .NET handler writes it to the
+    instant its LLM call returns - the .NET handler writes it to the
     DB right away so the dashboard polls reflect progress.
 
-    Fire-and-forget semantics match :func:`enrich_pages` — a
+    Fire-and-forget semantics match :func:`enrich_pages` - a
     catastrophic exception in the loop yields a single ``unknown``
     outcome per page rather than propagating up.
     """
@@ -803,14 +803,14 @@ async def enrich_pages_streaming(pages: list[dict]):
                 outcome = result.outcome
             except asyncio.TimeoutError:
                 logger.warning(
-                    "enrich_page timed out after %.0fs on page %d — streaming",
+                    "enrich_page timed out after %.0fs on page %d - streaming",
                     PAGE_TIMEOUT_S, page_no,
                 )
                 products = []
                 outcome = {"status": "timeout", "model": _get_model(),
                            "duration_ms": int(PAGE_TIMEOUT_S * 1000),
                            "error": f"per-page timeout of {PAGE_TIMEOUT_S:.0f}s exceeded"}
-            except Exception as exc:  # noqa: BLE001 — fail-open
+            except Exception as exc:  # noqa: BLE001 - fail-open
                 logger.exception(
                     "enrich_page raised on page %d (streaming): %s",
                     page_no, exc,
@@ -833,7 +833,7 @@ async def enrich_pages_streaming(pages: list[dict]):
         # top of that guarantees the gap between consecutive request
         # submissions stays above Groq's per-minute request ceiling.
         # Started only after the first page so the first page begins
-        # immediately — the pacing matters once we're already in flight.
+        # immediately - the pacing matters once we're already in flight.
         if i > 0 and MIN_PAGE_INTERVAL_S > 0:
             await asyncio.sleep(MIN_PAGE_INTERVAL_S)
         task = asyncio.create_task(_enrich_one(p))
@@ -866,7 +866,7 @@ async def enrich_pages_streaming(pages: list[dict]):
                 }
                 continue
             yield result
-    except Exception as exc:  # noqa: BLE001 — last-line-of-defence
+    except Exception as exc:  # noqa: BLE001 - last-line-of-defence
         # Catastrophic loop failure (event loop closed, etc.).  Yield
         # "unknown" outcomes for any pages we haven't yet emitted so
         # the .NET side can mark them failed and stop polling.

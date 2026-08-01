@@ -1,6 +1,6 @@
 'use client';
 
-// UserChip — the bottom-of-sidebar identity card.
+// UserChip - the bottom-of-sidebar identity card.
 //
 // Two states:
 //   - Collapsed (64px rail): 32px avatar circle only.
@@ -43,7 +43,7 @@ const POPOVER_SURFACE_CLASS =
   'bg-white shadow-md';
 
 function hashEmail(email: string): number {
-  // FNV-1a — small, fast, stable across platforms.
+  // FNV-1a - small, fast, stable across platforms.
   let h = 2166136261;
   for (let i = 0; i < email.length; i++) {
     h ^= email.charCodeAt(i);

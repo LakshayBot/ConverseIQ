@@ -23,7 +23,7 @@ public class PdfTextExtractor : ITextExtractor
 
     public async Task<string> ExtractTextAsync(Stream fileStream)
     {
-        // Docnet.Core takes a byte[] snapshot — drain the stream so the caller can
+        // Docnet.Core takes a byte[] snapshot - drain the stream so the caller can
         // rewind/seek freely without us depending on the input stream type.
         if (fileStream.CanSeek)
         {

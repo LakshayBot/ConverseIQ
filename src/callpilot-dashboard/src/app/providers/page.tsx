@@ -179,7 +179,7 @@ export default function ProvidersPage() {
           {providers.map(p => (
             <div key={p.id} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center justify-between">
               <div>
-                <p className="font-medium">{p.providerType} — {p.model}</p>
+                <p className="font-medium">{p.providerType} - {p.model}</p>
                 <p className="text-sm text-gray-500 mt-1">
                   Temp: {p.temperature} | Max Tokens: {p.maxTokens} | Timeout: {p.timeoutSeconds}s
                 </p>

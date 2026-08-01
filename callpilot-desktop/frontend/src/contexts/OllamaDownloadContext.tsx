@@ -1,7 +1,7 @@
 'use client';
 
 // Stub for the deleted OllamaDownloadContext. CallPilot does not bundle a
-// local LLM downloader — providers are configured server-side via the .NET
+// local LLM downloader - providers are configured server-side via the .NET
 // Gateway. This stub keeps existing imports type-checking.
 
 import React, { createContext, useContext, useMemo } from 'react';

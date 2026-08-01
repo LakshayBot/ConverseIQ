@@ -78,7 +78,7 @@ pub async fn start_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String
 
 /// Start recording with default devices, optional meeting name, and
 /// optional .NET Gateway meeting ID. Used when the user clicks record
-/// without selecting explicit devices — we resolve the saved-preferred
+/// without selecting explicit devices - we resolve the saved-preferred
 /// devices (or system defaults) inside, and stash meeting_id so the
 /// recording-started payload carries the canonical UUID.
 pub async fn start_recording_with_meeting_name<R: Runtime>(
@@ -547,7 +547,7 @@ pub async fn stop_recording<R: Runtime>(
         global_manager.take()
     };
 
-    // Clear the stashed meeting ID — next recording will mint a fresh one.
+    // Clear the stashed meeting ID - next recording will mint a fresh one.
     {
         let mut id_slot = RECORDING_MEETING_ID.lock().unwrap();
         *id_slot = None;
@@ -742,7 +742,7 @@ pub async fn stop_recording<R: Runtime>(
         }
     }
 
-    // Analytics removed in CallPilot — no third-party event tracking.
+    // Analytics removed in CallPilot - no third-party event tracking.
 
 
     // Step 4: Finalize recording state and cleanup resources safely

@@ -6,15 +6,15 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
 {
     /// <summary>
     /// Adds structure-aware metadata columns to KnowledgeChunks:
-    ///   SectionHeading  — section title the chunk belongs to (e.g. "i-Credit 350")
-    ///   ChunkType       — "paragraph" | "bullet_group" | "oversized_paragraph" | ...
-    ///   PageHint        — 1-based source page (0 if unknown)
-    ///   MetadataJson    — JSONB blob with arbitrary metadata (source_mode, pages, bbox)
+    ///   SectionHeading  - section title the chunk belongs to (e.g. "i-Credit 350")
+    ///   ChunkType       - "paragraph" | "bullet_group" | "oversized_paragraph" | ...
+    ///   PageHint        - 1-based source page (0 if unknown)
+    ///   MetadataJson    - JSONB blob with arbitrary metadata (source_mode, pages, bbox)
     /// Also creates a GIN index on MetadataJson so structured filters stay fast.
     /// </summary>
     /// <remarks>
     /// Hand-written because the EF migration scaffolder is currently in a no-op
-    /// state — the model snapshot already has these columns from a prior (later
+    /// state - the model snapshot already has these columns from a prior (later
     /// reverted) regeneration, so diffing the model against the snapshot produces
     /// an empty migration. This file ships the actual SQL the running DB needs.
     /// </remarks>

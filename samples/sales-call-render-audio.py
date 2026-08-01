@@ -25,10 +25,10 @@ SCRIPT_PATH = Path(__file__).resolve().parent / "sales-call-script-secure.txt"
 TURN_DIR = Path(__file__).resolve().parent / "audio_files_samples" / "sales_call_turns"
 OUTPUT_MP3 = Path(__file__).resolve().parent / "audio_files_samples" / "sales-call-secure.mp3"
 
-# Voice pairing — keep them clearly distinguishable so the STT diarization step
+# Voice pairing - keep them clearly distinguishable so the STT diarization step
 # has a fair shot at separating Raj (seller) from Priya (buyer).
-SELLER_VOICE = "Daniel"     # en_GB — male
-BUYER_VOICE = "Samantha"    # en_US — female
+SELLER_VOICE = "Daniel"     # en_GB - male
+BUYER_VOICE = "Samantha"    # en_US - female
 RATE = 185                  # words per minute; slightly slower than default for clarity
 GAP_SECONDS = 0.45          # silence between turns
 
@@ -60,7 +60,7 @@ def parse_script(path: Path) -> list[Turn]:
             speaker = "BUYER"
             text = rest.strip() or first_line.split(":", 1)[1].strip()
         else:
-            # Header / metadata block — skip
+            # Header / metadata block - skip
             continue
         # Collapse internal whitespace so `say` doesn't pause weirdly on newlines.
         text = re.sub(r"\s+", " ", text).strip()

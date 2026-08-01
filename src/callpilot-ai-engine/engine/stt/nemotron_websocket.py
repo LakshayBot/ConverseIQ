@@ -4,17 +4,17 @@ WebSocket handler for Nemotron streaming ASR.
 Protocol (mirrors pipecat-ai/nemotron-january-2026 exactly):
 
   Client → Server
-    • binary frames  — raw PCM16 16kHz mono audio bytes
-    • {"type": "reset", "finalize": false}  — soft reset (VAD detected silence)
-    • {"type": "reset", "finalize": true}   — hard reset (end of utterance)
-    • {"type": "end"}                        — alias for hard reset
+    • binary frames  - raw PCM16 16kHz mono audio bytes
+    • {"type": "reset", "finalize": false}  - soft reset (VAD detected silence)
+    • {"type": "reset", "finalize": true}   - hard reset (end of utterance)
+    • {"type": "end"}                        - alias for hard reset
 
   Server → Client
-    • {"type": "ready"}                                     — connection accepted
-    • {"type": "transcript", "text": "...", "is_final": false}  — partial
-    • {"type": "transcript", "text": "...", "is_final": true, "finalize": false}  — soft reset result
-    • {"type": "transcript", "text": "...", "is_final": true, "finalize": true}   — hard reset result (delta)
-    • {"type": "error", "message": "..."}                   — error
+    • {"type": "ready"}                                     - connection accepted
+    • {"type": "transcript", "text": "...", "is_final": false}  - partial
+    • {"type": "transcript", "text": "...", "is_final": true, "finalize": false}  - soft reset result
+    • {"type": "transcript", "text": "...", "is_final": true, "finalize": true}   - hard reset result (delta)
+    • {"type": "error", "message": "..."}                   - error
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ class NemotronWebSocket:
         self._running: bool = False
 
     async def handle(self, ws) -> None:
-        """Main entry point — called from the FastAPI websocket route."""
+        """Main entry point - called from the FastAPI websocket route."""
         await ws.accept()
 
         # ── Ensure model is loaded ─────────────────────────────────────
@@ -76,7 +76,7 @@ class NemotronWebSocket:
                 try:
                     msg = await asyncio.wait_for(ws.receive(), timeout=30.0)
                 except asyncio.TimeoutError:
-                    # Heartbeat — keep connection alive during silence
+                    # Heartbeat - keep connection alive during silence
                     await ws.send_json({"type": "heartbeat"})
                     continue
 
@@ -126,7 +126,7 @@ class NemotronWebSocket:
 
             # ── VAD check ───────────────────────────────────────────
             if self._pipe.detect_silence(chunk_f32, self._sess):
-                # Soft reset — send current text as final marker
+                # Soft reset - send current text as final marker
                 await self._send_soft_final(ws)
 
             # ── Inference ───────────────────────────────────────────
@@ -169,7 +169,7 @@ class NemotronWebSocket:
         else:
             logger.debug("Unknown Nemotron WS control: %s", msg_type)
 
-    # ── reset handlers (soft / hard — pipecat pattern) ─────────────────────
+    # ── reset handlers (soft / hard - pipecat pattern) ─────────────────────
 
     async def _send_soft_final(self, ws) -> None:
         """Soft reset: return current text immediately, keep all cache state.
@@ -190,7 +190,7 @@ class NemotronWebSocket:
     async def _send_hard_final(self, ws) -> None:
         """Hard reset: pad silence, keep_all_outputs=True, return delta, reset cache.
 
-        Mirrors pipecat server.py:504-574 exactly — this is the canonical
+        Mirrors pipecat server.py:504-574 exactly - this is the canonical
         finalisation path that captures trailing words and deduplicates.
         After this, the session is fully reset for the next utterance.
         """
@@ -222,7 +222,7 @@ class NemotronWebSocket:
 
 
 async def handle_nemotron_websocket(ws) -> None:
-    """Thin wrapper — instantiate handler and delegate."""
+    """Thin wrapper - instantiate handler and delegate."""
     pipe = NemotronPipeline.get_instance()
     handler = NemotronWebSocket(pipe)
     await handler.handle(ws)

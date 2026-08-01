@@ -1,4 +1,4 @@
-# CallPilot AI — Codebase Context
+# CallPilot AI - Codebase Context
 
 > Comprehensive reference for working on the codebase. Update this when architecture, contracts, or conventions change. For session working notes, see `CLAUDE.md`.
 
@@ -6,7 +6,7 @@
 
 ## 1. What this is
 
-**CallPilot AI** — open-source, real-time AI sales intelligence platform. Assists sales reps during live meetings: live transcription, speaker ID, conversation intelligence (competitors / pricing / objections / technical questions / product mentions), knowledge retrieval, contextual recommendations. BYOK (DeepSeek / Ollama / OpenAI / Claude / Gemini). Self-hosted via Docker.
+**CallPilot AI** - open-source, real-time AI sales intelligence platform. Assists sales reps during live meetings: live transcription, speaker ID, conversation intelligence (competitors / pricing / objections / technical questions / product mentions), knowledge retrieval, contextual recommendations. BYOK (DeepSeek / Ollama / OpenAI / Claude / Gemini). Self-hosted via Docker.
 
 **Pipeline at a glance:** `Audio (FFmpeg) → STT (Nemotron) → Transcript → Event Detection → Knowledge Retrieval → Recommendation → Dashboard`
 
@@ -16,10 +16,10 @@
 
 | Layer | Tech | Path |
 |---|---|---|
-| Backend | **.NET 10** — ASP.NET Core minimal APIs, SignalR, EF Core, FluentValidation, Polly, Serilog | `src/CallPilot.Server/` |
-| AI Engine | **Python 3.12** — FastAPI, Nemotron (NVIDIA streaming STT), GLiNER, Docling, Sentence-Transformers, Tavily, Groq, Redis | `src/callpilot-ai-engine/` |
+| Backend | **.NET 10** - ASP.NET Core minimal APIs, SignalR, EF Core, FluentValidation, Polly, Serilog | `src/CallPilot.Server/` |
+| AI Engine | **Python 3.12** - FastAPI, Nemotron (NVIDIA streaming STT), GLiNER, Docling, Sentence-Transformers, Tavily, Groq, Redis | `src/callpilot-ai-engine/` |
 | Dashboard | **Next.js 15** + React 19 + TailwindCSS 4 + `@microsoft/signalr` | `src/callpilot-dashboard/` |
-| Desktop Agent | **.NET 10** CLI — FFmpeg audio capture + SignalR client | `src/CallPilot.Desktop/` |
+| Desktop Agent | **.NET 10** CLI - FFmpeg audio capture + SignalR client | `src/CallPilot.Desktop/` |
 | Database | **PostgreSQL 17 + pgvector** | docker-compose |
 | Cache | **Redis 7** | docker-compose |
 | Local LLM (opt-in) | **Ollama** (`ollama` profile) | docker-compose |
@@ -50,12 +50,12 @@ Project reference graph is a strict onion: `Shared → Domain → Infrastructure
 
 ---
 
-## 4. .NET backend — `CallPilot.Server`
+## 4. .NET backend - `CallPilot.Server`
 
-### 4.1 Entry point — `CallPilot.Server.Api/Program.cs` (single-file composition root, ~486 lines)
+### 4.1 Entry point - `CallPilot.Server.Api/Program.cs` (single-file composition root, ~486 lines)
 
 **Key responsibilities:**
-- `WebApplication.CreateBuilder` at `Program.cs:30` — no `Startup.cs`.
+- `WebApplication.CreateBuilder` at `Program.cs:30` - no `Startup.cs`.
 - **Serilog** wired at host level (reads `Logging` config, console sink).
 - **DbContext** registered with `UseNpgsql` from `ConnectionStrings:DefaultConnection`.
 - **JWT bearer auth** (HS256). Custom `OnMessageReceived` lifts `access_token` query string for SignalR `/hubs/*`. Custom `OnChallenge` re-stamps CORS headers on 401 to prevent browser dropping the challenge.
@@ -67,32 +67,32 @@ Project reference graph is a strict onion: `Shared → Domain → Infrastructure
   - Typed HttpClients (Polly retry, exponential backoff): `AiCoordinatorService` (30s/3 retries, 2ⁿ×200ms), `EmbeddingService` (60s/2 retries), `EventDetectionService` (15s/3 retries), named `"LlmClient"` (30s/2 retries), named `"AiEngine"` (120s/no retry).
   - Scoped: `VectorSearchService`, `PromptBuilder`, `LlmService`, `RecommendationEngine`.
 - **Health checks:** `DbHealthCheck` (`SELECT 1`) tag `database`; `UrlHealthCheck(aiEngineUrl + "/health")` tag `ai` (degraded on failure).
-- **Migrations run on startup** via `await db.Database.MigrateAsync()` (lines 217–238) — switched from `EnsureCreatedAsync` because a migration had been silently ignored.
+- **Migrations run on startup** via `await db.Database.MigrateAsync()` (lines 217–238) - switched from `EnsureCreatedAsync` because a migration had been silently ignored.
 - **Endpoint groups** mapped (lines 306–310): `MapAuthenticationEndpoints`, `MapProviderEndpoints`, `MapKnowledgeEndpoints`, `MapHub<DesktopAgentHub>("/hubs/desktop-agent")`, `MapHub<DashboardHub>("/hubs/dashboard")`.
 - **Inline minimal-API endpoints:**
   - `GET /health`, `GET /health/detailed` (lines 250–271)
   - `GET /api/v1/diagnostics/meetings/{meetingId}` (273), `GET /api/v1/diagnostics` (291)
   - `POST /api/v1/meetings`, `GET /api/v1/meetings`, `GET /api/v1/meetings/{id:guid}/transcripts`, `GET /api/v1/meetings/{id:guid}/recommendations`, `POST /api/v1/meetings/{id:guid}/process` (312–417). All `[RequireAuthorization]`.
   - `GET /api/v1/knowledge/entities/all`, `POST /api/v1/knowledge/entities/sync-trie` (421–443).
-  - **`GET /internal/knowledge/entities`** (450–456) — anonymous service-to-service dump for AI engine trie sync (called via docker network, no JWT).
-  - **`POST /internal/llm/generate`** (460–479) — proxy used by AI engine for competitive-intel prompts.
+  - **`GET /internal/knowledge/entities`** (450–456) - anonymous service-to-service dump for AI engine trie sync (called via docker network, no JWT).
+  - **`POST /internal/llm/generate`** (460–479) - proxy used by AI engine for competitive-intel prompts.
 - Anonymous request records at bottom: `GenerateRequest(string Prompt, string? MeetingId)` and `ProcessTextRequest(string text)`.
 
 ### 4.2 Endpoints
 
 | File | Purpose |
 |---|---|
-| `Endpoints/AuthenticationEndpoints.cs` (82 LOC) | `MapAuthenticationEndpoints(this WebApplication)` — `/api/v1/auth/{register,login,refresh,logout}`. Only logout requires auth. |
-| `Endpoints/ProviderEndpoints.cs` (64 LOC) | `/api/v1/providers` (RequireAuthorization) — `GET /`, `POST /` (upsert on `(UserId, ProviderType)`), `DELETE /{id:guid}`. |
-| `Endpoints/KnowledgeEndpoints.cs` (412 LOC) | `/api/v1/knowledge` (Authorize) — `POST /upload?mode=fast\|structured` (multipart), `GET /`, `GET /{id}`, `DELETE /{id}`, `GET /entities/{name}/details`, `GET /{id}/status`, `GET /{id}/raw-output`, `POST /{id}/reindex`. |
+| `Endpoints/AuthenticationEndpoints.cs` (82 LOC) | `MapAuthenticationEndpoints(this WebApplication)` - `/api/v1/auth/{register,login,refresh,logout}`. Only logout requires auth. |
+| `Endpoints/ProviderEndpoints.cs` (64 LOC) | `/api/v1/providers` (RequireAuthorization) - `GET /`, `POST /` (upsert on `(UserId, ProviderType)`), `DELETE /{id:guid}`. |
+| `Endpoints/KnowledgeEndpoints.cs` (412 LOC) | `/api/v1/knowledge` (Authorize) - `POST /upload?mode=fast\|structured` (multipart), `GET /`, `GET /{id}`, `DELETE /{id}`, `GET /entities/{name}/details`, `GET /{id}/status`, `GET /{id}/raw-output`, `POST /{id}/reindex`. |
 | `Endpoints/DbHealthCheck.cs` (31 LOC) | Opens `NpgsqlConnection`, runs `SELECT 1`. |
 | `Endpoints/UrlHealthCheck.cs` (32 LOC) | Generic `IHealthCheck` with 5s timeout. |
 
 ### 4.3 SignalR Hubs
 
 **`Hubs/DesktopAgentHub.cs`** (235 LOC, `[Authorize]`):
-- `RegisterAgent(AgentRegistration)` — logs version/platform/capabilities.
-- `SendAudioFrame(AudioFrameMessage)` — **main ingestion path**. Calls `AiCoordinatorService.ProcessAudioAsync`, tracks latency in `MeetingDiagnosticsService`, broadcasts `TranscriptReceived`, then for final segments calls `EventDetectionService.DetectEventsForMeetingAsync`, persists `ConversationEvent`s, generates recommendations, broadcasts `EventDetected`/`RecommendationGenerated`.
+- `RegisterAgent(AgentRegistration)` - logs version/platform/capabilities.
+- `SendAudioFrame(AudioFrameMessage)` - **main ingestion path**. Calls `AiCoordinatorService.ProcessAudioAsync`, tracks latency in `MeetingDiagnosticsService`, broadcasts `TranscriptReceived`, then for final segments calls `EventDetectionService.DetectEventsForMeetingAsync`, persists `ConversationEvent`s, generates recommendations, broadcasts `EventDetected`/`RecommendationGenerated`.
 - `SendHeartbeat`, `JoinMeeting`, `LeaveMeeting`.
 - Outbound events: `AgentRegistered`, `SilenceDetected`, `AudioFrameAcknowledged`, `TranscriptReceived`, `EventDetected`, `RecommendationGenerated`.
 - DTOs: `AgentRegistration`, `AudioFrameMessage`, `HeartbeatMessage`.
@@ -101,43 +101,43 @@ Project reference graph is a strict onion: `Shared → Domain → Infrastructure
 
 ### 4.4 Application layer (vertical-slice CQRS-lite, no MediatR)
 
-**Authentication/** — each use case in its own folder with `Command.cs + Handler.cs + Validator.cs`:
+**Authentication/** - each use case in its own folder with `Command.cs + Handler.cs + Validator.cs`:
 - `Login/`, `Register/`, `Refresh/`, `Logout/`. Standard access + refresh token rotation with `RefreshToken.IsActive` check.
 
-**Providers/** — `Create/`, `List/`, `Delete/`. Create is an **upsert** keyed on `(UserId, ProviderType)`; encrypts API key via `IApiKeyEncryptionService`.
+**Providers/** - `Create/`, `List/`, `Delete/`. Create is an **upsert** keyed on `(UserId, ProviderType)`; encrypts API key via `IApiKeyEncryptionService`.
 
-**Knowledge/** — three large files:
-- **`KnowledgeUploadHandler.cs`** (1074 LOC) — the document pipeline heart.
+**Knowledge/** - three large files:
+- **`KnowledgeUploadHandler.cs`** (1074 LOC) - the document pipeline heart.
   - `UploadAsync(userId, fileName, contentType, fileSize, stream, IngestMode mode=Fast)` → saves to disk, seeds stage skeleton, runs `ProcessAsync`. Fires-and-forgets `ExtractAndStoreEntitiesAsync` (GLiNER, all modes) and `RunBackgroundEnrichmentAsync` (LLM enrichment, structured only).
-  - `ReindexAsync(userId, documentId, IngestMode mode=Fast)` — wipes chunks/embeddings/entities, re-runs.
+  - `ReindexAsync(userId, documentId, IngestMode mode=Fast)` - wipes chunks/embeddings/entities, re-runs.
   - `ProcessAsync` orchestrates `extracting → chunking → embedding → indexed → entityextraction (async) → enriching (async, structured only)`. Uses inner `IngestStageRecorder` helper.
-  - `ExtractFastAsync` — Docnet.Core (PDF), DocxTextExtractor (DOCX), MarkdownTextExtractor fallback. Sanitizes null bytes / replacement chars.
-  - `ExtractStructuredAsync` — forwards PDF to Python `/api/v1/documents/ingest-structured`.
-  - `EmbedChunksAsync` — per-chunk: persist `KnowledgeChunk`, call `EmbeddingService.GenerateEmbeddingAsync` (or `GenerateLocalEmbedding` fallback), persist `Embedding`, heartbeat every 10 chunks.
-  - `ExtractAndStoreEntitiesAsync` — POSTs `/api/v1/ai/extract-entities` with `confidence_threshold=0.3` (lowered in commit `570ec38`), persists `DocumentEntity` rows, rebuilds the Aho-Corasick trie via `RebuildTrieAsync`.
-  - **`RunBackgroundEnrichmentAsync`** (lines 536–924) — streams NDJSON from `/api/v1/documents/enrich`. On success: deletes original Docling chunks + embeddings, inserts one `KnowledgeChunk` per `EnrichedProductDto` with `chunkType="product_card"` and `source="enriched"`, embeds them, **auto-registers each LLM-confirmed product name as `DocumentEntity(EntityType='product', Confidence=0.95)`** (the product-detection-gap fix), then re-runs GLiNER on full text.
+  - `ExtractFastAsync` - Docnet.Core (PDF), DocxTextExtractor (DOCX), MarkdownTextExtractor fallback. Sanitizes null bytes / replacement chars.
+  - `ExtractStructuredAsync` - forwards PDF to Python `/api/v1/documents/ingest-structured`.
+  - `EmbedChunksAsync` - per-chunk: persist `KnowledgeChunk`, call `EmbeddingService.GenerateEmbeddingAsync` (or `GenerateLocalEmbedding` fallback), persist `Embedding`, heartbeat every 10 chunks.
+  - `ExtractAndStoreEntitiesAsync` - POSTs `/api/v1/ai/extract-entities` with `confidence_threshold=0.3` (lowered in commit `570ec38`), persists `DocumentEntity` rows, rebuilds the Aho-Corasick trie via `RebuildTrieAsync`.
+  - **`RunBackgroundEnrichmentAsync`** (lines 536–924) - streams NDJSON from `/api/v1/documents/enrich`. On success: deletes original Docling chunks + embeddings, inserts one `KnowledgeChunk` per `EnrichedProductDto` with `chunkType="product_card"` and `source="enriched"`, embeds them, **auto-registers each LLM-confirmed product name as `DocumentEntity(EntityType='product', Confidence=0.95)`** (the product-detection-gap fix), then re-runs GLiNER on full text.
   - Nested types: `enum IngestMode { Fast, Structured }`, DTOs, `IngestStageRecorder` inner class.
-- **`StructuredIngestClient.cs`** (198 LOC) — calls `/api/v1/documents/ingest-structured`. Returns `StructuredIngestResult { Chunks, Docling? }`.
-- **`EnrichmentClient.cs`** (232 LOC) — calls `/api/v1/documents/enrich`. Returns `IAsyncEnumerable<EnrichEvent>` via `HttpCompletionOption.ResponseHeadersRead`. Discriminator `kind`: `"page"` → `EnrichPageResult`, `"summary"` → `EnrichSummary`.
+- **`StructuredIngestClient.cs`** (198 LOC) - calls `/api/v1/documents/ingest-structured`. Returns `StructuredIngestResult { Chunks, Docling? }`.
+- **`EnrichmentClient.cs`** (232 LOC) - calls `/api/v1/documents/enrich`. Returns `IAsyncEnumerable<EnrichEvent>` via `HttpCompletionOption.ResponseHeadersRead`. Discriminator `kind`: `"page"` → `EnrichPageResult`, `"summary"` → `EnrichSummary`.
 
 ### 4.5 Domain entities
 
 **Knowledge/**
-- `KnowledgeDocument.cs` (365 LOC) — central aggregate. Fields: `Id, UserId, FileName, ContentType, FileSizeBytes, ProcessingStatus, EnrichmentStatus?, Mode?, StoragePath?, CreatedAt, UpdatedAt?, DeletedAt?, StagesJson?, LastErrorJson?, RawOutputJson?, EnrichmentProgressJson?`. Stage recorder API: `RecordStageRunning/Done/Failed/Skipped/Pending`, `SetStageDetail`, `SetRawOutput(source, payload)` (merges into existing jsonb), `SetEnrichmentProgress`. `[NotMapped]` accessors `Stages`, `LastError`, `EnrichmentProgress`.
-- `KnowledgeChunk.cs` (65 LOC) — `Id, DocumentId, ChunkIndex, Text, TokenCount, CharOffset, CharLength, CreatedAt, SectionHeading?, ChunkType, PageHint, MetadataJson?, Source`. `ChunkType` values: `"paragraph"|"bullet_group"|"oversized_paragraph"|"table_row"|"heading"|"list_item"|"product_card"`. `Source`: `"fast"|"structured"|"enriched"`.
-- `Embedding.cs` (36 LOC) — stores vector as **comma-separated text** in `VectorData` (in-process cosine sim, not pgvector at EF layer).
-- `IngestStage.cs` (48 LOC) — `record IngestStage(Key, Label, Status, StartedAt?, FinishedAt?, Detail?, Error?)` + `record IngestStageError(Stage, Source, HttpStatus?, Message, Model?, At)`. `Source` values: `"ai-engine"|"groq"|"gliner"|"dotnet"|"unknown"`.
-- `EnrichmentProgress.cs` (65 LOC) — `record EnrichmentProgress(Total, Completed, Failed, InFlight, Pages)` + `record EnrichmentPageStatus(Page, Status, Model?, DurationMs, Error?, FinishedAt?, RetryCount=0)`.
+- `KnowledgeDocument.cs` (365 LOC) - central aggregate. Fields: `Id, UserId, FileName, ContentType, FileSizeBytes, ProcessingStatus, EnrichmentStatus?, Mode?, StoragePath?, CreatedAt, UpdatedAt?, DeletedAt?, StagesJson?, LastErrorJson?, RawOutputJson?, EnrichmentProgressJson?`. Stage recorder API: `RecordStageRunning/Done/Failed/Skipped/Pending`, `SetStageDetail`, `SetRawOutput(source, payload)` (merges into existing jsonb), `SetEnrichmentProgress`. `[NotMapped]` accessors `Stages`, `LastError`, `EnrichmentProgress`.
+- `KnowledgeChunk.cs` (65 LOC) - `Id, DocumentId, ChunkIndex, Text, TokenCount, CharOffset, CharLength, CreatedAt, SectionHeading?, ChunkType, PageHint, MetadataJson?, Source`. `ChunkType` values: `"paragraph"|"bullet_group"|"oversized_paragraph"|"table_row"|"heading"|"list_item"|"product_card"`. `Source`: `"fast"|"structured"|"enriched"`.
+- `Embedding.cs` (36 LOC) - stores vector as **comma-separated text** in `VectorData` (in-process cosine sim, not pgvector at EF layer).
+- `IngestStage.cs` (48 LOC) - `record IngestStage(Key, Label, Status, StartedAt?, FinishedAt?, Detail?, Error?)` + `record IngestStageError(Stage, Source, HttpStatus?, Message, Model?, At)`. `Source` values: `"ai-engine"|"groq"|"gliner"|"dotnet"|"unknown"`.
+- `EnrichmentProgress.cs` (65 LOC) - `record EnrichmentProgress(Total, Completed, Failed, InFlight, Pages)` + `record EnrichmentPageStatus(Page, Status, Model?, DurationMs, Error?, FinishedAt?, RetryCount=0)`.
 
-**Meetings/** — `Meeting`, `TranscriptSegment`, `ConversationEvent`, `Recommendation`, `DocumentEntity`. All "enum-like" fields are plain strings (no enums anywhere).
+**Meetings/** - `Meeting`, `TranscriptSegment`, `ConversationEvent`, `Recommendation`, `DocumentEntity`. All "enum-like" fields are plain strings (no enums anywhere).
 
-**Providers/** — `ProviderConfiguration` (64 LOC) — `Id, UserId, ProviderType, Model, Endpoint?, EncryptedApiKey, Temperature, MaxTokens, TimeoutSeconds, IsEnabled, CreatedAt, UpdatedAt?, DeletedAt?`.
+**Providers/** - `ProviderConfiguration` (64 LOC) - `Id, UserId, ProviderType, Model, Endpoint?, EncryptedApiKey, Temperature, MaxTokens, TimeoutSeconds, IsEnabled, CreatedAt, UpdatedAt?, DeletedAt?`.
 
-**Users/** — `User` (32 LOC), `RefreshToken` (33 LOC with `IsActive`, `IsExpired`, `IsRevoked`, `Revoke()`).
+**Users/** - `User` (32 LOC), `RefreshToken` (33 LOC with `IsActive`, `IsExpired`, `IsRevoked`, `Revoke()`).
 
 ### 4.6 Infrastructure
 
-**`Data/CallPilotDbContext.cs`** (192 LOC) — DbSets for all entities. Key config:
+**`Data/CallPilotDbContext.cs`** (192 LOC) - DbSets for all entities. Key config:
 - Soft-delete query filters on `User`, `ProviderConfiguration`, `KnowledgeDocument`.
 - Unique indexes: `Users.Email`, `RefreshTokens.Token`, `ProviderConfigurations(UserId, ProviderType)`.
 - **jsonb columns** with GIN indexes on `KnowledgeDocuments.StagesJson/LastErrorJson/RawOutputJson/EnrichmentProgressJson` and `KnowledgeChunks.MetadataJson`.
@@ -145,63 +145,63 @@ Project reference graph is a strict onion: `Shared → Domain → Infrastructure
 - `Embeddings.VectorData` is `text`, unique on `ChunkId`, 1:1 with `KnowledgeChunk`.
 
 **12 migrations** applied in order:
-1. `20260705143004_InitialCreate` — Users, RefreshTokens, ProviderConfigurations.
-2. `20260705153356_AddMeetingAndTranscript` — Meetings, TranscriptSegments.
-3. `20260705165230_AddKnowledgeEntities` — KnowledgeDocuments, KnowledgeChunks, Embeddings.
+1. `20260705143004_InitialCreate` - Users, RefreshTokens, ProviderConfigurations.
+2. `20260705153356_AddMeetingAndTranscript` - Meetings, TranscriptSegments.
+3. `20260705165230_AddKnowledgeEntities` - KnowledgeDocuments, KnowledgeChunks, Embeddings.
 4. `20260705165753_AddConversationEvents`
 5. `20260705170200_AddRecommendations`
-6. `20260715172915_AddChunkStructureMetadata` — SectionHeading, ChunkType, PageHint, MetadataJson.
+6. `20260715172915_AddChunkStructureMetadata` - SectionHeading, ChunkType, PageHint, MetadataJson.
 7. `20260718084046_AddEnrichmentStatus`
 8. `20260718152300_AddDocumentMode`
-9. `20260718160000_AddDocumentEntitiesTable` — **hand-edited** raw SQL with `IF NOT EXISTS`.
-10. `20260719080738_AddDocumentStagesAndChunkSource` — **hand-edited** jsonb columns + GIN index.
-11. `20260719085119_AddEnrichmentProgress` — **hand-edited** EnrichmentProgressJson.
+9. `20260718160000_AddDocumentEntitiesTable` - **hand-edited** raw SQL with `IF NOT EXISTS`.
+10. `20260719080738_AddDocumentStagesAndChunkSource` - **hand-edited** jsonb columns + GIN index.
+11. `20260719085119_AddEnrichmentProgress` - **hand-edited** EnrichmentProgressJson.
 12. `20260719092306_DropUniqueChunkIndex`.
 
-**`AI/`** — wrappers around Python AI engine:
-- **`AiCoordinatorService.cs`** (123 LOC) — `ProcessAudioAsync(meetingId, audio, sequence, sampleRate, channels, source, dbContext)` POSTs to `/api/v1/ai/transcribe/nemotron` (or legacy `/transcribe`). Parses `AiTranscribeResponse{TaskId, Success, Transcript?, Error, DurationMs, SilenceDetected}`, persists `TranscriptSegment`.
-- **`EventDetectionService.cs`** (143 LOC) — `DetectEventsAsync(text)` POSTs to `/api/v1/ai/events`. After every call, `_= Task.Run(() => TriggerCompetitiveIntelAsync(...))` fires-and-forgets when heuristic regex `_competitiveTriggers` ("better than", "compared to", "we use", etc.) matches. Returns `DetectedEvent{EventType, EntityName, Confidence, Category, SupportingTranscript}`.
-- **`LlmService.cs`** (138 LOC) — `GenerateResponseAsync(userId, prompt)` and `GenerateResponseForAnyProviderAsync(prompt)`. Looks up enabled `ProviderConfiguration` for user (or any). Switches on `provider.ProviderType.ToLowerInvariant()`: `"ollama"` → `{endpoint}/api/generate`, `"deepseek"`/`"openai"` → `{endpoint}/chat/completions`. Uses named HttpClient `"LlmClient"`.
-- **`RecommendationEngine.cs`** (119 LOC) — `GenerateRecommendationAsync(meetingId, userId, ConversationEvent)`. Steps: build query (switch on EventType), `EmbeddingService.GenerateLocalEmbedding` (deterministic hash-based 384-dim), `VectorSearchService.SearchAsync(topK:3, userId)`, `PromptBuilder.BuildRecommendationPrompt`, `LlmService.GenerateResponseAsync`. Fallback to `BuildFallbackRecommendation` if LLM unavailable.
-- **`PromptBuilder.cs`** (101 LOC) — `BuildRecommendationPrompt(eventType, entityName, transcript, knowledgeChunks)` + `BuildFallbackRecommendation` + private `GetContextualAdvice` switch.
+**`AI/`** - wrappers around Python AI engine:
+- **`AiCoordinatorService.cs`** (123 LOC) - `ProcessAudioAsync(meetingId, audio, sequence, sampleRate, channels, source, dbContext)` POSTs to `/api/v1/ai/transcribe/nemotron` (or legacy `/transcribe`). Parses `AiTranscribeResponse{TaskId, Success, Transcript?, Error, DurationMs, SilenceDetected}`, persists `TranscriptSegment`.
+- **`EventDetectionService.cs`** (143 LOC) - `DetectEventsAsync(text)` POSTs to `/api/v1/ai/events`. After every call, `_= Task.Run(() => TriggerCompetitiveIntelAsync(...))` fires-and-forgets when heuristic regex `_competitiveTriggers` ("better than", "compared to", "we use", etc.) matches. Returns `DetectedEvent{EventType, EntityName, Confidence, Category, SupportingTranscript}`.
+- **`LlmService.cs`** (138 LOC) - `GenerateResponseAsync(userId, prompt)` and `GenerateResponseForAnyProviderAsync(prompt)`. Looks up enabled `ProviderConfiguration` for user (or any). Switches on `provider.ProviderType.ToLowerInvariant()`: `"ollama"` → `{endpoint}/api/generate`, `"deepseek"`/`"openai"` → `{endpoint}/chat/completions`. Uses named HttpClient `"LlmClient"`.
+- **`RecommendationEngine.cs`** (119 LOC) - `GenerateRecommendationAsync(meetingId, userId, ConversationEvent)`. Steps: build query (switch on EventType), `EmbeddingService.GenerateLocalEmbedding` (deterministic hash-based 384-dim), `VectorSearchService.SearchAsync(topK:3, userId)`, `PromptBuilder.BuildRecommendationPrompt`, `LlmService.GenerateResponseAsync`. Fallback to `BuildFallbackRecommendation` if LLM unavailable.
+- **`PromptBuilder.cs`** (101 LOC) - `BuildRecommendationPrompt(eventType, entityName, transcript, knowledgeChunks)` + `BuildFallbackRecommendation` + private `GetContextualAdvice` switch.
 
-**`Auth/`** — `JwtTokenGenerator` (HS256 + 64-byte refresh tokens), `PasswordHasher` (BCrypt workFactor 12).
+**`Auth/`** - `JwtTokenGenerator` (HS256 + 64-byte refresh tokens), `PasswordHasher` (BCrypt workFactor 12).
 
-**`Embedding/`** — `EmbeddingService.GenerateEmbeddingAsync(text, model="all-MiniLM-L6-v2")` POSTs `/api/v1/ai/embeddings`. `GenerateLocalEmbedding(text, dimensions=384)` is **deterministic hash-based** so query and indexed vectors share a space when AI engine is unreachable.
+**`Embedding/`** - `EmbeddingService.GenerateEmbeddingAsync(text, model="all-MiniLM-L6-v2")` POSTs `/api/v1/ai/embeddings`. `GenerateLocalEmbedding(text, dimensions=384)` is **deterministic hash-based** so query and indexed vectors share a space when AI engine is unreachable.
 
-**`Encryption/`** — `ApiKeyEncryptionService` — AES-CBC, IV prepended, base64. Key from `Encryption:Key` config.
+**`Encryption/`** - `ApiKeyEncryptionService` - AES-CBC, IV prepended, base64. Key from `Encryption:Key` config.
 
 **`Knowledge/`**:
-- **`ChunkingService.cs`** (247 LOC) — structure-aware chunker. Splits on `\n\n` paragraphs and `\f` form-feeds (bumps `currentPage`). Bullet groups coalesce. Short consecutive paragraphs (<800 chars) merge. Anything over 2000-char soft cap stays as `oversized_paragraph` (never split mid-paragraph).
-- **`TextExtractors.cs`** (113 LOC) — `PdfTextExtractor` (Docnet.Core), `DocxTextExtractor` (`DocumentFormat.OpenXml`), `MarkdownTextExtractor` (StreamReader fallback). `TextExtractorFactory.GetExtractor(contentType)` → first match, falls back to MarkdownTextExtractor.
-- **`VectorSearchService.cs`** (75 LOC) — brute-force cosine similarity (no ANN). Loads all chunks for user, top-K, returns. **Will not scale** — fine for prototype.
+- **`ChunkingService.cs`** (247 LOC) - structure-aware chunker. Splits on `\n\n` paragraphs and `\f` form-feeds (bumps `currentPage`). Bullet groups coalesce. Short consecutive paragraphs (<800 chars) merge. Anything over 2000-char soft cap stays as `oversized_paragraph` (never split mid-paragraph).
+- **`TextExtractors.cs`** (113 LOC) - `PdfTextExtractor` (Docnet.Core), `DocxTextExtractor` (`DocumentFormat.OpenXml`), `MarkdownTextExtractor` (StreamReader fallback). `TextExtractorFactory.GetExtractor(contentType)` → first match, falls back to MarkdownTextExtractor.
+- **`VectorSearchService.cs`** (75 LOC) - brute-force cosine similarity (no ANN). Loads all chunks for user, top-K, returns. **Will not scale** - fine for prototype.
 
-**`Reliability/`** — `CacheService` (wraps `IMemoryCache`, prefix-version is simple key invalidation), `MeetingDiagnosticsService` (in-memory `ConcurrentDictionary<string, MeetingMetrics>` with `TrackTranscript/Event/Recommendation/AudioFrame/Retry` and computed averages).
+**`Reliability/`** - `CacheService` (wraps `IMemoryCache`, prefix-version is simple key invalidation), `MeetingDiagnosticsService` (in-memory `ConcurrentDictionary<string, MeetingMetrics>` with `TrackTranscript/Event/Recommendation/AudioFrame/Retry` and computed averages).
 
 ### 4.7 Shared abstractions
 
-`Abstractions/IServices.cs` (20 LOC) — only file in Shared project:
+`Abstractions/IServices.cs` (20 LOC) - only file in Shared project:
 - `IJwtTokenGenerator.GenerateAccessToken/GenerateRefreshToken/GenerateRefreshTokenWithExpiry`
 - `IPasswordHasher.Hash/Verify`
 - `IApiKeyEncryptionService.Encrypt/Decrypt`
 
-DTOs live inline with the endpoint/handler that emits them — **no separate DTO types**.
+DTOs live inline with the endpoint/handler that emits them - **no separate DTO types**.
 
 ### 4.8 Tests (`CallPilot.Server.Tests`)
 
 xUnit 2.9.3 + Moq 4.20.72 + EF In-Memory 10.0.0. Pattern: `IAsyncLifetime` per-test in-memory DB.
 
-- `Authentication/AuthenticationTests.cs` (194 LOC, 8 `[Fact]`s) — Register/Login/Refresh/Logout happy + sad paths.
-- `Providers/ProviderTests.cs` (172 LOC, 7 `[Fact]`s) — Create upsert, List, Delete, encryption round-trip.
-- `Hubs/DesktopAgentHubTests.cs` (54 LOC, 4 `[Fact]`s) — structural tests of hub DTOs only (no SignalR runtime).
-- `Desktop/DesktopModelTests.cs` (56 LOC) — `AgentConfiguration` defaults, `AudioFrame`.
-- `Desktop/AuthenticationServiceTests.cs` (120 LOC) — `MockHttpMessageHandler` for Login/Refresh.
+- `Authentication/AuthenticationTests.cs` (194 LOC, 8 `[Fact]`s) - Register/Login/Refresh/Logout happy + sad paths.
+- `Providers/ProviderTests.cs` (172 LOC, 7 `[Fact]`s) - Create upsert, List, Delete, encryption round-trip.
+- `Hubs/DesktopAgentHubTests.cs` (54 LOC, 4 `[Fact]`s) - structural tests of hub DTOs only (no SignalR runtime).
+- `Desktop/DesktopModelTests.cs` (56 LOC) - `AgentConfiguration` defaults, `AudioFrame`.
+- `Desktop/AuthenticationServiceTests.cs` (120 LOC) - `MockHttpMessageHandler` for Login/Refresh.
 
 ---
 
-## 5. Python AI engine — `callpilot-ai-engine/`
+## 5. Python AI engine - `callpilot-ai-engine/`
 
-~5,593 LOC. Python 3.12 (Dockerfile), `>=3.11` per pyproject. **Stateless — never touches PostgreSQL directly**, talks only to .NET via HTTP.
+~5,593 LOC. Python 3.12 (Dockerfile), `>=3.11` per pyproject. **Stateless - never touches PostgreSQL directly**, talks only to .NET via HTTP.
 
 ### 5.1 Top-level layout
 
@@ -210,24 +210,24 @@ callpilot-ai-engine/
 ├── pyproject.toml
 ├── requirements-nemotron.txt          # OPTIONAL NeMo deps (gated by NEMOTRON_INSTALL build-arg)
 ├── engine/
-│   ├── main.py                        # 618 LOC — FastAPI app + all endpoints
-│   ├── models.py                      # 32 LOC — Pydantic models
+│   ├── main.py                        # 618 LOC - FastAPI app + all endpoints
+│   ├── models.py                      # 32 LOC - Pydantic models
 │   ├── config/nemotron_config.py      # 71 LOC
 │   ├── event_engine/event_detector.py # 117 LOC
 │   ├── stt/{nemotron_pipeline.py, nemotron_websocket.py}
 │   ├── services/                      # 9 modules
 │   ├── knowledge_engine/{docling_service.py, embedding_service.py}
 │   ├── routers/{nemotron_router.py, ingest_router.py}
-│   └── recommendation_engine/         # empty stub — rec logic lives on .NET side
+│   └── recommendation_engine/         # empty stub - rec logic lives on .NET side
 └── tests/                             # 6 test files + conftest
 ```
 
-### 5.2 `engine/main.py` — FastAPI application entry
+### 5.2 `engine/main.py` - FastAPI application entry
 
 **Lifespan** (`main.py:74`):
 1. If `NEMOTRON_ENABLED`, fire-and-forget background load of Nemotron.
 2. Build empty trie via `build_trie([])`.
-3. Spawn `_auto_load_trie_from_server()` — retries .NET `/internal/knowledge/entities` for up to 60s; falls back to `get_seed_entities()` on failure.
+3. Spawn `_auto_load_trie_from_server()` - retries .NET `/internal/knowledge/entities` for up to 60s; falls back to `get_seed_entities()` on failure.
 
 **All HTTP routes:**
 
@@ -247,9 +247,9 @@ callpilot-ai-engine/
 
 Plus always-mounted ingest router: `POST /api/v1/documents/ingest-structured` and `POST /api/v1/documents/enrich` (NDJSON streaming).
 
-**`_StreamingSession`** (line 219) — per-meeting Nemotron state. Decouples inference from request thread via `asyncio.create_task(_run_streaming_inference(...))` — returns last known partial immediately.
+**`_StreamingSession`** (line 219) - per-meeting Nemotron state. Decouples inference from request thread via `asyncio.create_task(_run_streaming_inference(...))` - returns last known partial immediately.
 
-### 5.3 Event taxonomy — `engine/event_engine/event_detector.py`
+### 5.3 Event taxonomy - `engine/event_engine/event_detector.py`
 
 `EventDetector.detect_all(text) → list[dict]` (line 98).
 
@@ -260,41 +260,41 @@ Plus always-mounted ingest router: `POST /api/v1/documents/ingest-structured` an
 - trie `feature` → `TechnicalQuestion` (0.92)
 
 **Direct detectors:**
-- `PricingQuestion` — regex: `pric(e/ing)`, `cost`, `budget`, `expensive`, `per seat`, etc. (0.88)
-- `Objection` (subtype in `entityName`) — Price/Security/Migration/Integration/Timeline/Competitor (0.85)
-- `TechnicalQuestion` — `do you support`, `api`, `SSO`, `SAML`, `kubernetes`, `SLA`, etc. (0.84)
+- `PricingQuestion` - regex: `pric(e/ing)`, `cost`, `budget`, `expensive`, `per seat`, etc. (0.88)
+- `Objection` (subtype in `entityName`) - Price/Security/Migration/Integration/Timeline/Competitor (0.85)
+- `TechnicalQuestion` - `do you support`, `api`, `SSO`, `SAML`, `kubernetes`, `SLA`, etc. (0.84)
 
 > **`PositiveBuyingSignal`/`NegativeBuyingSignal` REMOVED** (per CLAUDE.md). `CompetitorMentioned` emitted dynamically by competitor orchestrator, NOT by `event_detector`.
 
 Regex tables at top: `PRICING_PATTERNS`, `OBJECTION_PATTERNS`, `TECHNICAL_PATTERNS`.
 
-### 5.4 Nemotron STT — `engine/stt/`
+### 5.4 Nemotron STT - `engine/stt/`
 
-**`nemotron_pipeline.py`** (423 LOC) — Singleton `NemotronPipeline` lazy-loads `nvidia/nemotron-speech-streaming-en-0.6b` via `nemo_asr.models.ASRModel.from_pretrained`. `NemotronSession` is per-stream dataclass with encoder KV cache, VAD, etc. Sliding-window cap `_MAX_PARTIAL_WINDOW_SECONDS=8s` keeps latency flat for long meetings. Two locks (`asyncio.Lock` async + `threading.Lock` sync) guarantee serialised inference.
+**`nemotron_pipeline.py`** (423 LOC) - Singleton `NemotronPipeline` lazy-loads `nvidia/nemotron-speech-streaming-en-0.6b` via `nemo_asr.models.ASRModel.from_pretrained`. `NemotronSession` is per-stream dataclass with encoder KV cache, VAD, etc. Sliding-window cap `_MAX_PARTIAL_WINDOW_SECONDS=8s` keeps latency flat for long meetings. Two locks (`asyncio.Lock` async + `threading.Lock` sync) guarantee serialised inference.
 
-**`nemotron_websocket.py`** (228 LOC) — Implements **pipecat-ai/nemotron-january-2026 WebSocket protocol** exactly. 1KB chunks (`_AUDIO_CHUNK_BYTES=1024`, 32ms @ 16kHz). Handles `reset/finalize/end/ping` control messages. Emits `ready/transcript/error/heartbeat/status/pong`.
+**`nemotron_websocket.py`** (228 LOC) - Implements **pipecat-ai/nemotron-january-2026 WebSocket protocol** exactly. 1KB chunks (`_AUDIO_CHUNK_BYTES=1024`, 32ms @ 16kHz). Handles `reset/finalize/end/ping` control messages. Emits `ready/transcript/error/heartbeat/status/pong`.
 
-### 5.5 Services — `engine/services/`
+### 5.5 Services - `engine/services/`
 
-- **`trie_scanner.py`** (216 LOC) — Aho-Corasick entity scanner. `MIN_ENTITY_LEN=4`, `ACRONYM_ALLOWLIST` drops fragments like "han"/"am". `_has_word_boundary` enforces word-boundary matches. Skips `entity_type == "competitor"` (handled dynamically).
-- **`seed_entities.py`** (144 LOC) — Hardcoded Secure Meters portfolio (18 products + 9 standards). Fallback when `/internal/knowledge/entities` empty or unreachable.
-- **`text_normalizer.py`** (250 LOC) — Spoken-form → canonical ("apex one hundred" → "apex 100"). Includes "delisk" → "dlms cosem" alias.
-- **`entity_extractor.py`** (154 LOC) — GLiNER wrapper (`knowledgator/gliner-multitask-large-v0.5`). **`GLINER_LABELS = ["product name", "software integration", "pricing tier", "product feature"]`** — `competitor` INTENTIONALLY excluded (dynamic). Used **only at ingest time**, never on live calls.
-- **`enrichment_service.py`** (856 LOC) — LLM enrichment via **Groq** (`llama-3.1-8b-instant`). `EnrichedProduct.to_chunk_text()` produces stable format. Retries on rate-limit only, parses "Please try again in Xs" hint. `enrich_pages_streaming()` yields per-page as completed with `asyncio.Semaphore(3)` + `asyncio.wait_for(30s)`.
-- **`competitor_classifier.py`** (99 LOC) — Phase 2A. Heuristic-first (`TRIGGER_PHRASES`: "better than", "compared to", "currently using", "vs", etc., 150-char proximity), LLM fallback.
-- **`competitor_intel.py`** (176 LOC) — Phase 2+3. Tavily search + Redis cache (7-day TTL).
-- **`competitive_prompt.py`** (136 LOC) — Phase 2C. Generates live sales-coach talking points. Confidence "high" if both web + your_chunks present.
-- **`competitor_orchestrator.py`** (97 LOC) — Pipeline entry. `handle_unknown_entity()` returns `{"event_type": "CompetitorIntelCard", "competitor", "talking_points", "confidence", "sources", "cached", "meeting_id"}` or `None`.
+- **`trie_scanner.py`** (216 LOC) - Aho-Corasick entity scanner. `MIN_ENTITY_LEN=4`, `ACRONYM_ALLOWLIST` drops fragments like "han"/"am". `_has_word_boundary` enforces word-boundary matches. Skips `entity_type == "competitor"` (handled dynamically).
+- **`seed_entities.py`** (144 LOC) - Hardcoded Secure Meters portfolio (18 products + 9 standards). Fallback when `/internal/knowledge/entities` empty or unreachable.
+- **`text_normalizer.py`** (250 LOC) - Spoken-form → canonical ("apex one hundred" → "apex 100"). Includes "delisk" → "dlms cosem" alias.
+- **`entity_extractor.py`** (154 LOC) - GLiNER wrapper (`knowledgator/gliner-multitask-large-v0.5`). **`GLINER_LABELS = ["product name", "software integration", "pricing tier", "product feature"]`** - `competitor` INTENTIONALLY excluded (dynamic). Used **only at ingest time**, never on live calls.
+- **`enrichment_service.py`** (856 LOC) - LLM enrichment via **Groq** (`llama-3.1-8b-instant`). `EnrichedProduct.to_chunk_text()` produces stable format. Retries on rate-limit only, parses "Please try again in Xs" hint. `enrich_pages_streaming()` yields per-page as completed with `asyncio.Semaphore(3)` + `asyncio.wait_for(30s)`.
+- **`competitor_classifier.py`** (99 LOC) - Phase 2A. Heuristic-first (`TRIGGER_PHRASES`: "better than", "compared to", "currently using", "vs", etc., 150-char proximity), LLM fallback.
+- **`competitor_intel.py`** (176 LOC) - Phase 2+3. Tavily search + Redis cache (7-day TTL).
+- **`competitive_prompt.py`** (136 LOC) - Phase 2C. Generates live sales-coach talking points. Confidence "high" if both web + your_chunks present.
+- **`competitor_orchestrator.py`** (97 LOC) - Pipeline entry. `handle_unknown_entity()` returns `{"event_type": "CompetitorIntelCard", "competitor", "talking_points", "confidence", "sources", "cached", "meeting_id"}` or `None`.
 
-### 5.6 Knowledge engine — `engine/knowledge_engine/`
+### 5.6 Knowledge engine - `engine/knowledge_engine/`
 
-- **`docling_service.py`** (225 LOC) — Structure-aware PDF parsing. Lazy-loaded. `DocumentConverter + HybridChunker`, OCR disabled (`do_ocr=False`). Singleton via `get_docling_service()`.
-- **`embedding_service.py`** (36 LOC) — Sentence-Transformer `all-MiniLM-L6-v2`, device from `WHISPER_DEVICE` env var (legacy env var repurposed).
+- **`docling_service.py`** (225 LOC) - Structure-aware PDF parsing. Lazy-loaded. `DocumentConverter + HybridChunker`, OCR disabled (`do_ocr=False`). Singleton via `get_docling_service()`.
+- **`embedding_service.py`** (36 LOC) - Sentence-Transformer `all-MiniLM-L6-v2`, device from `WHISPER_DEVICE` env var (legacy env var repurposed).
 
 ### 5.7 Routers
 
-- **`nemotron_router.py`** (163 LOC) — `/health/nemotron`, `/ws/transcribe/nemotron`, batch `POST /transcribe/nemotron` (WAV/FLAC/PCM16 → resampled 16kHz).
-- **`ingest_router.py`** (172 LOC) — `MAX_BYTES=50MB`. `/ingest-structured` (PDF → Docling → chunks). `/enrich` (NDJSON stream with `kind` discriminator).
+- **`nemotron_router.py`** (163 LOC) - `/health/nemotron`, `/ws/transcribe/nemotron`, batch `POST /transcribe/nemotron` (WAV/FLAC/PCM16 → resampled 16kHz).
+- **`ingest_router.py`** (172 LOC) - `MAX_BYTES=50MB`. `/ingest-structured` (PDF → Docling → chunks). `/enrich` (NDJSON stream with `kind` discriminator).
 
 ### 5.8 Configuration
 
@@ -342,11 +342,11 @@ Regex tables at top: `PRICING_PATTERNS`, `OBJECTION_PATTERNS`, `TECHNICAL_PATTER
 | `test_streaming_session.py` | 172 | Async decoupling, request latency |
 | `test_enrichment_service.py` | 588 | Groq exception classification, parsing, retry, page processing |
 
-Pure unit tests — no real models loaded. `pytest-asyncio` for async paths.
+Pure unit tests - no real models loaded. `pytest-asyncio` for async paths.
 
 ---
 
-## 6. Next.js dashboard — `callpilot-dashboard/`
+## 6. Next.js dashboard - `callpilot-dashboard/`
 
 ### 6.1 Stack
 
@@ -363,19 +363,19 @@ Next.js 15.5.20, React 19, TypeScript strict, TailwindCSS 4.3.2 (`@import "tailw
 | `/meeting/[id]` | `src/app/meeting/[id]/page.tsx` | Real-time live meeting view (transcript + events + recommendations + product card) |
 | `/providers` | `src/app/providers/page.tsx` | BYOK provider config (DeepSeek/Ollama/OpenAI/Claude/Gemini) |
 
-### 6.3 Auth — `src/lib/auth.tsx`
+### 6.3 Auth - `src/lib/auth.tsx`
 
 Single `AuthProvider` Context. State: `{user, token, isLoading}`. Persists `callpilot_token`/`callpilot_refresh`/`callpilot_user` to `localStorage`. User ID extracted client-side by decoding JWT payload (`payload.userId || payload.sub`).
 
 **Limitations:** No middleware route protection (each page does client-side redirect). No token expiration handling. No automatic refresh. Logout is local-only (doesn't call `/api/v1/auth/logout`).
 
-### 6.4 API client — `src/lib/api.ts`
+### 6.4 API client - `src/lib/api.ts`
 
 `API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001'`. Module-level mutable `accessToken` variable. `apiRequest<T>` helper uses `fetch`, adds `Authorization: Bearer <token>` and JSON `Content-Type`. **No retry, no AbortController, no query cache.**
 
 Functions: `apiLogin/Register`, `apiCreateMeeting/GetMeetings/GetTranscripts`, `apiGetProviders/CreateProvider/DeleteProvider`, `apiUploadKnowledge/GetKnowledgeDocuments/DeleteKnowledgeDocument/GetKnowledgeDocument/GetDocumentStatus/GetDocumentRawOutput`, `apiGetProductDetails(name)`.
 
-### 6.5 SignalR client — `src/lib/signalr.ts`
+### 6.5 SignalR client - `src/lib/signalr.ts`
 
 Hook `useSignalR(meetingId)` returns `{transcripts, events, recommendations, isConnected, error}`.
 
@@ -385,7 +385,7 @@ Hook `useSignalR(meetingId)` returns `{transcripts, events, recommendations, isC
 
 Reconnection: re-invokes `JoinMeeting(meetingId)` on reconnect.
 
-### 6.6 Live meeting view — `src/app/meeting/[id]/page.tsx`
+### 6.6 Live meeting view - `src/app/meeting/[id]/page.tsx`
 
 Layout: `grid grid-cols-1 lg:grid-cols-3`. Left 2/3: transcript (gray final, blue partial with animated indicator), events (amber, last 10), recommendations (green, last 5). Right 1/3: sticky `ProductDetailsCard`.
 
@@ -408,12 +408,12 @@ View modal tabs: chunks | entities | raw | pages | errors. Raw and pages tabs on
 
 ### 6.8 Shared components
 
-- **`ProductDetailsCard.tsx`** — Calls `apiGetProductDetails(name)` when active product changes. Shows name/category/confidence/description/source docs/page/section/snippet/supporting transcript. Renders "not found" empty state with upload prompt.
-- **`ProcessingStepper.tsx`** — Stages: Uploaded → Extracting → Chunking → Embedding → Indexed → Entity extraction → LLM enrichment (structured only). States: pending/running/done/failed/skipped. Stuck detection: running >30s without explicit error.
+- **`ProductDetailsCard.tsx`** - Calls `apiGetProductDetails(name)` when active product changes. Shows name/category/confidence/description/source docs/page/section/snippet/supporting transcript. Renders "not found" empty state with upload prompt.
+- **`ProcessingStepper.tsx`** - Stages: Uploaded → Extracting → Chunking → Embedding → Indexed → Entity extraction → LLM enrichment (structured only). States: pending/running/done/failed/skipped. Stuck detection: running >30s without explicit error.
 
 ---
 
-## 7. Desktop agent — `CallPilot.Desktop/`
+## 7. Desktop agent - `CallPilot.Desktop/`
 
 **C# / .NET 10** standalone CLI (`OutputType=Exe`, `AssemblyName=callpilot-desktop`). Uses `System.CommandLine` (beta), `Microsoft.Extensions.Hosting/DI`, `SignalR.Client`, `Serilog`.
 
@@ -421,21 +421,21 @@ View modal tabs: chunks | entities | raw | pages | errors. Raw and pages tabs on
 
 `start` subcommand with flags: `--server-url`, `--email`, `--password`, `--meeting-id`, `--enable-mic`, `--enable-desktop-audio`, `--mic-device`, `--file-input`, `--source`, `--list-devices`.
 
-### Audio capture — `Services/FfmpegAudioCaptureService.cs`
+### Audio capture - `Services/FfmpegAudioCaptureService.cs`
 
 Wraps `ffmpeg` as external `System.Diagnostics.Process`. Cross-platform input muxers: `avfoundation` (macOS), `dshow` (Windows), `alsa` (Linux). Always re-encodes stdout to **raw PCM `s16le`, 16 kHz mono**. **Chunk size = 40ms.** Pre-flight silence check on first 1s.
 
-### SignalR — `Services/SignalRConnectionService.cs`
+### SignalR - `Services/SignalRConnectionService.cs`
 
 `${ServerUrl}/hubs/desktop-agent` with JWT in `AccessTokenProvider`. Custom exponential-backoff `RetryPolicy` (base 5s, cap 10 attempts). Sends `RegisterAgent`, `SendAudioFrame`, `SendHeartbeat` (every 15s). Receives `TranscriptReceived`, `SilenceDetected`, `AgentRegistered`.
 
 ### Other files
 
-- `Program.cs` (154 LOC) — CLI entrypoint, DI wiring, signal handler.
-- `Models/AgentConfiguration.cs` — POCO of all tunables (defaults: ServerUrl=`http://localhost:5001`, SampleRate=16000, Channels=1, ChunkDurationMs=40, HeartbeatIntervalSeconds=15, MaxReconnectAttempts=10).
-- `Audio/{AudioFrame.cs, IAudioCaptureService.cs}` — frame model + interface.
-- `Services/AuthenticationService.cs` — login/refresh + create meeting.
-- `Services/SessionManager.cs` — orchestrates auth → meeting → SignalR connect → capture. Also `BuildDashboardUrl` (5001 → 3000).
+- `Program.cs` (154 LOC) - CLI entrypoint, DI wiring, signal handler.
+- `Models/AgentConfiguration.cs` - POCO of all tunables (defaults: ServerUrl=`http://localhost:5001`, SampleRate=16000, Channels=1, ChunkDurationMs=40, HeartbeatIntervalSeconds=15, MaxReconnectAttempts=10).
+- `Audio/{AudioFrame.cs, IAudioCaptureService.cs}` - frame model + interface.
+- `Services/AuthenticationService.cs` - login/refresh + create meeting.
+- `Services/SessionManager.cs` - orchestrates auth → meeting → SignalR connect → capture. Also `BuildDashboardUrl` (5001 → 3000).
 
 ---
 
@@ -522,18 +522,18 @@ Upload → KnowledgeUploadHandler.UploadAsync
 
 ### Gotchas
 
-- **`WHISPER_*` env vars** in compose are **legacy** — Whisper STT removed, replaced by Nemotron. `WHISPER_DEVICE` is still read by `embedding_service.py` (repurposed for embedding device).
+- **`WHISPER_*` env vars** in compose are **legacy** - Whisper STT removed, replaced by Nemotron. `WHISPER_DEVICE` is still read by `embedding_service.py` (repurposed for embedding device).
 - **Dev compose overrides** publish Postgres 5432, mount hot-reload volumes for ai-engine and server `appsettings.Development.json`, and use a dev dashboard Dockerfile.
-- **No pgvector use at EF layer** — `Embeddings.VectorData` is text; cosine similarity is in-process. pgvector image still used for parity/forward-compat.
-- **`Source` column uniqueness** dropped — enrichment 2-phase replace can create temporary duplicate `(DocumentId, ChunkIndex)` rows.
-- **Service-to-service auth is anonymous** — `/internal/*` endpoints rely on docker network isolation only.
-- **CORS workaround** — `OnChallenge` re-stamps CORS headers on 401 because .NET 8+ quirk drops them.
+- **No pgvector use at EF layer** - `Embeddings.VectorData` is text; cosine similarity is in-process. pgvector image still used for parity/forward-compat.
+- **`Source` column uniqueness** dropped - enrichment 2-phase replace can create temporary duplicate `(DocumentId, ChunkIndex)` rows.
+- **Service-to-service auth is anonymous** - `/internal/*` endpoints rely on docker network isolation only.
+- **CORS workaround** - `OnChallenge` re-stamps CORS headers on 401 because .NET 8+ quirk drops them.
 
 ---
 
 ## 11. Contracts (`src/contracts/`)
 
-**Currently a stub.** Only `README.md` (10 lines) — "will contain API contract schemas, Event message schemas, Shared domain types, Provider interface definitions" — directory is **empty**. Hub protocol is duplicated inline (`AudioFrameMessage`, `AgentRegistration`, `TranscriptEvent` etc.). REST DTOs are duplicated as private types in each endpoint/handler. Cross-service schema consistency relies on convention + case-insensitive JSON property matching.
+**Currently a stub.** Only `README.md` (10 lines) - "will contain API contract schemas, Event message schemas, Shared domain types, Provider interface definitions" - directory is **empty**. Hub protocol is duplicated inline (`AudioFrameMessage`, `AgentRegistration`, `TranscriptEvent` etc.). REST DTOs are duplicated as private types in each endpoint/handler. Cross-service schema consistency relies on convention + case-insensitive JSON property matching.
 
 **Highest-leverage future refactor:** generate OpenAPI/TypeScript from .NET or share JSON Schema files.
 
@@ -647,11 +647,11 @@ src/
 
 ## 15. Open issues / known gaps
 
-1. **`src/contracts/` is empty** — no shared API/event schemas. Cross-service consistency by convention only.
-2. **Dashboard `/hubs/dashboard` is unused** — dashboard connects to `/hubs/desktop-agent` because that's where broadcasts happen. `DashboardHub` is dead code.
-3. **No refresh-token expiry handling on dashboard** — tokens expire silently, no automatic refresh.
-4. **Vector search is in-process brute-force** — `VectorSearchService.CosineSimilarity` over all chunks per query. Will not scale.
-5. **`DashboardHub` and `recommendation_engine/` (Python) are empty stubs** — both are reserved but unused.
-6. **`Postgres` is the only dependency that has a health check** in compose — Redis, Ollama, ai-engine liveness only via the ai-engine `/health` URL check.
-7. **`Dockerfile.desktop` doesn't bundle FFmpeg** — desktop agent must run on host with `ffmpeg` available; cannot be fully containerized.
-8. **`WHISPER_*` env vars** still set in compose/Dockerfile despite Whisper STT being removed — `WHISPER_DEVICE` is now repurposed for embedding device; the rest are dead.
+1. **`src/contracts/` is empty** - no shared API/event schemas. Cross-service consistency by convention only.
+2. **Dashboard `/hubs/dashboard` is unused** - dashboard connects to `/hubs/desktop-agent` because that's where broadcasts happen. `DashboardHub` is dead code.
+3. **No refresh-token expiry handling on dashboard** - tokens expire silently, no automatic refresh.
+4. **Vector search is in-process brute-force** - `VectorSearchService.CosineSimilarity` over all chunks per query. Will not scale.
+5. **`DashboardHub` and `recommendation_engine/` (Python) are empty stubs** - both are reserved but unused.
+6. **`Postgres` is the only dependency that has a health check** in compose - Redis, Ollama, ai-engine liveness only via the ai-engine `/health` URL check.
+7. **`Dockerfile.desktop` doesn't bundle FFmpeg** - desktop agent must run on host with `ffmpeg` available; cannot be fully containerized.
+8. **`WHISPER_*` env vars** still set in compose/Dockerfile despite Whisper STT being removed - `WHISPER_DEVICE` is now repurposed for embedding device; the rest are dead.

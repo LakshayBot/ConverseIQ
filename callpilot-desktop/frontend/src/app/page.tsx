@@ -65,7 +65,7 @@ export default function Home() {
 
   const router = useRouter();
 
-  // CallPilot — intelligence stream keyed by the current meeting id.
+  // CallPilot - intelligence stream keyed by the current meeting id.
   //
   // `useRecordingStart` mints the meeting against the .NET Gateway
   // synchronously inside the start handler, so by the time `isRecording`
@@ -234,7 +234,7 @@ export default function Home() {
       />
       <div className="flex flex-1 overflow-hidden">
         {/* Transcript column. `relative` anchors the floating mic button so it
-           stays centered within THIS column on every viewport — independent of
+           stays centered within THIS column on every viewport - independent of
            the sidebar width and the right-side intelligence aside. The old
            `fixed left-0 right-0 + hardcoded marginLeft` approach broke
            centering whenever the sidebar collapsed or the aside width
@@ -250,12 +250,16 @@ export default function Home() {
             <IdleMainPage onStartRecording={handleRecordingStart} />
           )}
 
-          {/* Recording controls — absolutely positioned inside the transcript
+          {/* Recording controls - absolutely positioned inside the transcript
              column so they stay horizontally centered between the sidebar
              and the intelligence aside. `bottom-12` lifts the dock above
              the transcript scroll edge; `left-0 right-0` plus
-             `justify-center` gives true center regardless of column width. */}
-          {(hasMicrophone || isRecording) &&
+             `justify-center` gives true center regardless of column width.
+
+             Only rendered while a call is starting/active: the idle home
+             screen already has the hero "Start a call" CTA, so showing the
+             mic dock at idle would be a redundant second entry point. */}
+          {(isRecording || status === RecordingStatus.STARTING) &&
             status !== RecordingStatus.PROCESSING_TRANSCRIPTS &&
             status !== RecordingStatus.SAVING && (
               <div className="pointer-events-none absolute bottom-12 left-0 right-0 z-10 flex justify-center">
@@ -281,8 +285,8 @@ export default function Home() {
         </div>
         <aside className="hidden lg:flex w-[360px] flex-col gap-3 border-l border-[var(--grain-ink-200)] bg-[var(--grain-paper)] p-4 overflow-y-auto">
           <div className="flex items-baseline justify-between">
-            <h2 className="text-sm font-semibold text-[var(--grain-ink-900)]">Intelligence</h2>
-            <span className={`text-[10px] uppercase tracking-wide ${intelligenceConnected ? 'text-[var(--grain-rep)]' : 'text-[var(--grain-ink-500)]'}`}>
+            <h2 className="font-display text-sm font-semibold text-[var(--grain-ink-900)]">Intelligence</h2>
+            <span className={`font-mono text-[10px] uppercase tracking-wide ${intelligenceConnected ? 'text-[var(--grain-rep)]' : 'text-[var(--grain-ink-500)]'}`}>
               {intelligenceConnected ? 'live' : 'idle'}
             </span>
           </div>

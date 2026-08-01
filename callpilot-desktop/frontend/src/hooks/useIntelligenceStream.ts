@@ -1,4 +1,4 @@
-// useIntelligenceStream — connects to the .NET Gateway's
+// useIntelligenceStream - connects to the .NET Gateway's
 // /hubs/desktop-agent SignalR hub and surfaces `IntelligenceCard`
 // events for the live meeting view.
 //
@@ -8,12 +8,12 @@
 //   Client → Server: "JoinMeeting"  <meetingId>   (subscribe to group)
 //
 // Cards arrive with the same payload shape that the dashboard consumes
-// (see DesktopAgentHub.cs:157-166 and :183-192) — we map them to
+// (see DesktopAgentHub.cs:157-166 and :183-192) - we map them to
 // `IntelligenceCard` for the panel.
 //
 // NOTE: this previously opened a WebSocket to the Python engine's
 // /ws/intelligence/{session_id} endpoint (now removed). The .NET
-// Gateway is the single intelligence surface — both this desktop and
+// Gateway is the single intelligence surface - both this desktop and
 // the web dashboard receive the same SignalR broadcasts.
 
 import { useEffect, useRef, useState } from 'react';
@@ -157,7 +157,7 @@ export function useIntelligenceStream(sessionId: string | null) {
     (async () => {
       const token = await invoke<string | null>('get_auth_access_token');
       if (cancelled || !token) {
-        if (!token) setError('Not authenticated — please log in first');
+        if (!token) setError('Not authenticated - please log in first');
         setConnected(false);
         return;
       }

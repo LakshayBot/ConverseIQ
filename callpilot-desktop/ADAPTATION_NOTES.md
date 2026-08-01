@@ -1,4 +1,4 @@
-# CallPilot Desktop — Adaptation Notes
+# CallPilot Desktop - Adaptation Notes
 
 > Component-by-component analysis of Meetily (MIT, https://github.com/Zackriya-Solutions/meetily) and how each piece maps to CallPilot AI. Generated as the mandatory Step 1 deliverable before any code changes were made.
 >
@@ -14,21 +14,21 @@
 callpilot-desktop/
 ├── Cargo.toml                          workspace (members: src-tauri, llama-helper)
 ├── Cargo.lock
-├── LICENSE.md                          MIT — keep
-├── CLAUDE.md                           Meetily's own Claude notes — REPLACE with our own (delete then rewrite)
+├── LICENSE.md                          MIT - keep
+├── CLAUDE.md                           Meetily's own Claude notes - REPLACE with our own (delete then rewrite)
 ├── frontend/                           Next.js 14 app + Tauri 2 wrapper
 │   ├── src/                            React UI
 │   └── src-tauri/                      Rust core (commands + audio engines)
-├── backend/                            ❌ FastAPI legacy — REMOVE (Meetily CLAUDE.md also confirms it's archived)
+├── backend/                            ❌ FastAPI legacy - REMOVE (Meetily CLAUDE.md also confirms it's archived)
 ├── docs/                               ❌ REMOVE
 ├── llama-helper/                       ✅ Keep (used by Parakeet build)
-├── scripts/                            build helpers — 🔧 adapt paths later if needed
+├── scripts/                            build helpers - 🔧 adapt paths later if needed
 └── .github/                            ❌ REMOVE
 ```
 
 ---
 
-## 2. Rust core — `frontend/src-tauri/src/`
+## 2. Rust core - `frontend/src-tauri/src/`
 
 | Module | Decision | Notes |
 |---|---|---|
@@ -39,7 +39,7 @@ callpilot-desktop/
 | `tray.rs` | ✅ keep | Tray icon. **Valuable.** |
 | `onboarding.rs` | 🔧 adapt | Onboarding flow. We add CallPilot server-check step. |
 | `utils.rs` | ✅ keep | |
-| `audio/` (entire module) | ✅ keep, untouched | cpal + whisper-rs + mixing — "core, untouched" per task. |
+| `audio/` (entire module) | ✅ keep, untouched | cpal + whisper-rs + mixing - "core, untouched" per task. |
 | `audio_v2/` | ✅ keep | Alternative audio path. Untouched. |
 | `whisper_engine/` | 🔧 adapt | Keep engine; ensure it loads ggml-tiny/base/small.en model files. Don't change internals beyond the model list. |
 | `parakeet_engine/` | ✅ keep | Already supports `parakeet-tdt-0.6b-v3-int8` etc. The task model list maps 1:1. |
@@ -49,19 +49,19 @@ callpilot-desktop/
 | `groq/` | ❌ **remove** | Used only by summary. |
 | `ollama/` | ❌ **remove** | Used only by summary. (Local LLM removed; CallPilot has its own stack.) |
 | `anthropic/`, `openai/`, `openrouter/` | ❌ **remove** | Summary providers only. |
-| `database/` | 🔧 adapt | Local SQLite store for meetings + transcripts. **Keep** — needed for session history offline. Will stub the summary-related tables/queries. |
+| `database/` | 🔧 adapt | Local SQLite store for meetings + transcripts. **Keep** - needed for session history offline. Will stub the summary-related tables/queries. |
 | `notifications/` | ✅ keep | Native notification integration. Will be repointed to fire on CallPilot events. |
 | `api/` | 🔧 adapt | Currently calls Meetily's FastAPI on `localhost:5167`. **Rewire to CallPilot .NET Gateway on `localhost:5000`.** Add new functions for `/api/v1/auth/*`, `/api/v1/meetings/*`, `/api/v1/providers/*`. Stub any endpoint CallPilot doesn't yet expose. |
-| `analytics/` | ❌ **remove** | PostHog tracking — third-party; remove. |
+| `analytics/` | ❌ **remove** | PostHog tracking - third-party; remove. |
 | `console_utils/` | ✅ keep | In-app console toggle. |
-| `lib_old_complex.rs` | ❌ **remove** | Confirmed by the lib.rs comment "complexity was extracted" — dead legacy file. |
+| `lib_old_complex.rs` | ❌ **remove** | Confirmed by the lib.rs comment "complexity was extracted" - dead legacy file. |
 | `migrations/` | 🔧 adapt | SQL migrations for local DB. Keep as-is for now; we'll need a new migration if we add CallPilot meeting-id columns. |
 | `check_screen_permission.swift` | ✅ keep | macOS screen recording permission helper. |
 | `Info.plist`, `entitlements.plist` | ✅ keep | macOS bundle config. Will tweak `CFBundleName` to CallPilot. |
 
 ### Rust Tauri commands (registered in `lib.rs` + submodules)
 
-**Core recording/audio — KEEP:**
+**Core recording/audio - KEEP:**
 - `start_recording`, `stop_recording`, `is_recording`
 - `get_transcription_status`, `save_transcript`, `read_audio_file`
 - `start_audio_level_monitoring`, `stop_audio_level_monitoring`, `is_audio_level_monitoring`
@@ -72,26 +72,26 @@ callpilot-desktop/
 - All `parakeet_*` commands (same shape as whisper_*)
 - `open_models_folder`, `open_parakeet_models_folder`
 
-**Database — KEEP** (for local meeting history): `check_first_launch`, `initialize_fresh_database`, `import_and_initialize_database`, `get_database_directory`, `open_database_folder`, `detect_legacy_database`, `check_default_legacy_database`, `check_homebrew_database`, `select_legacy_database_path`
+**Database - KEEP** (for local meeting history): `check_first_launch`, `initialize_fresh_database`, `import_and_initialize_database`, `get_database_directory`, `open_database_folder`, `detect_legacy_database`, `check_default_legacy_database`, `check_homebrew_database`, `select_legacy_database_path`
 
-**Onboarding — KEEP:** `get_onboarding_status`, `save_onboarding_status_cmd`, `reset_onboarding_status_cmd`, `complete_onboarding`
+**Onboarding - KEEP:** `get_onboarding_status`, `save_onboarding_status_cmd`, `reset_onboarding_status_cmd`, `complete_onboarding`
 
-**Console — KEEP:** `show_console`, `hide_console`, `toggle_console`
+**Console - KEEP:** `show_console`, `hide_console`, `toggle_console`
 
-**Tray — KEEP**
+**Tray - KEEP**
 
-**Summary / Ollama / Groq / OpenAI / Anthropic / OpenRouter — REMOVE** (covered by removing `summary/`, `ollama/`, `groq/`, `anthropic/`, `openai/`, `openrouter/` modules). Affected commands:
+**Summary / Ollama / Groq / OpenAI / Anthropic / OpenRouter - REMOVE** (covered by removing `summary/`, `ollama/`, `groq/`, `anthropic/`, `openai/`, `openrouter/` modules). Affected commands:
 - `api_save_meeting_summary`, `api_get_meeting_summary_language`, `api_save_meeting_summary_language`, `api_detect_transcript_summary_language`, `api_get_summary`, `api_process_transcript`, `api_cancel_summary`, `api_save_model_config`, `api_get_model_config`
 - `ollama_*` family (pull/list/download/etc.)
 - `groq_*`, `anthropic_*`, `openai_*`, `openrouter_*`
 
-**API — REWIRE:** `api_get_server_address` (change base URL), `api_get_meetings`, `api_search_meetings`, `api_get_*` etc. Will rewrite to target CallPilot endpoints. Stub anything CallPilot doesn't yet expose (return empty + log warning).
+**API - REWIRE:** `api_get_server_address` (change base URL), `api_get_meetings`, `api_search_meetings`, `api_get_*` etc. Will rewrite to target CallPilot endpoints. Stub anything CallPilot doesn't yet expose (return empty + log warning).
 
-**Analytics — REMOVE**: `init_analytics`, `disable_analytics`, `track_event`, `identify_user`, `track_meeting_*`, `track_recording_*`, `track_search_performed`, `track_settings_changed`, `track_feature_used`, `is_analytics_enabled`, `start_analytics_session`, `end_analytics_session` (lives in `lib_old_complex.rs`).
+**Analytics - REMOVE**: `init_analytics`, `disable_analytics`, `track_event`, `identify_user`, `track_meeting_*`, `track_recording_*`, `track_search_performed`, `track_settings_changed`, `track_feature_used`, `is_analytics_enabled`, `start_analytics_session`, `end_analytics_session` (lives in `lib_old_complex.rs`).
 
 ---
 
-## 3. Frontend — `frontend/src/`
+## 3. Frontend - `frontend/src/`
 
 ### 3.1 Pages (Next.js App Router)
 
@@ -99,7 +99,7 @@ callpilot-desktop/
 |---|---|---|---|
 | `/` | `app/page.tsx` | ✅ keep, adapt | Live recording page. Will host the new **Intelligence Panel** alongside the existing `TranscriptPanel`. |
 | `/meeting-details` | `app/meeting-details/page.tsx` + `page-content.tsx` | 🔧 adapt | Currently loads transcripts **AND** summary via `api_get_summary`. Keep the transcript loading. Strip the summary fetch, the auto-gen logic, the AISummary panel, and the `SummaryGeneratorButtonGroup`. Result: a transcript-only details screen. |
-| `/meeting-details/page-content.tsx` | | 🔧 adapt | Same — strip summary panels. |
+| `/meeting-details/page-content.tsx` | | 🔧 adapt | Same - strip summary panels. |
 | `/notes/[id]` | `app/notes/[id]/page.tsx` | ❌ **remove** | This is the static sample-notes demo. Not even wired into nav. Removed cleanly. |
 | `/settings` | `app/settings/page.tsx` | 🔧 adapt | Add **CallPilot Server** section (URLs + test connection), **Session** section (auto-start, save-transcripts toggle). Keep all audio/device/model sections. |
 
@@ -120,14 +120,14 @@ callpilot-desktop/
 | `AnalyticsDataModal.tsx` | ❌ **remove** | PostHog data view. |
 | `AnalyticsProvider.tsx` | ❌ **remove** | PostHog provider. |
 | `AudioBackendSelector.tsx` | ✅ keep | Audio backend chooser. |
-| `AudioLevelMeter.tsx` | ✅ keep | Real-time level meter — valuable visual cue. |
+| `AudioLevelMeter.tsx` | ✅ keep | Real-time level meter - valuable visual cue. |
 | `AudioPlayer.tsx` | ✅ keep | Playback of recorded audio. |
 | `BetaSettings.tsx` | 🔧 adapt | Rebadge. |
 | `BlockNoteEditor/` | ❌ **remove** | BlockNote rich-text editor is only used by summary. |
 | `BluetoothPlaybackWarning.tsx` | ✅ keep | macOS-specific warning. |
 | `BuiltInModelManager.tsx` | ✅ keep | Model download UI base component. |
 | `ChunkProgressDisplay.tsx` | ✅ keep | Chunked-upload progress. |
-| `ComplianceNotification.tsx` | ✅ keep | Recording consent banner — valuable for sales compliance. |
+| `ComplianceNotification.tsx` | ✅ keep | Recording consent banner - valuable for sales compliance. |
 | `ConfidenceIndicator.tsx` | ✅ keep | Per-segment confidence. |
 | `ConfirmationModel/` | ✅ keep | Confirm modals. |
 | `ConsoleToggle.tsx` | ✅ keep | Debug console toggle. |
@@ -234,8 +234,8 @@ callpilot-desktop/
 
 ### 3.8 `types/`, `config/`, `constants/`
 
-- `types/` — keep `transcript.ts`, strip `summary.ts`. Keep `index.ts`.
-- `config/`, `constants/` — keep, rebrand strings.
+- `types/` - keep `transcript.ts`, strip `summary.ts`. Keep `index.ts`.
+- `config/`, `constants/` - keep, rebrand strings.
 
 ---
 
@@ -257,10 +257,10 @@ callpilot-desktop/
 
 ## 5. Speaker-label strategy (Step 6)
 
-Meetily does **not** perform speaker diarization — every transcript segment has only `text`, no speaker ID. We will:
+Meetily does **not** perform speaker diarization - every transcript segment has only `text`, no speaker ID. We will:
 - Add an `audio_source: 'mic' | 'system' | 'unknown'` field to outgoing WS frames (the Rust pipeline already knows which stream produced a chunk).
 - On the frontend, default `mic → "REP"` and `system → "PROSPECT"` with an optional toggle in the transcript panel to show/hide speaker labels.
-- For now, label is best-effort visual — true diarization is a future work item.
+- For now, label is best-effort visual - true diarization is a future work item.
 
 ---
 
@@ -279,7 +279,7 @@ interface IntelligenceCard {
 }
 ```
 
-Render rules from task: red/yellow/blue left border by severity, newest on top, max 5 visible, collapsible "View Sources" if chunks present. When CallPilot's `/ws/intelligence/` endpoint isn't yet wired, the panel renders an empty state ("Intelligence stream offline") and logs a console warning — the UI stays intact.
+Render rules from task: red/yellow/blue left border by severity, newest on top, max 5 visible, collapsible "View Sources" if chunks present. When CallPilot's `/ws/intelligence/` endpoint isn't yet wired, the panel renders an empty state ("Intelligence stream offline") and logs a console warning - the UI stays intact.
 
 ---
 
@@ -322,9 +322,9 @@ Keep all existing audio-device tabs, model-selection tabs, language tabs, etc.
 Root:
 - `.git/`, `.github/`, `backend/`, `docs/`
 - `BLUETOOTH_PLAYBACK_NOTICE.md`, `CONTRIBUTING.md`, `PRIVACY_POLICY.md`, `README.md`
-- `CLAUDE.md` (Meetily's) — replaced by our own
-- `frontend/build*.{bat,sh,ps1}`, `frontend/dev-gpu.{bat,sh,ps1}`, `frontend/clean_*` (most) — keep `frontend/clean_run.sh` and `frontend/clean_build.sh`, rebrand them
-- `frontend/vs_buildtools.exe` — Meetily Windows-only installer; remove
+- `CLAUDE.md` (Meetily's) - replaced by our own
+- `frontend/build*.{bat,sh,ps1}`, `frontend/dev-gpu.{bat,sh,ps1}`, `frontend/clean_*` (most) - keep `frontend/clean_run.sh` and `frontend/clean_build.sh`, rebrand them
+- `frontend/vs_buildtools.exe` - Meetily Windows-only installer; remove
 
 Rust:
 - `src-tauri/src/summary/`, `src-tauri/src/summary_engine/`, `src-tauri/src/summary/templates/`
@@ -365,16 +365,16 @@ pnpm build                                 # Next.js production build
   - `/` 24.8 kB
   - `/meeting-details` 3.46 kB
   - `/settings` 8.31 kB
-- **Rust `cargo build --bin callpilot-audio`** ✅ **PASSED.** Full Xcode installed. Final binary at `target/release/callpilot-audio` (60 MB). One minor fix during the build: the `CustomOpenAIConfig` stub had to make `endpoint`/`model` `String` (not `Option<String>`) and `max_tokens: Option<u32>` (not `i32`) to match the call sites in `api_save_custom_openai_config` — the stub now mirrors the real shape.
+- **Rust `cargo build --bin callpilot-audio`** ✅ **PASSED.** Full Xcode installed. Final binary at `target/release/callpilot-audio` (60 MB). One minor fix during the build: the `CustomOpenAIConfig` stub had to make `endpoint`/`model` `String` (not `Option<String>`) and `max_tokens: Option<u32>` (not `i32`) to match the call sites in `api_save_custom_openai_config` - the stub now mirrors the real shape.
 - **Tauri app bundle** ✅ **PASSED.** `pnpm tauri:build:cpu` produced a signed `CallPilot.app` at `target/release/bundle/macos/CallPilot.app` (60 MB executable, FFmpeg sidecar included). The DMG step at the very end failed (`bundle_dmg.sh` requires extra Xcode CLT tooling and isn't critical for app distribution), but the `.app` bundle is fully runnable.
 - **Launch verification** ✅ **PASSED.** `open CallPilot.app` started the process; `ps aux | grep callpilot` confirmed `callpilot-audio` running; dock icon visible. Bundle metadata: `CFBundleName=CallPilot`, `CFBundleDisplayName=CallPilot`, `CFBundleIdentifier=ai.callpilot.desktop`.
-- **Onboarding fix** — Removed the leftover "Summary Engine" download card from `DownloadProgressStep` (CallPilot handles summarization server-side via the .NET Gateway). The Parakeet v3 download URL was also corrected from a non-existent `callpilot.towardsgeneralintelligence.com` to the real HuggingFace repo `huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main`.
-- **Permissions step fix** — `completeOnboarding` in `OnboardingContext.tsx` was calling a deleted Rust command (`builtin_ai_get_recommended_model`), so clicking "Finish Setup" silently failed. Replaced the local-summary-model discovery/download flow with no-op stubs (CallPilot's summary is server-side). The "I'll do this later" / "Finish Setup" buttons now work.
-- **Live streaming fix** — Meetily's audio pipeline only emitted a transcription chunk after the VAD detected end-of-speech (≥2s silence), so text appeared all-at-once after every pause. Added interim partials: `AudioChunk` gained an `is_partial: bool`; `ContinuousVadProcessor` exposes `interim_snapshot()` + `is_in_speech()`; the VAD pipeline emits a partial chunk every 800 ms during ongoing speech while the final chunk stays `is_partial: false`; the transcription worker forwards the flag to `transcript-update` events; `TranscriptContext` dedups in place so the UI replaces the most-recent partial (instead of stacking rows) and cleans up overlapping partials when a final arrives. Net effect: text appears incrementally as the user speaks, not in one block at the end of every sentence.
-- **Toggle start/stop fix** — Replaced the START button's click handler with `handleToggleRecording` in `RecordingControls.tsx`. It queries `is_recording` from the backend first; if the backend is recording but the React state thinks it's idle (state-mismatch bug — transcripts visible, button stuck in START state), the click is routed to `stop_recording` instead of `start_recording_with_devices_and_meeting` (which would have failed with "Recording already in progress"). This makes the button always respond regardless of state sync issues.
-- **Toggle stop path corrected** — First version of `handleToggleRecording` only called `onRecordingStop(true)` (the parent post-stop hook), which never invokes the Rust `stop_recording` Tauri command. So clicking the mic while the backend was recording left the audio pipeline running while the React state thought it was idle. Fixed by calling `stopRecordingAction()` directly FIRST (which invokes `stop_recording`), then `onRecordingStop(true)` for post-stop processing.
-- **Event detection wiring** — `app/page.tsx` now mints a real meeting on the .NET Gateway via `createMeeting()` when recording starts and uses its id as the intelligence WS session id (falls back to a local UUID if the Gateway is unreachable). `useIntelligenceStream` cleans up the WS on unmount and logs the connect target to the console for debugging.
-- **Toolchain pin** — Meetily's `Cargo.toml` declares `rust-version = "1.77"` but several deps (cidre 0.11, darling 0.23, home 0.5, icu_*, plist 1.9, serde_with 3.20, time 0.3) require **rustc 1.86–1.88**. We added `frontend/src-tauri/rust-toolchain.toml` pinning the channel to `1.88.0` to satisfy those without changing any dependency versions. No `Cargo.toml`/`Cargo.lock`/package.json edits beyond that.
+- **Onboarding fix** - Removed the leftover "Summary Engine" download card from `DownloadProgressStep` (CallPilot handles summarization server-side via the .NET Gateway). The Parakeet v3 download URL was also corrected from a non-existent `callpilot.towardsgeneralintelligence.com` to the real HuggingFace repo `huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main`.
+- **Permissions step fix** - `completeOnboarding` in `OnboardingContext.tsx` was calling a deleted Rust command (`builtin_ai_get_recommended_model`), so clicking "Finish Setup" silently failed. Replaced the local-summary-model discovery/download flow with no-op stubs (CallPilot's summary is server-side). The "I'll do this later" / "Finish Setup" buttons now work.
+- **Live streaming fix** - Meetily's audio pipeline only emitted a transcription chunk after the VAD detected end-of-speech (≥2s silence), so text appeared all-at-once after every pause. Added interim partials: `AudioChunk` gained an `is_partial: bool`; `ContinuousVadProcessor` exposes `interim_snapshot()` + `is_in_speech()`; the VAD pipeline emits a partial chunk every 800 ms during ongoing speech while the final chunk stays `is_partial: false`; the transcription worker forwards the flag to `transcript-update` events; `TranscriptContext` dedups in place so the UI replaces the most-recent partial (instead of stacking rows) and cleans up overlapping partials when a final arrives. Net effect: text appears incrementally as the user speaks, not in one block at the end of every sentence.
+- **Toggle start/stop fix** - Replaced the START button's click handler with `handleToggleRecording` in `RecordingControls.tsx`. It queries `is_recording` from the backend first; if the backend is recording but the React state thinks it's idle (state-mismatch bug - transcripts visible, button stuck in START state), the click is routed to `stop_recording` instead of `start_recording_with_devices_and_meeting` (which would have failed with "Recording already in progress"). This makes the button always respond regardless of state sync issues.
+- **Toggle stop path corrected** - First version of `handleToggleRecording` only called `onRecordingStop(true)` (the parent post-stop hook), which never invokes the Rust `stop_recording` Tauri command. So clicking the mic while the backend was recording left the audio pipeline running while the React state thought it was idle. Fixed by calling `stopRecordingAction()` directly FIRST (which invokes `stop_recording`), then `onRecordingStop(true)` for post-stop processing.
+- **Event detection wiring** - `app/page.tsx` now mints a real meeting on the .NET Gateway via `createMeeting()` when recording starts and uses its id as the intelligence WS session id (falls back to a local UUID if the Gateway is unreachable). `useIntelligenceStream` cleans up the WS on unmount and logs the connect target to the console for debugging.
+- **Toolchain pin** - Meetily's `Cargo.toml` declares `rust-version = "1.77"` but several deps (cidre 0.11, darling 0.23, home 0.5, icu_*, plist 1.9, serde_with 3.20, time 0.3) require **rustc 1.86–1.88**. We added `frontend/src-tauri/rust-toolchain.toml` pinning the channel to `1.88.0` to satisfy those without changing any dependency versions. No `Cargo.toml`/`Cargo.lock`/package.json edits beyond that.
 
 If a stale `package-lock`/`pnpm-lock` or `Cargo.lock` blocks the build, only then are lockfile edits allowed (and only minimal ones). No dependency version upgrades.
 
@@ -387,4 +387,4 @@ If a stale `package-lock`/`pnpm-lock` or `Cargo.lock` blocks the build, only the
 - **Strip every summary / Ollama / Groq / OpenRouter / Anthropic path.** The intelligence cards panel replaces what Meetily used summary for in our world.
 - **Stub missing endpoints.** Anywhere the UI calls a CallPilot endpoint that doesn't yet exist (e.g. `/api/v1/meetings/{id}/recommendations` may exist, but `/api/v1/meetings` POST for session create may differ), we read the URL pattern, add a TODO log, and return empty / mock data so the UI keeps rendering.
 - **No dependency version bumps.** Per task constraint.
-- **In-place adaptation.** Per task constraint — no folder restructure.
+- **In-place adaptation.** Per task constraint - no folder restructure.

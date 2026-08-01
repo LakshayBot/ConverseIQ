@@ -1,7 +1,7 @@
 'use client'
 
 import './globals.css'
-import { Source_Sans_3, Inter } from 'next/font/google'
+import { Source_Sans_3, Inter, Space_Grotesk, JetBrains_Mono } from 'next/font/google'
 import Sidebar from '@/components/Sidebar'
 import { SidebarProvider } from '@/components/Sidebar/SidebarProvider'
 import MainContent from '@/components/MainContent'
@@ -35,6 +35,24 @@ const sourceSans3 = Source_Sans_3({
   variable: '--font-source-sans-3',
 })
 
+// Space Grotesk - display/headline family (--font-display). Used for page
+// headlines, section titles, and large callout text. Sizes/weights come
+// from the existing type scale; only the family differs from the body font.
+const spaceGrotesk = Space_Grotesk({
+  subsets: ['latin'],
+  weight: ['500', '600', '700'],
+  variable: '--font-display',
+})
+
+// JetBrains Mono - system/data text (--font-mono): status rows, timestamps,
+// file metadata, rail status indicators. Readable at small sizes, tabular
+// figures keep counts and dates aligned.
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-mono',
+})
+
 // Inter is the single global font for the project. The design.md split
 // (Manrope for display, Inter for body) was abandoned in app code
 // because the visual mismatch between the sidebar and the main content
@@ -46,7 +64,7 @@ const inter = Inter({
   variable: '--font-inter',
 })
 
-// Module-level component — stable reference across RootLayout re-renders.
+// Module-level component - stable reference across RootLayout re-renders.
 // Defined here (not inside RootLayout) so React never sees a new function type
 // on re-render, which would cause unmount/remount and break initialization logic.
 function ConditionalImportDialog({
@@ -171,7 +189,7 @@ export default function RootLayout({
   // Auth is enforced one level up: <AuthGate> hides the entire app shell until
   // the user is signed in, so the tray can never reach this listener while
   // unauthenticated. The `showOnboarding` check above is the only guard needed
-  // here — no `useAuth()` import required.
+  // here - no `useAuth()` import required.
 
   // Handle file drop for audio import
   const handleFileDrop = useCallback((paths: string[]) => {
@@ -278,7 +296,7 @@ export default function RootLayout({
 
   return (
     <html lang="en">
-      <body className={`${inter.variable} ${sourceSans3.variable} font-sans antialiased`}>
+      <body className={`${inter.variable} ${sourceSans3.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
         <AuthProvider>
           <AnalyticsProvider>
             <RecordingStateProvider>

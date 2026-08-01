@@ -28,7 +28,7 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  /** Manually re-reads the cached session — useful after a forced refresh. */
+  /** Manually re-reads the cached session - useful after a forced refresh. */
   refreshSession: () => Promise<void>;
 }
 

@@ -30,7 +30,7 @@ public class AuthenticationService
 
             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
-                _logger.LogInformation("Login failed — trying to register first...");
+                _logger.LogInformation("Login failed - trying to register first...");
                 var registered = await RegisterAsync(email, password);
                 if (!registered) return false;
 

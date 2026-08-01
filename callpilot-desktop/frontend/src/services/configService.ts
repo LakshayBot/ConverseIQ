@@ -125,7 +125,7 @@ export class ConfigService {
   }
 
   /**
-   * Summary LLM configuration — lives on the .NET side as a
+   * Summary LLM configuration - lives on the .NET side as a
    * ProviderConfiguration row, keyed by ProviderType.
    */
   async getModelConfig(): Promise<ModelConfig> {
@@ -205,7 +205,7 @@ export class ConfigService {
   }
 
   /**
-   * Audio device preferences — desktop-local (recorded by the audio
+   * Audio device preferences - desktop-local (recorded by the audio
    * pipeline, not a server concern). Persisted via tauri-plugin-store.
    */
   async getRecordingPreferences(): Promise<RecordingPreferences> {
@@ -225,7 +225,7 @@ export class ConfigService {
   }
 
   /**
-   * Custom OpenAI configuration — provider row with
+   * Custom OpenAI configuration - provider row with
    * providerType='custom-openai'.
    */
   async getCustomOpenAIConfig(): Promise<CustomOpenAIConfig | null> {
@@ -256,7 +256,7 @@ export class ConfigService {
   }
 
   /**
-   * Test custom OpenAI connection. No DB involved — pure HTTP test, so we
+   * Test custom OpenAI connection. No DB involved - pure HTTP test, so we
    * keep this in Tauri to avoid bouncing through the .NET server.
    */
   async testCustomOpenAIConnection(
@@ -269,7 +269,7 @@ export class ConfigService {
   }
 
   /**
-   * Auto-generate summary on recording-stop — desktop-local UI preference.
+   * Auto-generate summary on recording-stop - desktop-local UI preference.
    */
   async getAutoGenerateSetting(): Promise<boolean> {
     return loadDesktopStore<boolean>('ui-preferences.json', 'autoGenerateSummary', true);
@@ -291,7 +291,7 @@ function defaultModelConfig(): ModelConfig {
 }
 
 /**
- * Picks the "summary LLM" provider — the .NET side stores multiple
+ * Picks the "summary LLM" provider - the .NET side stores multiple
  * ProviderConfigurations per user, but the desktop historically only
  * managed one summary model. For backwards-compat we return the first
  * enabled provider; UI can later be extended to pick among multiple.

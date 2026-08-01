@@ -164,7 +164,7 @@ impl ContinuousVadProcessor {
     /// transcriptions every ~800ms during ongoing speech so the UI can stream text
     /// incrementally instead of waiting for the VAD to detect end-of-speech.
     ///
-    /// The snapshot is a clone — the VAD keeps accumulating samples internally.
+    /// The snapshot is a clone - the VAD keeps accumulating samples internally.
     pub fn interim_snapshot(&self) -> Option<SpeechSegment> {
         if !self.in_speech || self.current_speech.is_empty() {
             return None;

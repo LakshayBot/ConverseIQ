@@ -29,7 +29,7 @@ def _get_redis():
         _redis = aioredis.from_url(REDIS_URL, decode_responses=True)
         logger.info("Redis connected to %s", REDIS_URL)
     except Exception as exc:
-        logger.warning("Redis unavailable (%s) — cache disabled", exc)
+        logger.warning("Redis unavailable (%s) - cache disabled", exc)
         _redis = None
     return _redis
 
@@ -46,7 +46,7 @@ class CompetitorIntel:
 async def _tavily_search(query: str, max_results: int = 3) -> list[dict]:
     """Run a Tavily search and return raw results."""
     if not TAVILY_API_KEY:
-        logger.warning("TAVILY_API_KEY not set — web search disabled")
+        logger.warning("TAVILY_API_KEY not set - web search disabled")
         return []
 
     try:
@@ -59,7 +59,7 @@ async def _tavily_search(query: str, max_results: int = 3) -> list[dict]:
         )
         return response.get("results", [])
     except ImportError:
-        logger.warning("tavily-python not installed — web search disabled")
+        logger.warning("tavily-python not installed - web search disabled")
         return []
     except Exception as exc:
         logger.error("Tavily search failed for query='%s': %s", query, exc)

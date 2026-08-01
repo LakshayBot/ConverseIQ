@@ -1,16 +1,16 @@
 'use client';
 
-// CallPilot sidebar — Figma "16thapartment" treatment, pixel-perfect.
+// CallPilot sidebar - Figma "16thapartment" treatment, pixel-perfect.
 //
 // Visual reference: callpilot-desktop/.../figma node-id 1:4 (Aside - Left Sidebar)
 //   • 240px wide, white bg, 1px hairline border on the right (#e5e7eb)
 //   • Top: workspace picker (24×24 black badge + brand name + chevron-down)
-//   • Middle: nav list (Home, Import, Meetings) — 4px gap, 12px row padding
+//   • Middle: nav list (Home, Import, Meetings) - 4px gap, 12px row padding
 //   • Below Meetings: meeting children rendered inline (no eyebrow header,
-//     no count badge — matches Figma's quiet active treatment)
-//   • Bottom: 2 footer links (Help, Settings) — same Link style, no divider
+//     no count badge - matches Figma's quiet active treatment)
+//   • Bottom: 2 footer links (Help, Settings) - same Link style, no divider
 //   • Search: inline input styled as a Figma nav row (no border, slate-50 bg)
-//   • Active state: bg-[#f3f4f6] + text-[#111827] — no left-edge gradient bar
+//   • Active state: bg-[#f3f4f6] + text-[#111827] - no left-edge gradient bar
 //   • Collapse: a 16×16 chevron-left sits next to the workspace chevron-down
 //
 // Functionality preserved end-to-end:
@@ -61,6 +61,7 @@ import { VisuallyHidden } from '@/components/ui/visually-hidden';
 import { MessageToast } from '../MessageToast';
 import { UserChip } from './UserChip';
 import { Input } from '../ui/input';
+import { meetingDisplayTitle } from '@/lib/meetingTitle';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Figma pixel-perfect tokens
@@ -103,6 +104,26 @@ function isNavActive(pathname: string | null, key: 'home' | 'meetings' | 'settin
   return false;
 }
 
+// Active nav treatment - low-opacity maroon tint + solid maroon text/icon,
+// matching the accent used across the rest of the app (headline, mic icon,
+// badges).  Previously this used the light blue surface token.
+const ACTIVE_NAV = 'bg-[var(--opaline-tone-8)] text-[var(--opaline-primary)]';
+
+/** "12 min ago" style age for the recent-meetings list. */
+function formatMeetingAge(iso: string | undefined): string {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return '';
+  const min = Math.floor((Date.now() - t) / 60_000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min} min ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} hr ago`;
+  const d = Math.floor(hr / 24);
+  if (d < 7) return `${d} d ago`;
+  return new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
 /** Reusable Figma nav-link treatment. Drives the entire rail's vocabulary. */
 const LinkClass = (active: boolean): string =>
   [
@@ -112,7 +133,7 @@ const LinkClass = (active: boolean): string =>
     'leading-5',
     'transition-colors duration-150',
     active
-      ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-text)]'
+      ? ACTIVE_NAV
       : 'text-[var(--nav-inactive-text)] hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)]',
   ].join(' ');
 
@@ -161,6 +182,10 @@ const Sidebar: React.FC = () => {
     isOpen: false,
     itemId: null,
   });
+
+  // Most recent meetings for the compact list shown below the nav when the
+  // inline meeting children are hidden.  Server returns createdAt desc.
+  const recentMeetings = useMemo(() => meetings.slice(0, 4), [meetings]);
 
   // ─── Model config fetch ────────────────────────────────────────────────────
   useEffect(() => {
@@ -392,7 +417,7 @@ const Sidebar: React.FC = () => {
     return (
       <TooltipProvider>
         <div className="flex flex-col items-center gap-1 px-2 pt-3">
-          {/* Collapsed brand badge — same 24×24 black square, centred */}
+          {/* Collapsed brand badge - same 24×24 black square, centred */}
           <div className="pb-2 flex flex-col items-center gap-2">
             <div
               className="flex items-center justify-center rounded-[4px] bg-black"
@@ -483,7 +508,7 @@ const Sidebar: React.FC = () => {
         className={[
           'group flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-150',
           isActive
-            ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-text)]'
+            ? ACTIVE_NAV
             : 'text-[var(--nav-inactive-text)] hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)]',
         ].join(' ')}
         style={{ paddingLeft: 28 /* 12 (parent px) + 16 (icon indent) */ }}
@@ -491,7 +516,7 @@ const Sidebar: React.FC = () => {
         <File
           className={[
             'h-[16px] w-[16px] shrink-0',
-            isActive ? 'text-[var(--nav-active-text)]' : 'text-[var(--nav-muted-text)]',
+            isActive ? 'text-[var(--opaline-primary)]' : 'text-[var(--nav-muted-text)]',
           ].join(' ')}
           strokeWidth={1.75}
         />
@@ -552,7 +577,7 @@ const Sidebar: React.FC = () => {
         {/* ─────────────── TOP: workspace + nav + meetings ─────────────── */}
         {!isCollapsed ? (
           <div className="flex flex-col">
-            {/* Workspace picker — Figma 1:1: 24×24 black badge + brand name + chevron-down */}
+            {/* Workspace picker - Figma 1:1: 24×24 black badge + brand name + chevron-down */}
             <div className="flex items-center justify-between px-4 py-4">
               <button
                 type="button"
@@ -590,7 +615,7 @@ const Sidebar: React.FC = () => {
               </div>
             </div>
 
-            {/* Search — Figma-style nav row (no border, slate-50 bg, 36px tall) */}
+            {/* Search - Figma-style nav row (no border, slate-50 bg, 36px tall) */}
             <div className="px-3">
               <div
                 className={[
@@ -631,8 +656,8 @@ const Sidebar: React.FC = () => {
               </div>
             </div>
 
-            {/* Nav list — gap-1 ≈ 4px, px-3, pb-10 */}
-            <nav className="flex flex-col gap-1 px-3 pb-10 pt-3">
+            {/* Nav list - gap-1 ≈ 4px, px-3 */}
+            <nav className="flex flex-col gap-1 px-3 pb-3 pt-3">
               <button
                 type="button"
                 aria-current={isNavActive(pathname, 'home') ? 'page' : undefined}
@@ -664,14 +689,62 @@ const Sidebar: React.FC = () => {
                 <span>Meetings</span>
               </button>
 
-              {/* Meeting children — rendered inline when on Meetings or when searching.
-                  No eyebrow header, no count badge — matches Figma's quiet rail. */}
+              {/* Meeting children - rendered inline when on Meetings or when searching.
+                  No eyebrow header, no count badge - matches Figma's quiet rail. */}
               {(isNavActive(pathname, 'meetings') || searchQuery) &&
                 filteredSidebarItems
                   .filter((it) => it.type === 'folder' && it.children)
                   .flatMap((folder) => folder.children ?? [])
                   .map((child) => renderMeetingItem(child))}
             </nav>
+
+            {/* Below the nav: when the inline meeting children are hidden
+                (not on the Meetings route, not searching), show a compact
+                recent-meetings list so the rail doesn't read as dead space
+                between the nav and the footer.  Read-only: clicking an item
+                jumps to the meeting. */}
+            {!isNavActive(pathname, 'meetings') && !searchQuery && (
+              <div className="px-3 pb-8">
+                <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--nav-muted-text)]">
+                  Recent meetings
+                </p>
+                {recentMeetings.length === 0 ? (
+                  <p className="px-3 py-1 text-xs text-[var(--nav-dim-text)]">
+                    No meetings yet.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-0.5">
+                    {recentMeetings.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => {
+                          setCurrentMeeting({ id: m.id, title: m.title });
+                          router.push(`/meeting-details?id=${m.id}`);
+                        }}
+                        className="group flex items-center gap-2.5 rounded-md px-3 py-1.5 text-left transition-colors hover:bg-[var(--nav-active-bg)]"
+                      >
+                        <File
+                          className="h-3.5 w-3.5 shrink-0 text-[var(--nav-muted-text)] group-hover:text-[var(--nav-inactive-text)]"
+                          strokeWidth={1.75}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span
+                            className="block truncate text-[13px] font-medium text-[var(--nav-inactive-text)]"
+                            title={m.title && m.title !== 'Untitled session' ? m.title : undefined}
+                          >
+                            {meetingDisplayTitle(m)}
+                          </span>
+                          <span className="block font-mono text-[10px] text-[var(--nav-dim-text)]">
+                            {formatMeetingAge(m.createdAt)}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto">{renderCollapsedIcons()}</div>
@@ -690,7 +763,7 @@ const Sidebar: React.FC = () => {
               <button
                 type="button"
                 onClick={(e) => {
-                  // Keep the existing "About" modal flow — Info rendered as Help link
+                  // Keep the existing "About" modal flow - Info rendered as Help link
                   const target = e.currentTarget;
                   const dialogTrigger = document.querySelector<HTMLElement>(
                     '[data-sidebar-about-trigger]',
@@ -718,7 +791,7 @@ const Sidebar: React.FC = () => {
                 <UserChip collapsed={false} />
               </div>
 
-              {/* Hidden About dialog trigger — wired to the Help button above. */}
+              {/* Hidden About dialog trigger - wired to the Help button above. */}
               <span className="sr-only">
                 <AboutDialogTrigger />
               </span>
@@ -811,7 +884,7 @@ const SingleIconButton: React.FC<{
           className={[
             'group relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-150',
             active
-              ? 'bg-[var(--nav-active-bg)] text-[var(--nav-active-text)]'
+              ? ACTIVE_NAV
               : 'text-[var(--nav-inactive-text)] hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)]',
           ].join(' ')}
         >

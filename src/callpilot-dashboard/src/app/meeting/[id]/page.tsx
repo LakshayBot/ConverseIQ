@@ -182,7 +182,7 @@ export default function MeetingPage() {
                             });
                           }
                         }}
-                        title={e.supportingTranscript ? `Click to view details — ${e.supportingTranscript.slice(0, 80)}…` : undefined}
+                        title={e.supportingTranscript ? `Click to view details - ${e.supportingTranscript.slice(0, 80)}…` : undefined}
                       >
                         {e.eventType}{e.entityName ? `: ${e.entityName}` : ''}
                       </span>

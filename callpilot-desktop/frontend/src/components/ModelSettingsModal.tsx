@@ -1146,7 +1146,7 @@ export function ModelSettingsModal({
                           setError(''); // Clear error state
                         }
                       }}
-                      placeholder="http://localhost:11434 (legacy Ollama — CallPilot uses server-side providers)"
+                      placeholder="http://localhost:11434 (legacy Ollama - CallPilot uses server-side providers)"
                       className={cn(
                         "pr-10",
                         endpointValidationState === 'invalid' && "border-red-500"

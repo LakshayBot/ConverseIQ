@@ -1,10 +1,10 @@
-// CallPilot REST client — routes EVERYTHING through Tauri invoke() so the
+// CallPilot REST client - routes EVERYTHING through Tauri invoke() so the
 // Rust side (reqwest, NO CORS) talks to the .NET Gateway. The browser/webview
 // can't do fetch() to Docker-localhost because Tauri's webview origin doesn't
 // match the .NET server's CORS allowlist ("localhost:3000" only).
 //
 // For every endpoint that has no matching CallPilot route yet, we return empty
-// or mock data and log a console warning — keeping the UI intact per the
+// or mock data and log a console warning - keeping the UI intact per the
 // adaptation brief ("stub rather than remove UI").
 
 import { invoke } from '@tauri-apps/api/core';
@@ -25,7 +25,7 @@ export function getCallPilotApiBaseUrl(): string {
 
 /**
  * Low-level proxy: sends a REST call through the Rust backend (reqwest),
- * bypassing CORS entirely. No Authorization header — use `authedApiCall` for
+ * bypassing CORS entirely. No Authorization header - use `authedApiCall` for
  * protected endpoints.
  */
 async function apiCall(
@@ -57,7 +57,7 @@ async function authedApiCall<T = any>(
 }
 
 function warnStub(name: string): void {
-  console.warn(`[callpilot] ${name} not yet wired to CallPilot backend — returning empty data`);
+  console.warn(`[callpilot] ${name} not yet wired to CallPilot backend - returning empty data`);
 }
 
 // ===== Auth (matches .NET /api/v1/auth/*) =====
@@ -84,7 +84,7 @@ export interface MeetingSummary {
 export async function createMeeting(title?: string): Promise<MeetingSummary> {
   try {
     // The .NET POST /api/v1/meetings endpoint historically returned
-    // `{ meetingId, status }` — a different shape than the GET endpoint
+    // `{ meetingId, status }` - a different shape than the GET endpoint
     // (`{ id, status, createdAt, ... }`). Normalize both into `MeetingSummary`
     // so callers can rely on `.id` without crashing the live intelligence
     // WebSocket (which is keyed off the meeting id).
@@ -291,7 +291,7 @@ export function buildPastIntelligenceCards(
   const cards: IntelligenceCard[] = [];
   const seenTitles = new Set<string>();
 
-  // Events first — chronological order, oldest at top.
+  // Events first - chronological order, oldest at top.
   for (const e of events) {
     const cardType = PAST_EVENT_TYPE_BY_CARD[e.eventType];
     if (!cardType) continue;

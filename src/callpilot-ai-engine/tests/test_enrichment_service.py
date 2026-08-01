@@ -203,7 +203,7 @@ class TestParseEnrichmentResponse:
 
     def test_markdown_fences_stripped_before_parse(self):
         # Groq is called with response_format=json_object so this is a
-        # defensive parse — fences should still be tolerated if the
+        # defensive parse - fences should still be tolerated if the
         # contract ever changes.
         raw = "```json\n" + json.dumps({
             "products": [{"name": "Apex 100"}],
@@ -214,13 +214,13 @@ class TestParseEnrichmentResponse:
         assert out[0].name == "Apex 100"
 
 
-# ── to_chunk_text (stable format — .NET persists this verbatim) ────────────
+# ── to_chunk_text (stable format - .NET persists this verbatim) ────────────
 
 class TestToChunkText:
     def test_minimal(self):
         p = EnrichedProduct(name="Prodigy")
         text = p.to_chunk_text()
-        # Period after name — separates the entity from its tagline for
+        # Period after name - separates the entity from its tagline for
         # embedding models and keeps retrieval-readable text.
         assert text == "Prodigy."
 
@@ -245,7 +245,7 @@ class TestToChunkText:
         assert "Best for: Transmission substations." in text
         assert "Differentiators: Built-in CT, Side-out module." in text
         assert "Claims: 99.9% accuracy." in text
-        # Stable ordering matters — .NET stores this verbatim.
+        # Stable ordering matters - .NET stores this verbatim.
         assert text == (
             "Apex 100. "
             "Class 0.2S for transmission. "
@@ -464,7 +464,7 @@ class TestEnrichPages:
 
 class TestPageTypesWhitelist:
     def test_known_values(self):
-        # The tuple used in the prompt — any change here is breaking for
+        # The tuple used in the prompt - any change here is breaking for
         # downstream consumers.
         assert "product_listing" in PAGE_TYPES
         assert "comparison" in PAGE_TYPES

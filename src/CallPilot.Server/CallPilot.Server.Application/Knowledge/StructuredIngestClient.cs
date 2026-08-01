@@ -156,7 +156,7 @@ public class StructuredIngestClient
     /// Output of <see cref="IngestAsync"/>.  Carries the chunks the
     /// upload handler persists plus a small metadata block the
     /// dashboard uses to show "Docling: N pages, Mms model load,
-    /// Kms convert" — surfaced via the
+    /// Kms convert" - surfaced via the
     /// <c>KnowledgeDocument.RawOutputJson</c> jsonb column.
     /// </summary>
     public class StructuredIngestResult

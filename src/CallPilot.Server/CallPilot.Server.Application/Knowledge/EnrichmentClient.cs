@@ -10,7 +10,7 @@ namespace CallPilot.Server.Application.Knowledge;
 /// Calls the Python AI Engine's <c>POST /api/v1/documents/enrich</c> endpoint
 /// to run the LLM enrichment pass on a structured-mode document.  The
 /// AI engine streams per-page results as NDJSON so the caller sees
-/// each page the moment its LLM call returns — the .NET handler
+/// each page the moment its LLM call returns - the .NET handler
 /// writes each one to the database immediately so the dashboard
 /// polls (every ~1.5s) reflect progress.
 ///
@@ -225,7 +225,7 @@ public class EnrichmentClient
         [JsonPropertyName("differentiators")] public List<string> Differentiators { get; set; } = new();
         [JsonPropertyName("raw_claims")] public List<string> RawClaims { get; set; } = new();
         [JsonPropertyName("page_type")] public string PageType { get; set; } = "other";
-        // Pre-rendered chunk text from the Python service — the .NET handler
+        // Pre-rendered chunk text from the Python service - the .NET handler
         // persists this verbatim into KnowledgeChunk.Text.
         [JsonPropertyName("chunk_text")] public string ChunkText { get; set; } = "";
     }

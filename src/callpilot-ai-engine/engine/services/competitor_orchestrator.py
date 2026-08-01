@@ -1,4 +1,4 @@
-"""Competitive intelligence orchestrator — ties classification, search, and talking points.
+"""Competitive intelligence orchestrator - ties classification, search, and talking points.
 
 Called when the trie scan returns no hit for an entity found in a transcript segment.
 Runs asynchronously (fire-and-forget from .NET perspective), completes in <4 seconds.

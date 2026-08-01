@@ -89,7 +89,7 @@ impl AudioDevice {
             // default_output_device() at the call site if needed. The
             // device_type tag is only used for routing in stream.rs, so
             // being wrong here is recoverable (it'd just mean the wrong
-            // device ends up selected) — but rejecting outright aborts
+            // device ends up selected) - but rejecting outright aborts
             // the recording entirely with no useful recovery.
             (
                 name.trim().to_string(),

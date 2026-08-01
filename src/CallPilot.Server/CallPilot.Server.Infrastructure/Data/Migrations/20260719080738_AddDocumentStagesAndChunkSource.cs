@@ -11,7 +11,7 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
     /// by fast / structured / enriched.
     ///
     /// Hand-edited from the EF-generated output to use raw SQL with
-    /// <c>IF NOT EXISTS</c> / <c>IF EXISTS</c> guards — matching the
+    /// <c>IF NOT EXISTS</c> / <c>IF EXISTS</c> guards - matching the
     /// pattern in <c>20260718160000_AddDocumentEntitiesTable</c>.  The
     /// non-idempotent <c>AddColumn</c> / <c>DropColumn</c> EF emits by
     /// default is a footgun in dev where the schema can drift between

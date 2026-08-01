@@ -1,4 +1,4 @@
-"""Competitor classifier — heuristic-first, LLM-fallback.
+"""Competitor classifier - heuristic-first, LLM-fallback.
 
 Runs inline during live-call event processing. Returns True/False
 for whether an unknown entity appears to be a competing product.
@@ -12,7 +12,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Fast heuristic trigger phrases — these strongly indicate a competitive mention
+# Fast heuristic trigger phrases - these strongly indicate a competitive mention
 TRIGGER_PHRASES = [
     "better than",
     "compared to",

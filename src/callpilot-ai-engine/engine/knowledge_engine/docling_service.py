@@ -162,7 +162,7 @@ class DoclingIngestService:
         )
 
     def _to_structured(self, c) -> StructuredChunk:
-        # Headings (most recent first) — the last one in the list is the
+        # Headings (most recent first) - the last one in the list is the
         # nearest enclosing section, which is what we want to attach to the
         # chunk for retrieval filtering.
         headings: list[str] = list(c.meta.headings or []) if getattr(c.meta, "headings", None) else []

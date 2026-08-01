@@ -118,7 +118,7 @@ public class KnowledgeDocument
     // ── Stage recorder API ──────────────────────────────────────────────
     // These are the only sanctioned ways to mutate StagesJson / LastErrorJson.
     // Each one reads the current list, mutates the entry for `key`, and
-    // re-serialises — there's no separate "find or create" path because
+    // re-serialises - there's no separate "find or create" path because
     // every transition is idempotent for a given (key, status) pair.
 
     /// <summary>
@@ -174,7 +174,7 @@ public class KnowledgeDocument
         }
         else
         {
-            // No prior running event — synthesise one so the dashboard
+            // No prior running event - synthesise one so the dashboard
             // can still render a row.  Common after a crash recovery
             // when the in-memory state is lost.
             list.Add(new IngestStage(key, key, "done", now, now, detail, null));
@@ -299,7 +299,7 @@ public class KnowledgeDocument
     }
 
     /// <summary>
-    /// Convenience accessor — deserialises
+    /// Convenience accessor - deserialises
     /// <see cref="EnrichmentProgressJson"/>.  Returns null for
     /// legacy / null rows and for documents that haven't started
     /// enrichment yet.
@@ -311,9 +311,9 @@ public class KnowledgeDocument
             : JsonSerializer.Deserialize<EnrichmentProgress>(EnrichmentProgressJson);
 
     /// <summary>
-    /// Convenience accessor — deserialises <see cref="StagesJson"/> on
+    /// Convenience accessor - deserialises <see cref="StagesJson"/> on
     /// every read.  Returns an empty list for legacy / null rows.
-    /// Excluded from the EF model — the column it reads is
+    /// Excluded from the EF model - the column it reads is
     /// <see cref="StagesJson"/>, and EF would otherwise try to map
     /// <see cref="IngestStage"/> as a nested complex type.
     /// </summary>
@@ -322,7 +322,7 @@ public class KnowledgeDocument
         LoadStages().AsReadOnly();
 
     /// <summary>
-    /// Convenience accessor — deserialises <see cref="LastErrorJson"/>.
+    /// Convenience accessor - deserialises <see cref="LastErrorJson"/>.
     /// Returns null for legacy / null rows.
     /// Excluded from the EF model for the same reason as
     /// <see cref="Stages"/>.
@@ -342,7 +342,7 @@ public class KnowledgeDocument
         }
         catch (JsonException)
         {
-            // A corrupt jsonb row — return empty so the recorder can
+            // A corrupt jsonb row - return empty so the recorder can
             // rebuild from scratch.  Better than throwing and leaving
             // the document stuck.
             return new List<IngestStage>();

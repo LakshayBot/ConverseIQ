@@ -94,16 +94,16 @@ public class CallPilotDbContext : DbContext
             entity.Property(d => d.ProcessingStatus).HasMaxLength(200).IsRequired();
             entity.Property(d => d.EnrichmentStatus).HasMaxLength(50);
             entity.Property(d => d.StoragePath).HasMaxLength(1000);
-            // Per-stage ingest log (jsonb) — see KnowledgeDocument.RecordStage* methods.
+            // Per-stage ingest log (jsonb) - see KnowledgeDocument.RecordStage* methods.
             entity.Property(d => d.StagesJson).HasColumnType("jsonb");
             // Most recent failure across all stages (jsonb).  Cheap read for
             // the dashboard "Errors" tab so it doesn't have to traverse
             // StagesJson for every poll.
             entity.Property(d => d.LastErrorJson).HasColumnType("jsonb");
-            // Last response from the AI engine (jsonb) — Docling metadata +
+            // Last response from the AI engine (jsonb) - Docling metadata +
             // LLM enrichment response.  Powers the dashboard "View raw" tab.
             entity.Property(d => d.RawOutputJson).HasColumnType("jsonb");
-            // Live enrichment progress (jsonb) — updated by the background
+            // Live enrichment progress (jsonb) - updated by the background
             // enrichment task after each page completes.  Powers the
             // "X/Y pages, Z failed" count on the stepper and the
             // per-page breakdown on the Enrichment pages tab.

@@ -30,6 +30,16 @@ public class KnowledgeUploadHandler
     private readonly EnrichmentClient _enrichmentClient;
     private readonly ILogger<KnowledgeUploadHandler> _logger;
 
+    /// <summary>
+    /// Fire-and-forget sub-tasks spawned by <see cref="ProcessAsync"/>
+    /// (entity extraction + enrichment).  Tracked so the background
+    /// upload path (<see cref="ProcessStoredAsync"/>) can keep its DI
+    /// scope alive until they finish - the sub-tasks resolve services
+    /// from their own scopes, but the enrichment client used to stream
+    /// results lives on the owning scope.
+    /// </summary>
+    private readonly List<Task> _backgroundTasks = [];
+
     public KnowledgeUploadHandler(
         CallPilotDbContext dbContext,
         TextExtractorFactory extractorFactory,
@@ -95,9 +105,85 @@ public class KnowledgeUploadHandler
         _dbContext.KnowledgeDocuments.Add(document);
         await _dbContext.SaveChangesAsync();
 
-        await ProcessAsync(document, fileStream, mode);
+        // Don't block the upload response on the pipeline.  The clients
+        // (dashboard + desktop) poll GET /status every ~1.5s, so the
+        // stage stepper and enrichment progress bar update live only if
+        // the HTTP response returns while the pipeline is still running.
+        // Run the pipeline on a dedicated background scope that survives
+        // the request (same pattern as the enrichment pass below) and let
+        // failures be recorded to the stage log + top-line pill.
+        var docId = document.Id;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                var handler = scope.ServiceProvider.GetRequiredService<KnowledgeUploadHandler>();
+                await handler.ProcessStoredAsync(docId, mode);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Background ingest failed for document {DocId}", docId);
+                try
+                {
+                    await using var scope = _scopeFactory.CreateAsyncScope();
+                    var db = scope.ServiceProvider.GetRequiredService<CallPilotDbContext>();
+                    var doc = await db.KnowledgeDocuments.FirstOrDefaultAsync(d => d.Id == docId);
+                    if (doc is null) return;
+                    var msg = ex.Message ?? "unknown failure";
+                    if (msg.Length > 180) msg = msg[..180] + "…";
+                    doc.SetProcessingStatus($"Failed: {msg}");
+                    var rec = new IngestStageRecorder(doc, db, _logger);
+                    rec.MarkFailed("extracting", new IngestStageError(
+                        Stage: "extracting", Source: "dotnet", HttpStatus: null,
+                        Message: ex.Message ?? "", Model: null, At: DateTime.UtcNow));
+                    await db.SaveChangesAsync();
+                }
+                catch (Exception persistEx)
+                {
+                    _logger.LogWarning(persistEx, "Failed to persist ingest failure for {DocId}", docId);
+                }
+            }
+        });
 
         return document;
+    }
+
+    /// <summary>
+    /// Re-runs the full extract → chunk → embed → index pipeline for an
+    /// already-persisted document, reading the original file from disk.
+    /// Used by the background upload path so the upload response returns
+    /// immediately; mirrors <see cref="ReindexAsync"/>'s shape.  Awaits
+    /// the background sub-tasks (entity extraction + enrichment) before
+    /// returning so the caller's DI scope stays alive until they finish.
+    /// </summary>
+    public async Task ProcessStoredAsync(Guid documentId, IngestMode mode)
+    {
+        var document = await _dbContext.KnowledgeDocuments
+            .FirstOrDefaultAsync(d => d.Id == documentId);
+        if (document is null) return;
+
+        if (string.IsNullOrEmpty(document.StoragePath) || !File.Exists(document.StoragePath))
+        {
+            document.SetProcessingStatus("Source file missing - re-upload required");
+            await _dbContext.SaveChangesAsync();
+            return;
+        }
+
+        await using var fs = new FileStream(document.StoragePath, FileMode.Open, FileAccess.Read);
+        await ProcessAsync(document, fs, mode);
+
+        if (_backgroundTasks.Count > 0)
+        {
+            try
+            {
+                await Task.WhenAll(_backgroundTasks);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Background sub-tasks finished with errors for {DocId}", documentId);
+            }
+        }
     }
 
     public Task<KnowledgeDocument?> ReindexAsync(Guid userId, Guid documentId)
@@ -117,7 +203,7 @@ public class KnowledgeUploadHandler
         if (document is null) return null;
         if (string.IsNullOrEmpty(document.StoragePath) || !File.Exists(document.StoragePath))
         {
-            document.SetProcessingStatus("Source file missing — re-upload required");
+            document.SetProcessingStatus("Source file missing - re-upload required");
             await _dbContext.SaveChangesAsync();
             return document;
         }
@@ -240,12 +326,12 @@ public class KnowledgeUploadHandler
                 "Document indexed: {FileName}, {ChunkCount} chunks, mode={Mode}",
                 document.FileName, chunks.Count, mode);
 
-            // ── Dynamic Entity Extraction (GLiNER, runs async — does not block) ──
+            // ── Dynamic Entity Extraction (GLiNER, runs async - does not block) ──
             if (rawTextForEntityExtraction is not null)
             {
                 var docId = document.Id;
                 var textForEntities = rawTextForEntityExtraction;
-                _ = Task.Run(async () =>
+                _backgroundTasks.Add(Task.Run(async () =>
                 {
                     try
                     {
@@ -255,7 +341,7 @@ public class KnowledgeUploadHandler
                     {
                         _logger.LogWarning(ex, "Entity extraction skipped for {DocId}: {Message}", docId, ex.Message);
                     }
-                });
+                }));
             }
 
             // ── Async LLM enrichment pass (structured mode only) ─────────────
@@ -267,7 +353,7 @@ public class KnowledgeUploadHandler
             if (mode == IngestMode.Structured)
             {
                 var docId = document.Id;
-                _ = Task.Run(async () =>
+                _backgroundTasks.Add(Task.Run(async () =>
                 {
                     try
                     {
@@ -277,13 +363,13 @@ public class KnowledgeUploadHandler
                     {
                         _logger.LogWarning(ex, "Background enrichment failed for {DocId}", docId);
                     }
-                });
+                }));
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to process document {FileName}", document.FileName);
-            // The detailed error is in the Stages log (jsonb) — the
+            // The detailed error is in the Stages log (jsonb) - the
             // top-line pill is short and red so the document list
             // doesn't overflow.
             var src = "dotnet";
@@ -478,7 +564,7 @@ public class KnowledgeUploadHandler
 
         var client = factory.CreateClient("AiEngine");
         // 0.3 captures brand product names ("Apex 100", "Prodigy", "Liberty 500"…)
-        // that GLiNER's "product name" label scores in the 0.4-0.5 range — the
+        // that GLiNER's "product name" label scores in the 0.4-0.5 range - the
         // stricter 0.4 default missed almost all of them and left the live trie
         // with only generic terms like "transformer-operated smart meter".
         var response = await client.PostAsJsonAsync(
@@ -520,7 +606,7 @@ public class KnowledgeUploadHandler
     }
 
     /// <summary>
-    /// Background enrichment pass — fires after the upload response is already
+    /// Background enrichment pass - fires after the upload response is already
     /// returned to the client.  Streams per-page results from the AI
     /// Engine's <c>/api/v1/documents/enrich</c> endpoint, writing each
     /// page's outcome to <c>EnrichmentProgressJson</c> as it arrives so
@@ -607,7 +693,7 @@ public class KnowledgeUploadHandler
         // mutate the local `pageProgress` list as each page arrives
         // and write the whole list back to the jsonb column so the
         // dashboard can render it.  This is one DB write per page,
-        // ~1.5s polling latency — perfectly acceptable.
+        // ~1.5s polling latency - perfectly acceptable.
         var collectedResults = new List<EnrichmentClient.EnrichPageResult>();
         EnrichmentClient.EnrichSummary? summary = null;
         int completed = 0, failed = 0, inFlight = total;
@@ -733,7 +819,7 @@ public class KnowledgeUploadHandler
         //
         // We use a single SaveChanges per phase (deletes, then
         // inserts) rather than interleaving, because PostgreSQL
-        // checks unique constraints per-row — an INSERT for an
+        // checks unique constraints per-row - an INSERT for an
         // index that's still in a queued DELETE can collide.
         var existingByPage = (await db.KnowledgeChunks
             .Where(c => c.DocumentId == documentId && c.PageHint > 0)
@@ -800,7 +886,7 @@ public class KnowledgeUploadHandler
         }
         await db.SaveChangesAsync();
         logger.LogInformation(
-            "enrich: document {DocId} — added {Added} product card chunks, removed {Removed} Docling chunks",
+            "enrich: document {DocId} - added {Added} product card chunks, removed {Removed} Docling chunks",
             documentId, newChunksAdded, chunksDeleted);
 
         // Now embed + persist the embedding rows for each new chunk.
@@ -824,7 +910,7 @@ public class KnowledgeUploadHandler
         // post-enrichment GLiNER pass below misses them.  GLiNER's recall
         // on brand-product spans (e.g. "Prodigy", "Apex 100") is a known
         // cliff, but the LLM enrichment prompt *names* the product as part
-        // of each `EnrichedProductDto` — treat that as authoritative for
+        // of each `EnrichedProductDto` - treat that as authoritative for
         // entity-extraction purposes.  Idempotent: we check existing rows
         // for the same document + entity_type and only insert names that
         // are missing.  Confidence 0.95 outweighs GLiNER's 0.3 floor, so a
@@ -867,7 +953,7 @@ public class KnowledgeUploadHandler
 
         // Re-run GLiNER on the new product card chunks so the live trie picks
         // up the brand product names.  This intentionally re-extracts over
-        // the full document text — most product names appear in the cards
+        // the full document text - most product names appear in the cards
         // AND the surrounding context.
         var allText = string.Join("\n\n",
             await db.KnowledgeChunks
@@ -971,7 +1057,7 @@ public class KnowledgeUploadHandler
         }
         catch (Exception ex)
         {
-            // Trie rebuild is best-effort — log and surface the failure
+            // Trie rebuild is best-effort - log and surface the failure
             // in the entityextraction stage row but don't fail the ingest.
             rec.UpdateDetail("entityextraction", $"trie rebuild error: {ex.Message}");
             var logger = rec.GetType()
@@ -1064,7 +1150,7 @@ public class KnowledgeUploadHandler
 
         public void UpdateDetail(string key, string detail)
         {
-            // UpdateDetail doesn't transition the stage — just adds a note
+            // UpdateDetail doesn't transition the stage - just adds a note
             // to the current entry.  Used for the Docling model-load
             // timing and the trie-rebuild error note.
             _doc.SetStageDetail(key, detail);

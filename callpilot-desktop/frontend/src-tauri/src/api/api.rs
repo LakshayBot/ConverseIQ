@@ -10,7 +10,7 @@ use crate::state::AppState;
 // the desktop no longer keeps a SQLite-backed SettingsRepository, so the
 // type lives in this module instead of in the database layer.
 
-// Default CallPilot server URL — the .NET Gateway.
+// Default CallPilot server URL - the .NET Gateway.
 // Operators can override via the settings store key "callpilot_api_url".
 const DEFAULT_CALLPILOT_API_URL: &str = "http://localhost:5001";
 
@@ -541,7 +541,7 @@ pub async fn api_get_model_config<R: Runtime>(
 ) -> Result<Option<ModelConfig>, String> {
     log_info!("api_get_model_config called (native)");
     // After the SQLite removal the desktop no longer keeps its own model
-    // config — it proxies to the .NET Gateway's ProviderConfigurations
+    // config - it proxies to the .NET Gateway's ProviderConfigurations
     // table. The Tauri command is kept (and its name preserved) so the
     // frontend call sites don't have to change.
 
@@ -898,7 +898,7 @@ pub async fn api_get_meeting_metadata<R: Runtime>(
     log_info!("api_get_meeting_metadata called for meeting_id: {}", meeting_id);
 
     // After SQLite removal, this is an internal hop that the desktop
-    // frontend now bypasses — the new usePaginatedTranscripts.ts hits
+    // frontend now bypasses - the new usePaginatedTranscripts.ts hits
     // /api/v1/meetings/{id} directly. Keep this command returning
     // minimal data so any other code path that still calls it doesn't
     // crash, but it does not talk to .NET (no token in this signature).

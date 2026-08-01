@@ -97,7 +97,7 @@ public class SessionManager : IAsyncDisposable
     /// <summary>
     /// Map a server URL (port 5001 by default) to the dashboard URL
     /// (port 3000 by default).  Leaves the URL alone if the server port
-    /// isn't the well-known API port — covers proxied deployments.
+    /// isn't the well-known API port - covers proxied deployments.
     /// </summary>
     internal static string BuildDashboardUrl(string serverUrl)
     {

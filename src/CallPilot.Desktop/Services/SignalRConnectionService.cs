@@ -121,7 +121,7 @@ public class SignalRConnectionService : IAsyncDisposable
         _connection.On<SilenceEvent>("SilenceDetected", (silence) =>
         {
             _logger.LogWarning(
-                "⚠️  SILENCE DETECTED — {Message}\n" +
+                "⚠️  SILENCE DETECTED - {Message}\n" +
                 "    Quick fix: The audio device may have changed since last run.\n" +
                 "    Run 'dotnet run -- --list-devices' to see current devices and try --mic-device :0, :1, or :2.\n" +
                 "    Also check System Settings > Privacy & Security > Microphone.",
@@ -146,8 +146,8 @@ public class SignalRConnectionService : IAsyncDisposable
                 _logger.LogWarning(
                     "No transcripts received after 15s. Possible causes:\n" +
                     "  (1) Microphone permissions not granted to Terminal (System Settings > Privacy > Microphone)\n" +
-                    "  (2) Wrong audio device selected — run with --list-devices to see available devices\n" +
-                    "  (3) AI Engine is not running — check 'docker ps' for ai-engine container\n" +
+                    "  (2) Wrong audio device selected - run with --list-devices to see available devices\n" +
+                    "  (3) AI Engine is not running - check 'docker ps' for ai-engine container\n" +
                     "  (4) Microphone is muted or input volume is zero");
             }
         });
@@ -196,7 +196,7 @@ public class SignalRConnectionService : IAsyncDisposable
                 var preview = _conversation.Length > 120 ? _conversation[^120..] : _conversation;
                 Console.WriteLine($"  Last: ...{preview}");
             }
-            Console.WriteLine($"  — {_transcriptCount} transcript updates —");
+            Console.WriteLine($"  - {_transcriptCount} transcript updates -");
             if (_cursorHidden)
             {
                 Console.CursorVisible = true;

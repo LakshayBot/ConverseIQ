@@ -10,16 +10,16 @@ namespace CallPilot.Server.Domain.Knowledge;
 /// </summary>
 /// <param name="Total">Total pages to enrich (snapshot at start).</param>
 /// <param name="Completed">
-/// Pages whose outcome status is one of <c>ok | no_products</c> —
+/// Pages whose outcome status is one of <c>ok | no_products</c> -
 /// these are the "successful" pages (the LLM was reachable and gave
 /// us an answer, even if the answer was "no products here").
 /// </param>
 /// <param name="Failed">
 /// Pages whose outcome status is anything else (auth, rate limit,
-/// timeout, parse error, etc.) — surfaced on the Errors tab.
+/// timeout, parse error, etc.) - surfaced on the Errors tab.
 /// </param>
 /// <param name="InFlight">
-/// Pages still in the semaphore — <c>Total - Completed - Failed - InFlight</c>
+/// Pages still in the semaphore - <c>Total - Completed - Failed - InFlight</c>
 /// is the number of pages not yet started.  Useful for the dashboard
 /// to render "5 in flight, 3 done, 1 failed" live.
 /// </param>
@@ -55,7 +55,7 @@ public sealed record EnrichmentPageStatus(
     /// How many times the AI engine retried this page on a Groq
     /// rate-limit (429) before succeeding (or giving up).  Surfaced
     /// in the dashboard so the user can see which pages needed a
-    /// retry — 0 = clean first-try, 1+ = at least one rate-limit
+    /// retry - 0 = clean first-try, 1+ = at least one rate-limit
     /// backoff.
     /// </summary>
     int RetryCount = 0)

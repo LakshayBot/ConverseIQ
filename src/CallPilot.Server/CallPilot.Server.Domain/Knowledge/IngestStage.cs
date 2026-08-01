@@ -35,7 +35,7 @@ public sealed record IngestStage(
 
 /// <summary>
 /// A failure captured for a single ingest stage.  Carries enough context
-/// to debug without a server-log round-trip — the underlying exception
+/// to debug without a server-log round-trip - the underlying exception
 /// (truncated to 500 chars), HTTP status from the upstream call, the
 /// model name, and when it happened.
 /// </summary>

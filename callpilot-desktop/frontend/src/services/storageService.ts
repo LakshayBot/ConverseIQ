@@ -5,7 +5,7 @@
  * the old Tauri-SQLite shortcuts (`api_save_transcript`, `api_get_meeting`,
  * `api_get_meetings`) so the desktop no longer carries its own SQLite
  * database for meeting storage. Conversations events and recommendations
- * already live on the .NET side — this service completes the picture by
+ * already live on the .NET side - this service completes the picture by
  * keeping transcripts and meeting metadata on the same Postgres-backed
  * store.
  */
@@ -47,7 +47,7 @@ export class StorageService {
   /**
    * Persist a completed meeting's transcripts to the .NET Gateway.
    *
-   * The .NET `POST /api/v1/meetings/{id}/transcripts` endpoint is idempotent —
+   * The .NET `POST /api/v1/meetings/{id}/transcripts` endpoint is idempotent -
    * existing transcript segments for the meeting are deleted first, then
    * the new set is written. This keeps desktop retry logic simple and is
    * also the right semantics for retranscription.
@@ -63,7 +63,7 @@ export class StorageService {
     meetingId?: string | null,
   ): Promise<SaveMeetingResponse> {
     if (!meetingId) {
-      throw new Error('saveMeeting requires meetingId — every meeting must be created via createMeeting() first');
+      throw new Error('saveMeeting requires meetingId - every meeting must be created via createMeeting() first');
     }
 
     const segments = transcripts

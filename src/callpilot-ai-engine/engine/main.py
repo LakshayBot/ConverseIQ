@@ -1,8 +1,8 @@
 """
-CallPilot AI Engine — Nemotron-only STT entry point.
+CallPilot AI Engine - Nemotron-only STT entry point.
 
 Exposes the nvidia/nemotron-speech-streaming-en-0.6b pipeline via:
-  • POST /api/v1/ai/transcribe/nemotron   (streaming REST — drop-in for the
+  • POST /api/v1/ai/transcribe/nemotron   (streaming REST - drop-in for the
                                             desktop agent's per-frame path)
   • POST /api/v1/meetings/{id}/reset/nemotron
   • POST /api/v1/ai/events                (competitor/pricing/objection detection,
@@ -36,7 +36,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("callpilot.ai")
 
-# Module-level lazy singletons — populated in lifespan, accessed by the
+# Module-level lazy singletons - populated in lifespan, accessed by the
 # /api/v1/ai/events and /api/v1/ai/embeddings endpoints. Not pre-loaded:
 # each is only built on first call to avoid paying the embedding-model
 # download cost when a deployment only does STT.
@@ -82,7 +82,7 @@ async def lifespan(app: FastAPI):
             logger.exception("Failed to start Nemotron pre-load")
     else:
         logger.warning(
-            "NEMOTRON_ENABLED is false — the only STT path will refuse to load. "
+            "NEMOTRON_ENABLED is false - the only STT path will refuse to load. "
             "Set NEMOTRON_ENABLED=true (the default) to enable transcription."
         )
 
@@ -90,7 +90,7 @@ async def lifespan(app: FastAPI):
     # Document entities are loaded via /api/v1/ai/trie/rebuild after ingest.
     from engine.services.trie_scanner import build_trie
     build_trie([])
-    logger.info("Trie initialised (empty — entities loaded from documents after ingest)")
+    logger.info("Trie initialised (empty - entities loaded from documents after ingest)")
 
     # Pull existing document entities from the .NET server on startup so the
     # trie isn't empty after a container restart (previously the AI engine
@@ -109,7 +109,7 @@ async def _auto_load_trie_from_server() -> None:
     """Best-effort startup sync of the trie from the .NET server.
 
     Retries with backoff for up to ~60 s so we survive the .NET container
-    coming up after us.  Logs and swallows any error — never crashes the
+    coming up after us.  Logs and swallows any error - never crashes the
     AI engine boot path.
 
     If the .NET server returns an empty entity list (no brochure uploaded
@@ -151,7 +151,7 @@ async def _auto_load_trie_from_server() -> None:
                         len(entities),
                     )
                     return
-                # Server up but empty — fall through to seed
+                # Server up but empty - fall through to seed
                 server_reachable = True
                 logger.warning(
                     "Startup trie sync: server returned 0 entities, using seed list"
@@ -161,7 +161,7 @@ async def _auto_load_trie_from_server() -> None:
                 "Startup trie sync: server returned %s (attempt %d/12)",
                 resp.status_code, attempt + 1,
             )
-        except Exception as exc:  # noqa: BLE001 — fire-and-forget
+        except Exception as exc:  # noqa: BLE001 - fire-and-forget
             logger.warning(
                 "Startup trie sync: %s (attempt %d/12)", exc, attempt + 1,
             )
@@ -187,7 +187,7 @@ app = FastAPI(
 if NEMOTRON_ENABLED:
     app.include_router(nemotron_router)
 
-# Structure-aware document ingest (Docling). Always mounted — even on
+# Structure-aware document ingest (Docling). Always mounted - even on
 # deployments that don't need Nemotron, callers can still use structured
 # ingest. The Docling model is lazy-loaded on the first request.
 from engine.routers.ingest_router import router as ingest_router
@@ -209,7 +209,7 @@ async def health():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Nemotron streaming REST — drop-in for the desktop agent's per-frame path
+# Nemotron streaming REST - drop-in for the desktop agent's per-frame path
 # ═══════════════════════════════════════════════════════════════════════════
 
 if NEMOTRON_ENABLED:
@@ -222,7 +222,7 @@ if NEMOTRON_ENABLED:
         The endpoint appends audio synchronously (microseconds) and returns
         the last known partial text immediately. Inference runs on a single
         background task per meeting at a rate of ~200ms of new audio, which
-        keeps latency bounded even when frames arrive every 40ms — without
+        keeps latency bounded even when frames arrive every 40ms - without
         this, the per-frame inference call would queue up and latency would
         grow linearly with the queue depth.
         """
@@ -243,7 +243,7 @@ if NEMOTRON_ENABLED:
                 return self.last_text
 
         def get_full_text(self) -> str:
-            """Returns history + current partial — the full conversation so far."""
+            """Returns history + current partial - the full conversation so far."""
             with self.last_text_lock:
                 parts = self.history + ([self.last_text] if self.last_text else [])
                 return " ".join(p for p in parts if p)
@@ -261,7 +261,7 @@ if NEMOTRON_ENABLED:
                 self.just_reset = True
 
     # Per-meeting streaming sessions. Created on first request, freed only
-    # via the /reset/nemotron endpoint — long-lived meetings keep their state.
+    # via the /reset/nemotron endpoint - long-lived meetings keep their state.
     _streaming_sessions: dict[str, _StreamingSession] = {}
     _streaming_sessions_lock = asyncio.Lock()
 
@@ -278,7 +278,7 @@ if NEMOTRON_ENABLED:
         """Background Nemotron inference for a single meeting.
 
         Runs in the default thread-pool executor (one inference at a time
-        per host — serialized by the pipeline's threading lock). Updates
+        per host - serialized by the pipeline's threading lock). Updates
         `streamer.last_text` and clears the `inference_in_progress` flag.
         """
         try:
@@ -317,7 +317,7 @@ if NEMOTRON_ENABLED:
 
         if not pipe.is_loaded:
             if not pipe.is_loading:
-                logger.info("Nemotron model not loaded — starting lazy load (first request)")
+                logger.info("Nemotron model not loaded - starting lazy load (first request)")
                 asyncio.create_task(_ensure_nemotron_loaded_background(pipe))
             return SpeechTaskResult(
                 task_id=f"nemotron-{meeting_id}-{sequence}",
@@ -423,7 +423,7 @@ if NEMOTRON_ENABLED:
         # `last_text` is cleared. Without this signal, the next several
         # requests return transcript=None (buffer below 320ms minimum or
         # the model hasn't produced text yet on the new audio) and the
-        # desktop sees no activity at all — which looks like the pipeline
+        # desktop sees no activity at all - which looks like the pipeline
         # is dead. Emit a single empty partial on the first request after
         # reset so the desktop knows the session is fresh and ready for
         # the next utterance.
@@ -465,7 +465,7 @@ if NEMOTRON_ENABLED:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Downstream AI services — consumed by the .NET server
+# Downstream AI services - consumed by the .NET server
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -559,7 +559,7 @@ async def trie_status():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Competitive Intelligence — Phase 2 (Tavily) + Phase 3 (Redis cache)
+# Competitive Intelligence - Phase 2 (Tavily) + Phase 3 (Redis cache)
 # ═══════════════════════════════════════════════════════════════════════════
 
 

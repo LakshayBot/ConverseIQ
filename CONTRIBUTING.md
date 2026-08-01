@@ -89,14 +89,14 @@ callpilot-ai/
 
 Before submitting a PR, verify your changes follow these principles:
 
-1. **Business logic belongs in the server** — not in controllers, not in AI Engine
-2. **AI reasoning belongs in the AI Engine** — not in the server
-3. **Vertical Slice Architecture** — features own their complete implementation
-4. **CQRS** — commands mutate, queries read
-5. **Provider independence** — no hardcoded vendor logic
-6. **Event-driven** — components communicate through events
-7. **BYOK** — users own their AI credentials
-8. **Stateless AI** — AI Engine never persists user data
+1. **Business logic belongs in the server** - not in controllers, not in AI Engine
+2. **AI reasoning belongs in the AI Engine** - not in the server
+3. **Vertical Slice Architecture** - features own their complete implementation
+4. **CQRS** - commands mutate, queries read
+5. **Provider independence** - no hardcoded vendor logic
+6. **Event-driven** - components communicate through events
+7. **BYOK** - users own their AI credentials
+8. **Stateless AI** - AI Engine never persists user data
 
 ## Pull Request Process
 

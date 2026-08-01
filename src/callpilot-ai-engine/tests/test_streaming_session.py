@@ -3,7 +3,7 @@
 We mock the Nemotron pipeline to avoid loading the real model (~30s) and
 focus on the request-handling behaviour:
 
-  • Inference runs in the background — the request returns quickly
+  • Inference runs in the background - the request returns quickly
   • Last known text is returned immediately, not the current request's
   • VAD-driven finalization resets the session and returns the final text
   • A "ready" empty partial is emitted on the first request after reset
@@ -62,14 +62,14 @@ def client(monkeypatch):
 
 
 def _pcm16_bytes(samples: int, value: int = 0) -> bytes:
-    """Generate `samples` PCM16 samples — silence by default."""
+    """Generate `samples` PCM16 samples - silence by default."""
     return (np.zeros(samples, dtype=np.int16) + value).tobytes()
 
 
 def test_ready_partial_emitted_after_final(client):
     """After a VAD-driven finalization, the next request should return an
     empty partial (text="", is_final=False) to signal the desktop that
-    the session is fresh — not a silent transcript=None."""
+    the session is fresh - not a silent transcript=None."""
     test_client, mock_pipe = client
 
     # Pre-load some "text" into the session so finalize has something
@@ -95,7 +95,7 @@ def test_ready_partial_emitted_after_final(client):
 
     # Second request: VAD is silent again (the model hasn't produced
     # any new text yet), but the session was reset.  The endpoint
-    # should return a non-null empty partial — the "ready" signal.
+    # should return a non-null empty partial - the "ready" signal.
     mock_pipe.detect_silence.return_value = False
     resp = test_client.post(
         "/api/v1/ai/transcribe/nemotron",
@@ -111,14 +111,14 @@ def test_ready_partial_emitted_after_final(client):
 
 
 def test_request_returns_quickly_under_load(client):
-    """The endpoint should not block on inference — a 50-request burst
+    """The endpoint should not block on inference - a 50-request burst
     should complete in well under the time a single inference would
     take, because inference is decoupled to a background task."""
     test_client, mock_pipe = client
     sess = mock_pipe.init_session.return_value
     sess.current_text = "constant text"  # so returns are non-null
 
-    # Make append look like it takes 1s — but it shouldn't matter
+    # Make append look like it takes 1s - but it shouldn't matter
     # because the endpoint shouldn't call it synchronously.
     def slow_append(s, chunk):
         time.sleep(1.0)
@@ -148,7 +148,7 @@ def test_last_known_text_returned_immediately(client):
     sess = mock_pipe.init_session.return_value
     sess.current_text = "the partial so far"
 
-    # Don't actually call inference synchronously — but the endpoint
+    # Don't actually call inference synchronously - but the endpoint
     # shouldn't try.
     call_count = {"n": 0}
     def counting_append(s, chunk):
@@ -166,7 +166,7 @@ def test_last_known_text_returned_immediately(client):
     )
     body = resp.json()
     # Either an empty "ready" partial (because last_text is empty after
-    # init) or no transcript — both are valid before any inference has
+    # init) or no transcript - both are valid before any inference has
     # completed.  The important thing is that the endpoint returned
     # quickly and the request flow works.
     assert body["success"] is True

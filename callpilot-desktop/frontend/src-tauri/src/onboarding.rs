@@ -174,10 +174,10 @@ pub async fn complete_onboarding<R: Runtime>(
 ) -> Result<(), String> {
     info!("Completing onboarding with builtin-ai model: {}", model);
 
-    // Step 1: Persist the transcript provider choice (desktop-local — STT
+    // Step 1: Persist the transcript provider choice (desktop-local - STT
     // selection is a UI preference, not a server-side config) into
     // tauri-plugin-store. The summary LLM model is no longer persisted
-    // here — the .NET Gateway's ProviderConfigurations is the source of
+    // here - the .NET Gateway's ProviderConfigurations is the source of
     // truth for LLM providers (and is created via the first Settings
     // save after the user picks a provider).
 

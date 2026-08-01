@@ -19,7 +19,7 @@ import re
 from typing import Dict, List, Set
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Spoken digits — keep small and explicit.  Anything not in this table is left
+# Spoken digits - keep small and explicit.  Anything not in this table is left
 # alone by the number rewriter (we don't try to be clever with arbitrary
 # ordinals like "two thousand and fifteen").
 # ──────────────────────────────────────────────────────────────────────────────
@@ -53,7 +53,7 @@ _SPOKEN_DIGITS: Dict[str, str] = {
     "eighty": "80",
     "ninety": "90",
 }
-# "hundred" and "thousand" are not standalone digits — they are multipliers
+# "hundred" and "thousand" are not standalone digits - they are multipliers
 # handled by `_collapse_hundred_thousand` below.
 
 # After "hundred" the optional "and <tail>" is constrained to short numbers
@@ -77,7 +77,7 @@ def _word_to_int(w: str) -> int | None:
 
 
 def _is_small_number(w: str) -> bool:
-    """True if w represents a number below 100 — used to gate the optional
+    """True if w represents a number below 100 - used to gate the optional
     "and <tail>" portion of "hundred and forty" so it doesn't greedily eat
     the next phrase (e.g. "hundred and sprint two hundred ten").
     """
@@ -161,7 +161,7 @@ CANONICAL_TO_ALIASES: Dict[str, List[str]] = {
     "integrator": ["integrator"],
     "enerlyser": ["enerlyser", "energiser", "energizer"],
 
-    # Competitor brand spellings (for trie matching only — still classified as
+    # Competitor brand spellings (for trie matching only - still classified as
     # competitor, but consistent surface form helps the live call)
     "landis+ gyr": ["landis+ gyr", "landis plus gyr", "landis and gyr",
                     "landis n gyr", "landis & gyr"],

@@ -15,7 +15,7 @@ interface UseRecordingStartReturn {
   isAutoStarting: boolean;
   /**
    * Server-issued meeting ID for the active recording session. `null` when
-   * not recording. Mints synchronously inside the start handler — guaranteed
+   * not recording. Mints synchronously inside the start handler - guaranteed
    * to be set before `useIntelligenceStream` opens its WebSocket, so cards
    * stream from the first second of the recording.
    */
@@ -77,7 +77,7 @@ export function useRecordingStart(
    * Resolve the actual device names to use for recording. If the caller hasn't
    * picked anything yet (e.g. fresh out of onboarding), fall back to the OS
    * defaults via the Rust backend. Without this, the start call passes `null`
-   * for both devices and the audio pipeline has nothing to capture from —
+   * for both devices and the audio pipeline has nothing to capture from -
    * which is why the mic button "does nothing" after onboarding.
    */
   const resolveDevices = useCallback(async (): Promise<{ micDevice: string | null; systemDevice: string | null }> => {
@@ -88,7 +88,7 @@ export function useRecordingStart(
       return { micDevice, systemDevice };
     }
 
-    // Nothing selected yet — pick OS defaults from the audio device list.
+    // Nothing selected yet - pick OS defaults from the audio device list.
     try {
       const devices = await invoke<Array<{ name: string; device_type: string }>>('get_audio_devices');
       console.log('[useRecordingStart] no devices selected, auto-resolving defaults from', devices.length, 'devices');
@@ -127,7 +127,7 @@ export function useRecordingStart(
   /**
    * Synchronously mint a meeting against the .NET Gateway so the recording
    * has a stable ID before any audio is captured or the intelligence WS opens.
-   * Falls back to a local UUID if the server is unreachable — the WS still
+   * Falls back to a local UUID if the server is unreachable - the WS still
    * has a stable key for the session and the transcript writer can re-link
    * later when the user has connectivity.
    */
@@ -164,7 +164,7 @@ export function useRecordingStart(
       const parakeetReady = await checkParakeetReady();
       console.log('[DIAG] checkParakeetReady →', parakeetReady);
       if (!parakeetReady) {
-        console.log('[DIAG] model NOT ready — checking if download in progress');
+        console.log('[DIAG] model NOT ready - checking if download in progress');
         const isDownloading = await checkIfModelDownloading();
         console.log('[DIAG] checkIfModelDownloading →', isDownloading);
         if (isDownloading) {
@@ -182,7 +182,7 @@ export function useRecordingStart(
           Analytics.trackButtonClick('start_recording_blocked_missing', 'home_page');
         }
         setStatus(RecordingStatus.IDLE);
-        console.log('[DIAG] bailing — model not ready, no recording started');
+        console.log('[DIAG] bailing - model not ready, no recording started');
         return;
       }
 

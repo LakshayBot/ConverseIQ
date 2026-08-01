@@ -4,13 +4,13 @@
 //
 // Two responsibilities, both historically broken:
 //
-//   1. Transcripts — the old code rendered <TranscriptPanel>, which reads
+//   1. Transcripts - the old code rendered <TranscriptPanel>, which reads
 //      from the live TranscriptContext (the recording buffer). For past
 //      meetings that buffer is empty, so the panel rendered zero rows.
 //      We now render <VirtualizedTranscriptView> directly with the paginated
 //      `segments` the page-level hook already loads from local SQLite.
 //
-//   2. Intelligence cards — the old code didn't render any. We now load
+//   2. Intelligence cards - the old code didn't render any. We now load
 //      past ConversationEvents + Recommendations from the .NET Gateway and
 //      render them through <IntelligencePanel> so the user sees the same
 //      product-match / competitor / objection cards they saw live.
@@ -61,7 +61,7 @@ const PageContent: React.FC<PageContentProps> = ({
   const router = useRouter();
   const segmentCount = segments?.length ?? 0;
 
-  // Past intelligence — loaded from the .NET Gateway for the meeting's events
+  // Past intelligence - loaded from the .NET Gateway for the meeting's events
   // and recommendations. Reconstructed into IntelligenceCards so the same
   // <IntelligencePanel> component renders them with identical styling.
   const [pastCards, setPastCards] = useState<ReturnType<typeof buildPastIntelligenceCards>>([]);
@@ -108,8 +108,8 @@ const PageContent: React.FC<PageContentProps> = ({
   }
 
   return (
-    <div className="flex flex-col h-full bg-[var(--grain-paper)]">
-      {/* Header — breadcrumb + actions row + tab strip, Figma style. */}
+    <div className="flex flex-col h-screen bg-[var(--grain-paper)]">
+      {/* Header - breadcrumb + actions row + tab strip, Figma style. */}
       <header className="bg-white border-b border-[var(--hairline)]">
         <div className="flex items-center justify-between px-6 py-4">
           {/* Breadcrumb: Meetings (muted) > [title] (dark, medium). */}
@@ -123,7 +123,7 @@ const PageContent: React.FC<PageContentProps> = ({
             </h1>
           </div>
 
-          {/* Right side — segment count + a single icon button. Figma has
+          {/* Right side - segment count + a single icon button. Figma has
              a row of 4 icons; we keep the count + a single share-like
              icon so the right side reads as a quiet utility rail. */}
           <div className="flex items-center gap-3">
@@ -140,7 +140,7 @@ const PageContent: React.FC<PageContentProps> = ({
           </div>
         </div>
 
-        {/* Tab strip — Summary / Transcript with bottom-border active indicator. */}
+        {/* Tab strip - Summary / Transcript with bottom-border active indicator. */}
         <div className="flex px-6 border-t border-[var(--tab-divider)]">
           {(['summary', 'transcript'] as const).map((key) => {
             const isActive = activeTab === key;
@@ -172,11 +172,11 @@ const PageContent: React.FC<PageContentProps> = ({
 
       <main className="flex-1 overflow-hidden">
         <div className="flex h-full">
-          {/* Transcript column — fed by the page-level paginated hook, not
+          {/* Transcript column - fed by the page-level paginated hook, not
              by the empty live TranscriptContext. disableAutoScroll prevents
              the live-stream auto-scroll behaviour from fighting the user
              when they're just reading past content. */}
-          <div className="flex-1 min-w-0 overflow-y-auto">
+          <div className="custom-scrollbar flex-1 min-w-0 overflow-y-auto">
             <div className="max-w-3xl mx-auto p-6">
               <div className="bg-[var(--opaline-surface-container-lowest)] border border-[var(--opaline-outline-variant)] rounded-xl p-4">
                 <VirtualizedTranscriptView
@@ -198,30 +198,34 @@ const PageContent: React.FC<PageContentProps> = ({
             </div>
           </div>
 
-          {/* Intelligence column — renders past events + recommendations as
+          {/* Intelligence column - renders past events + recommendations as
              IntelligenceCards. Mirrors the home-page IntelligencePanel so the
              visual treatment is identical. Hidden on small screens to keep
-             the transcript readable. */}
-          <aside className="hidden xl:flex w-[360px] flex-col gap-3 border-l border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)] p-4 overflow-y-auto">
-            <div className="flex items-baseline justify-between">
-              <h2 className="text-label-md text-[var(--opaline-on-surface)]">Intelligence</h2>
-              <span className="text-[10px] uppercase tracking-wide text-[var(--opaline-on-surface-variant)]">
+             the transcript readable. The header is sticky so the section
+             title stays visible while cards scroll beneath it; the content
+             area scrolls independently (thin design-system scrollbar). */}
+          <aside className="custom-scrollbar hidden xl:flex w-[360px] flex-col border-l border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)] overflow-y-auto">
+            <div className="sticky top-0 z-10 flex items-baseline justify-between border-b border-[var(--opaline-outline-variant)]/60 bg-[var(--opaline-surface-container-low)] px-4 pt-4 pb-3">
+              <h2 className="font-display text-label-md text-[var(--opaline-on-surface)]">Intelligence</h2>
+              <span className="font-mono text-[10px] uppercase tracking-wide text-[var(--opaline-on-surface-variant)]">
                 {pastCards.length > 0 ? `${pastCards.length} card${pastCards.length === 1 ? '' : 's'}` : 'past'}
               </span>
             </div>
-            {cardsLoading ? (
-              <div className="flex items-center justify-center py-8 text-xs text-[var(--opaline-on-surface-variant)]">
-                <LoaderIcon className="animate-spin size-4 mr-2" />
-                Loading past intelligence…
-              </div>
-            ) : (
-              <IntelligencePanel
-                cards={pastCards}
-                connected={true}
-                error={null}
-                sessionId={meeting?.id ?? null}
-              />
-            )}
+            <div className="flex-1 px-4 pb-10 pt-3">
+              {cardsLoading ? (
+                <div className="flex items-center justify-center py-8 text-xs text-[var(--opaline-on-surface-variant)]">
+                  <LoaderIcon className="animate-spin size-4 mr-2" />
+                  Loading past intelligence…
+                </div>
+              ) : (
+                <IntelligencePanel
+                  cards={pastCards}
+                  connected={true}
+                  error={null}
+                  sessionId={meeting?.id ?? null}
+                />
+              )}
+            </div>
           </aside>
         </div>
       </main>

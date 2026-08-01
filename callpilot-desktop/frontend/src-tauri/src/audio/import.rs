@@ -606,7 +606,7 @@ async fn run_import<R: Runtime>(
             all_transcripts.push((text, segment.start_timestamp_ms, segment.end_timestamp_ms));
             total_confidence += conf;
         } else {
-            debug!("Segment {}/{}: {:.1}s — empty transcription", i + 1, processable_count, segment_duration_sec);
+            debug!("Segment {}/{}: {:.1}s - empty transcription", i + 1, processable_count, segment_duration_sec);
         }
     }
 
@@ -633,7 +633,7 @@ async fn run_import<R: Runtime>(
     // Create transcript segments
     let segments = create_transcript_segments(&all_transcripts);
 
-    // Save via .NET Gateway (Postgres-backed) — local SQLite layer
+    // Save via .NET Gateway (Postgres-backed) - local SQLite layer
     // was removed in the SQLite→.NET migration.
     let meeting_id = create_meeting_with_transcripts(
         &app,
@@ -693,14 +693,14 @@ async fn create_meeting_with_transcripts(
 ) -> Result<String> {
     // Step 1: Create the meeting via POST /api/v1/meetings to get a real
     // .NET UUID. POST /api/v1/meetings requires an authenticated user
-    // context — the desktop's import flow runs after the user has signed
+    // context - the desktop's import flow runs after the user has signed
     // in, so the access token is available via the Tauri store.
     let token = match app.store("settings.json") {
         Ok(s) => match s.get("access_token") {
             Some(v) if v.is_string() => v.as_str().unwrap_or_default().to_string(),
-            _ => return Err(anyhow!("Not authenticated — sign in before importing")),
+            _ => return Err(anyhow!("Not authenticated - sign in before importing")),
         },
-        _ => return Err(anyhow!("Not authenticated — sign in before importing")),
+        _ => return Err(anyhow!("Not authenticated - sign in before importing")),
     };
 
     let base = crate::api::api::callpilot_api_base_url();
@@ -1120,7 +1120,7 @@ mod tests {
 
     #[test]
     fn test_split_segment_at_silence_short_segment() {
-        // Segment shorter than max — returned as-is
+        // Segment shorter than max - returned as-is
         let segment = crate::audio::vad::SpeechSegment {
             samples: vec![0.1; 16000], // 1 second
             start_timestamp_ms: 0.0,
@@ -1163,7 +1163,7 @@ mod tests {
 
     #[test]
     fn test_split_segment_at_silence_no_silence_uses_overlap() {
-        // Continuous speech (constant energy) — should still split with overlap
+        // Continuous speech (constant energy) - should still split with overlap
         let segment = crate::audio::vad::SpeechSegment {
             samples: vec![0.5f32; 60 * 16000], // 60 seconds of "speech"
             start_timestamp_ms: 0.0,

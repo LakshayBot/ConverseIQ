@@ -5,14 +5,14 @@
  *
  * Renders one row per ingest stage so the user can see exactly where
  * the document is in the pipeline.  Drives itself off the parent's
- * polled `DocumentStatus` — the parent owns the polling interval and
+ * polled `DocumentStatus` - the parent owns the polling interval and
  * just hands fresh data in.  We intentionally don't fetch here so
  * multiple stepper instances (e.g. two docs uploading concurrently)
  * share the same polling cadence.
  *
  * The stepper is keyed off the new `stages[]` array returned by
  * GET /api/v1/knowledge/{id}/status.  The previous string-prefix
- * matching on `processingStatus` is gone — each row is explicit.
+ * matching on `processingStatus` is gone - each row is explicit.
  *
  * Row states:
  *   done      → green check

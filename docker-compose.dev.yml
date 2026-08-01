@@ -1,4 +1,4 @@
-# Local-development overrides — committed so every dev gets them.
+# Local-development overrides - committed so every dev gets them.
 #
 # USAGE
 #   Dev:        docker compose -f docker-compose.yml -f docker-compose.dev.yml up

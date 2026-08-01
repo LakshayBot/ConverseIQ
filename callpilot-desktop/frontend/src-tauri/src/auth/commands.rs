@@ -1,7 +1,7 @@
-// Auth session persistence — stores the access/refresh token pair (plus user
+// Auth session persistence - stores the access/refresh token pair (plus user
 // metadata) in the same Tauri store the rest of the app uses (`settings.json`).
 //
-// Why server-side? The refresh token should never reach the webview — keeping
+// Why server-side? The refresh token should never reach the webview - keeping
 // the rotation on the Rust side means a compromised render process can't be
 // used to mint long-lived sessions. The webview only ever holds the short-
 // lived access token, fetched per-call via `get_auth_access_token`.
@@ -117,7 +117,7 @@ pub async fn clear_auth_token<R: Runtime>(app: AppHandle<R>) -> Result<(), Strin
 ///
 /// Returns `Ok(None)` when there is no stored refresh token (cold launch with
 /// no prior session). Returns `Err(...)` when the server rejects the refresh
-/// token (expired/revoked) — the frontend should clear the session in that
+/// token (expired/revoked) - the frontend should clear the session in that
 /// case and route the user to the login screen.
 #[tauri::command]
 pub async fn refresh_access_token<R: Runtime>(
@@ -164,7 +164,7 @@ pub async fn refresh_access_token<R: Runtime>(
     if !status.is_success() {
         let msg = format!("HTTP {}: {}", status, text);
         log_warn!("refresh_access_token failed: {}", msg);
-        // Treat 401 as a permanent logout — the stored refresh token is dead.
+        // Treat 401 as a permanent logout - the stored refresh token is dead.
         if status.as_u16() == 401 {
             clear_session(&app)?;
         }

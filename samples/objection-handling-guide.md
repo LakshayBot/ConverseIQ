@@ -32,7 +32,7 @@
 - All data encrypted at rest (AES-256) and in transit (TLS 1.3)
 - BYOK support means you own and control your AI keys
 - Self-hosted option for complete data sovereignty
-- No customer audio is stored — only transcript text
+- No customer audio is stored - only transcript text
 
 ### "Our security team needs to review"
 
@@ -48,7 +48,7 @@
 
 **Response Strategy:**
 - CallPilot AI is platform-agnostic (works with Teams, Zoom, Meet, Slack)
-- Desktop Agent captures any desktop audio — no browser extensions needed
+- Desktop Agent captures any desktop audio - no browser extensions needed
 - Phase 2 includes CRM integrations (Salesforce, HubSpot)
 - REST API for custom integrations
 
@@ -59,13 +59,13 @@
 **Response Strategy:**
 - Setup takes under 1 hour (Docker Compose or cloud)
 - Desktop Agent installs in under 2 minutes
-- No training needed — the AI works silently alongside sales reps
+- No training needed - the AI works silently alongside sales reps
 - We offer white-glove onboarding for Enterprise customers
 
 ### "Our team won't use it"
 
 **Response Strategy:**
-- The AI never interrupts — salespeople don't need to change their workflow
+- The AI never interrupts - salespeople don't need to change their workflow
 - It's like having a silent sales engineer in every meeting
 - Early adopter teams report 40% reduction in post-meeting admin work
 - Offer a 14-day free trial with no commitment

@@ -108,7 +108,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const saveTimeoutRef = useRef<NodeJS.Timeout>();
 
   // Stub for the removed local summary model flow.
-  // CallPilot handles summarization server-side via the .NET Gateway —
+  // CallPilot handles summarization server-side via the .NET Gateway -
   // there's no local model to discover or download.
   const initializeSummaryModelSelection = async (preferredModel: string = selectedSummaryModel) => {
     const placeholder = preferredModel || 'ggml-base.en';
@@ -124,7 +124,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
 
   // Stub for the removed local summary model download flow.
   const requestSummaryModelDownload = (_modelName: string) => {
-    // no-op — CallPilot has no local summary model to download
+    // no-op - CallPilot has no local summary model to download
   };
 
   // Load status on mount and initialize database
@@ -371,7 +371,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     }
 
     // Verify the selected/recommended Summary model exists on disk.
-    // CallPilot: stubbed — there is no local summary model.
+    // CallPilot: stubbed - there is no local summary model.
     try {
       const recommendedModel = 'ggml-base.en';
       setRecommendedSummaryModel(recommendedModel);
@@ -450,7 +450,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         saveTimeoutRef.current = undefined;
       }
 
-      // CallPilot removes the local summary model — pass the local transcription model
+      // CallPilot removes the local summary model - pass the local transcription model
       // name through so the Rust onboarding handler has a placeholder; the value is
       // persisted but no longer drives a local LLM download.
       const modelToSave = selectedSummaryModel || 'ggml-base.en';

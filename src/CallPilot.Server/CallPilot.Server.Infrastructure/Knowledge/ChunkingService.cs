@@ -17,7 +17,7 @@ namespace CallPilot.Server.Infrastructure.Knowledge;
 public class ChunkingService
 {
     // Soft cap. Larger than the old 1000-char flat cap because we no longer split
-    // paragraphs in the middle — a feature list or table row often runs 1500+ chars
+    // paragraphs in the middle - a feature list or table row often runs 1500+ chars
     // and we'd rather keep it intact than fragment it.
     private const int SoftCap = 2000;
 
@@ -190,7 +190,7 @@ public class ChunkingService
     {
         if (line.Length == 0 || line.Length > 120) return false;
         if (line.EndsWith('.') || line.EndsWith(':') || line.EndsWith(',')) return false;
-        // Mostly letters, very short, often title-cased — heuristic only, but
+        // Mostly letters, very short, often title-cased - heuristic only, but
         // enough to keep section titles attached to their content.
         var letterCount = line.Count(char.IsLetter);
         if (letterCount < 3) return false;

@@ -98,7 +98,7 @@ export default function KnowledgePage() {
       const result = await apiUploadKnowledge(file, mode);
       // Pre-seed live status with the upload response so the stepper has
       // something to render before the first poll lands.  Stages are
-      // empty here — the first /status poll backfills them.  mode is
+      // empty here - the first /status poll backfills them.  mode is
       // echoed from the request so the stepper knows whether to show
       // the LLM enrichment row.
       setLiveStatuses(prev => ({
@@ -166,7 +166,7 @@ export default function KnowledgePage() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  // Pick the freshest view of each doc — live polled status overrides the
+  // Pick the freshest view of each doc - live polled status overrides the
   // initial list row once we have one.
   const docsForRender = docs.map(d => {
     const live = liveStatuses[d.id];
@@ -201,7 +201,7 @@ export default function KnowledgePage() {
           <div>
             <h2 className="text-2xl font-bold text-gray-900">Documents</h2>
             <p className="text-gray-500 mt-1">
-              Upload product docs, battle cards, objection guides — AI detects your entities from them
+              Upload product docs, battle cards, objection guides - AI detects your entities from them
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -345,7 +345,7 @@ export default function KnowledgePage() {
             <div className="overflow-y-auto p-4 flex-1">
               {activeTab === 'chunks' ? (
                 viewDoc.chunks.length === 0 ? (
-                  <p className="text-gray-400 text-center py-8">No chunks yet — document may still be processing</p>
+                  <p className="text-gray-400 text-center py-8">No chunks yet - document may still be processing</p>
                 ) : (
                   <div className="space-y-4">
                     {viewDoc.chunks.map(chunk => (
@@ -450,7 +450,7 @@ function StatusPill({
   mode?: 'fast' | 'structured';
 }) {
   if (kind === 'enrichment') {
-    // Fast-mode docs are intentionally not enriched — show a neutral
+    // Fast-mode docs are intentionally not enriched - show a neutral
     // "Skipped" pill so the user knows it's not a bug.
     if (mode === 'fast' || value == null) {
       return (
@@ -468,7 +468,7 @@ function StatusPill({
   }
 
   // Processing pill.
-  if (!value) return <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-500">—</span>;
+  if (!value) return <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-500">-</span>;
   const tone =
     value === 'Indexed' ? 'bg-green-100 text-green-700' :
     value.startsWith('Error') ? 'bg-red-100 text-red-700' :
@@ -480,7 +480,7 @@ function StatusPill({
 // ── Raw tab ──────────────────────────────────────────────────────────
 // Renders the captured Docling metadata + LLM enrichment response so
 // the user can see exactly what the AI engine produced.  Pretty-print
-// in <pre> with a dark background — matches the existing log/raw
+// in <pre> with a dark background - matches the existing log/raw
 // toggle pattern in ProductDetailsCard without introducing new deps.
 
 function RawTabView({
@@ -505,7 +505,7 @@ function RawTabView({
   if (!raw || !raw.rawOutput) {
     return (
       <p className="text-gray-400 text-center py-8 text-sm">
-        No raw output yet — the AI engine has not finished processing this document.
+        No raw output yet - the AI engine has not finished processing this document.
       </p>
     );
   }
@@ -525,7 +525,7 @@ function RawTabView({
             <Stat label="chunk" value={`${docling.chunk_ms}ms`} />
             <Stat
               label="model load"
-              value={docling.model_load_ms != null ? `${(docling.model_load_ms / 1000).toFixed(1)}s` : '—'}
+              value={docling.model_load_ms != null ? `${(docling.model_load_ms / 1000).toFixed(1)}s` : '-'}
             />
           </div>
           {docling.warnings.length > 0 && (
@@ -613,7 +613,7 @@ function OutcomeBadge({ outcome }: { outcome: { status: string; model: string | 
 
 // ── Errors tab ──────────────────────────────────────────────────────
 // Iterates the per-stage log for failed stages and shows the full
-// error message.  Empty state (no failures) is the common case —
+// error message.  Empty state (no failures) is the common case -
 // shown as a quiet "all clear" panel.
 
 function ErrorsTabView({
@@ -626,7 +626,7 @@ function ErrorsTabView({
   if (!live) {
     return (
       <p className="text-gray-400 text-center py-8 text-sm">
-        No live status available — this document finished processing before the new pipeline was deployed.
+        No live status available - this document finished processing before the new pipeline was deployed.
       </p>
     );
   }
@@ -679,7 +679,7 @@ function ErrorsTabView({
 // ── Pages tab ─────────────────────────────────────────────────────────
 // Shows the live per-page enrichment status.  Reads from the
 // EnrichmentProgress jsonb column the .NET handler updates after
-// every page completes — refreshes every 1.5s via the parent's
+// every page completes - refreshes every 1.5s via the parent's
 // status poll loop.  Empty state covers documents that finished
 // before the streaming pipeline was deployed.
 
@@ -687,7 +687,7 @@ function PagesTabView({ live }: { live: DocumentStatus | null }) {
   if (!live?.enrichmentProgress) {
     return (
       <p className="text-gray-400 text-center py-8 text-sm">
-        No page-level progress yet — enrichment has not started, or this document finished before per-page tracking was added.
+        No page-level progress yet - enrichment has not started, or this document finished before per-page tracking was added.
       </p>
     );
   }
@@ -711,7 +711,7 @@ function PagesTabView({ live }: { live: DocumentStatus | null }) {
       )}
       {notDone > 0 && p.failed === 0 && (
         <div className="text-xs text-blue-600 mb-2 animate-pulse">
-          {notDone} page{notDone === 1 ? '' : 's'} still in flight — this list updates as each one returns.
+          {notDone} page{notDone === 1 ? '' : 's'} still in flight - this list updates as each one returns.
         </div>
       )}
       <div className="space-y-1.5">

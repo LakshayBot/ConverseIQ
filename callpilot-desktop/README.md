@@ -1,6 +1,6 @@
 # CallPilot Desktop
 
-CallPilot AI's desktop agent — Tauri 2 + Rust audio core + Next.js UI.
+CallPilot AI's desktop agent - Tauri 2 + Rust audio core + Next.js UI.
 
 Adapted from [Meetily](https://github.com/Zackriya-Solutions/meetily) (MIT).
 See [`ADAPTATION_NOTES.md`](./ADAPTATION_NOTES.md) for the full component-by-component analysis of what was kept, adapted, and removed.
@@ -56,10 +56,10 @@ callpilot-desktop/
 
 ## Build requirements
 
-- **macOS**: full Xcode (Command Line Tools alone are insufficient — `cidre` runs `xcodebuild`).
+- **macOS**: full Xcode (Command Line Tools alone are insufficient - `cidre` runs `xcodebuild`).
 - **Windows / Linux**: standard Tauri toolchain.
 - **Node 22+** for the frontend.
-- **Rust 1.88+** — pinned via `frontend/src-tauri/rust-toolchain.toml` to satisfy upstream deps (cidre, darling, icu, time, plist, serde_with) that require it. Meetily's declared `rust-version = "1.77"` is too old for those transitive crates.
+- **Rust 1.88+** - pinned via `frontend/src-tauri/rust-toolchain.toml` to satisfy upstream deps (cidre, darling, icu, time, plist, serde_with) that require it. Meetily's declared `rust-version = "1.77"` is too old for those transitive crates.
 
 ## What was removed (and why)
 

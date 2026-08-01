@@ -67,7 +67,7 @@ public class DesktopAgentHub : Hub
 
         if (!Guid.TryParse(frame.MeetingId, out var meetingId))
         {
-            _logger.LogWarning("Invalid MeetingId '{MeetingId}' — audio frame {Sequence} dropped", frame.MeetingId, frame.Sequence);
+            _logger.LogWarning("Invalid MeetingId '{MeetingId}' - audio frame {Sequence} dropped", frame.MeetingId, frame.Sequence);
             return;
         }
 
@@ -111,8 +111,8 @@ public class DesktopAgentHub : Hub
     }
 
     /// <summary>
-    /// Broadcast the transcript to the caller + meeting group, then — for
-    /// final segments — detect events, persist them, and generate any
+    /// Broadcast the transcript to the caller + meeting group, then - for
+    /// final segments - detect events, persist them, and generate any
     /// recommendation triggered by those events.
     /// </summary>
     private async Task ProcessTranscriptAsync(

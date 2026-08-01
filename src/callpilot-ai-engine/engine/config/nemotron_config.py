@@ -18,8 +18,8 @@ NEMOTRON_MODEL_NAME = os.getenv(
 
 # ── Streaming parameters ───────────────────────────────────────────────────
 # right_context → model attention context size [left, right]
-#   0  =  80ms chunk  (no right context — fastest, least accurate)
-#   1  = 160ms chunk  (default — balanced latency/accuracy)
+#   0  =  80ms chunk  (no right context - fastest, least accurate)
+#   1  = 160ms chunk  (default - balanced latency/accuracy)
 #   6  = 560ms chunk  (higher accuracy, more latency)
 #  13  = 1120ms chunk (batch-quality accuracy, highest latency)
 NEMOTRON_RIGHT_CONTEXT = int(os.getenv("NEMOTRON_RIGHT_CONTEXT", "1"))
@@ -46,7 +46,7 @@ NEMOTRON_VAD_SILENCE_MS = int(os.getenv("NEMOTRON_VAD_SILENCE_MS", "200"))
 NEMOTRON_VAD_SILENCE_FRAMES = NEMOTRON_VAD_SILENCE_MS // 10       # frames at 10ms each
 NEMOTRON_VAD_RMS_THRESHOLD = float(os.getenv("NEMOTRON_VAD_RMS_THRESHOLD", "0.001"))  # -60 dB
 
-# ── Derived — do not edit ──────────────────────────────────────────────────
+# ── Derived - do not edit ──────────────────────────────────────────────────
 NEMOTRON_SAMPLE_RATE = 16000
 SHIFT_FRAMES = NEMOTRON_CHUNK_MS // 10                             # frames per inference step (default 16)
 FINAL_PADDING_FRAMES = (NEMOTRON_RIGHT_CONTEXT + 1) * SHIFT_FRAMES

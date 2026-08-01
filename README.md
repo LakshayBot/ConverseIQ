@@ -2,7 +2,7 @@
 
 **Real-Time AI Sales Intelligence Platform**
 
-CallPilot AI is an open-source, real-time AI sales intelligence platform that assists sales professionals during live customer conversations by continuously analyzing speech, understanding business context, retrieving organizational knowledge, and providing contextual recommendations — without interrupting the flow of the meeting.
+CallPilot AI is an open-source, real-time AI sales intelligence platform that assists sales professionals during live customer conversations by continuously analyzing speech, understanding business context, retrieving organizational knowledge, and providing contextual recommendations - without interrupting the flow of the meeting.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10-purple.svg)](https://dotnet.microsoft.com)
@@ -11,13 +11,13 @@ CallPilot AI is an open-source, real-time AI sales intelligence platform that as
 
 ## Features
 
-- **Live Transcription** — Real-time speech-to-text with speaker identification (Salesperson / Customer)
-- **Conversation Intelligence** — Automatic detection of competitors, pricing questions, objections, and buying signals
-- **Knowledge Retrieval** — Semantic search across uploaded documents (PDF, DOCX, Markdown)
-- **AI Recommendations** — Contextual talking points and guidance during live meetings
-- **BYOK** — Bring your own AI keys (DeepSeek, Ollama, OpenAI, Claude, Gemini)
-- **Self-Hosted** — Full Docker deployment with PostgreSQL + pgvector
-- **Vendor Neutral** — Replace any component without architectural changes
+- **Live Transcription** - Real-time speech-to-text with speaker identification (Salesperson / Customer)
+- **Conversation Intelligence** - Automatic detection of competitors, pricing questions, objections, and buying signals
+- **Knowledge Retrieval** - Semantic search across uploaded documents (PDF, DOCX, Markdown)
+- **AI Recommendations** - Contextual talking points and guidance during live meetings
+- **BYOK** - Bring your own AI keys (DeepSeek, Ollama, OpenAI, Claude, Gemini)
+- **Self-Hosted** - Full Docker deployment with PostgreSQL + pgvector
+- **Vendor Neutral** - Replace any component without architectural changes
 
 ---
 
@@ -41,7 +41,7 @@ CallPilot AI is an open-source, real-time AI sales intelligence platform that as
 git clone https://github.com/LakshayBot/ConverseIQ.git
 cd ConverseIQ
 
-# Start PostgreSQL (runs in background) — use the dev override so the DB
+# Start PostgreSQL (runs in background) - use the dev override so the DB
 # is published on host:5432 for local client connections
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
 
@@ -176,10 +176,10 @@ curl -X POST http://localhost:5001/api/v1/providers \
 
 Open **http://localhost:3000** in your browser:
 
-1. **Login page** — Enter `demo@callpilot.dev` / `TestPass123!`
-2. **Dashboard** — Click **"New Meeting"** to create a meeting
-3. **Live Meeting view** — Shows real-time transcript as audio streams in
-4. **Providers page** — Configure your AI provider (DeepSeek, Ollama, etc.)
+1. **Login page** - Enter `demo@callpilot.dev` / `TestPass123!`
+2. **Dashboard** - Click **"New Meeting"** to create a meeting
+3. **Live Meeting view** - Shows real-time transcript as audio streams in
+4. **Providers page** - Configure your AI provider (DeepSeek, Ollama, etc.)
 
 ---
 
@@ -244,7 +244,7 @@ cp .env.example .env
 # Edit .env to set your JWT_SECRET and other values
 # vim .env
 
-# Build and start all services (dev — includes Postgres host-port exposure)
+# Build and start all services (dev - includes Postgres host-port exposure)
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 # Verify all services are healthy
@@ -255,7 +255,7 @@ docker compose ps
 | Command | What changes |
 |---|---|
 | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up` | Dev. Postgres is published on host `5432`, ASPNETCORE_ENVIRONMENT=Development, hot-reload volumes mounted, AI engine code mounted for live edits. |
-| `docker compose -f docker-compose.yml up` | Production-equivalent. Postgres is **not** published to the host — only reachable from other services on the internal docker network (`Host=postgres`). |
+| `docker compose -f docker-compose.yml up` | Production-equivalent. Postgres is **not** published to the host - only reachable from other services on the internal docker network (`Host=postgres`). |
 
 **Services and Ports (dev):**
 | Service | Port | Health Check |
@@ -406,7 +406,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
@@ -414,15 +414,15 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 | Phase | Status |
 |-------|--------|
-| Phase 0 — Repository Foundation | Complete |
-| Phase 1 — Auth & BYOK | Complete |
-| Phase 2 — Desktop CLI | Complete |
-| Phase 3 — AI Engine | Complete |
-| Phase 4 — Live Dashboard | Complete |
-| Phase 5 — Knowledge Management | Complete |
-| Phase 6 — Conversation Intelligence | Complete |
-| Phase 7 — Recommendation Engine | Complete |
-| Phase 8 — Performance & Reliability | Complete |
-| Phase 9 — Open Source Readiness | Complete |
-| Phase 10 — Docker & Self Hosting | Complete |
-| Phase 11 — Phase 2 Planning | Not Started |
+| Phase 0 - Repository Foundation | Complete |
+| Phase 1 - Auth & BYOK | Complete |
+| Phase 2 - Desktop CLI | Complete |
+| Phase 3 - AI Engine | Complete |
+| Phase 4 - Live Dashboard | Complete |
+| Phase 5 - Knowledge Management | Complete |
+| Phase 6 - Conversation Intelligence | Complete |
+| Phase 7 - Recommendation Engine | Complete |
+| Phase 8 - Performance & Reliability | Complete |
+| Phase 9 - Open Source Readiness | Complete |
+| Phase 10 - Docker & Self Hosting | Complete |
+| Phase 11 - Phase 2 Planning | Not Started |

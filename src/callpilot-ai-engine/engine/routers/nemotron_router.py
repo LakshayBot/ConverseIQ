@@ -1,13 +1,13 @@
 """
-Nemotron STT endpoints — mounted as a FastAPI router when NEMOTRON_ENABLED.
+Nemotron STT endpoints - mounted as a FastAPI router when NEMOTRON_ENABLED.
 
 Endpoints
 ─────────
-  GET  /health/nemotron         — model load status + device info
-  WS   /ws/transcribe/nemotron  — streaming ASR (raw PCM16 bytes, the
+  GET  /health/nemotron         - model load status + device info
+  WS   /ws/transcribe/nemotron  - streaming ASR (raw PCM16 bytes, the
                                   primary path used by the desktop agent
                                   for desktop audio capture)
-  POST /transcribe/nemotron     — batch ASR (WAV/FLAC file upload)
+  POST /transcribe/nemotron     - batch ASR (WAV/FLAC file upload)
 """
 
 from __future__ import annotations
@@ -113,7 +113,7 @@ async def health_nemotron():
 
 @router.websocket("/ws/transcribe/nemotron")
 async def ws_transcribe_nemotron(ws: WebSocket):
-    """Streaming ASR via WebSocket — the primary desktop-audio path.
+    """Streaming ASR via WebSocket - the primary desktop-audio path.
 
     Protocol:
         Client → Server:  binary audio frames (PCM16, 16 kHz, mono)

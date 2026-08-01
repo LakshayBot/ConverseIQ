@@ -20,7 +20,7 @@ public class AiCoordinatorService
         // Resolve once at construction. Reads the same NEMOTRON_ENABLED
         // setting the Python engine uses (config key or env var) so flipping
         // the flag in one place switches both sides. Defaults to Nemotron
-        // because the Whisper STT pipeline was removed — the legacy
+        // because the Whisper STT pipeline was removed - the legacy
         // `/api/v1/ai/transcribe` path no longer exists, so falling back to
         // it would silently produce 404s from the AI engine.
         var useNemotron = configuration.GetValue<bool?>("NEMOTRON_ENABLED")

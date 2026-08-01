@@ -48,12 +48,12 @@ export interface TranscribeAudioRequest {
   sampleRate: number;
 }
 
-// Model configuration for different use cases — CallPilot-curated list.
+// Model configuration for different use cases - CallPilot-curated list.
 // We keep exactly the four models the brief calls out:
-//   ggml-tiny.en      — 75 MB
-//   ggml-base.en      — 142 MB (default)
-//   ggml-small.en     — 466 MB
-//   Parakeet TDT 0.6B — 600 MB (handled separately via lib/parakeet.ts)
+//   ggml-tiny.en      - 75 MB
+//   ggml-base.en      - 142 MB (default)
+//   ggml-small.en     - 466 MB
+//   Parakeet TDT 0.6B - 600 MB (handled separately via lib/parakeet.ts)
 //
 // Sources:
 //   ggml: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/
@@ -66,7 +66,7 @@ export const MODEL_CONFIGS: Record<string, Partial<ModelInfo>> = {
     speed: 'Very Fast',
   },
   'ggml-base.en': {
-    description: 'Recommended default — good balance of speed and accuracy for live sales calls.',
+    description: 'Recommended default - good balance of speed and accuracy for live sales calls.',
     size_mb: 142,
     accuracy: 'Good',
     speed: 'Fast',

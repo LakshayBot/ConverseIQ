@@ -57,7 +57,7 @@ async def generate_talking_points(
     )
 
     if llm_client is None:
-        # Rule-based fallback — no LLM available
+        # Rule-based fallback - no LLM available
         points = _build_fallback_points(
             competitor, transcript_snippet, your_chunks, web_summary
         )
@@ -129,7 +129,7 @@ def _build_fallback_points(
         points.append(f"Key context about {competitor}: {web_summary[:120]}...")
 
     points.append(
-        f"The prospect mentioned '{competitor}' —"
+        f"The prospect mentioned '{competitor}' -"
         f" ask what specific features they need and address those directly."
     )
 

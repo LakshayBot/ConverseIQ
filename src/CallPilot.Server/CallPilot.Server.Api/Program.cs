@@ -49,17 +49,17 @@ var jwtSecret = builder.Configuration["Jwt:Secret"]!;
 // CORS comment near `AddCors` for the rationale.
 //
 // Tauri origins are included so the desktop Tauri 2 webview can connect
-// to /hubs/desktop-agent — the SignalR `negotiate` HTTP call is subject to
+// to /hubs/desktop-agent - the SignalR `negotiate` HTTP call is subject to
 // CORS preflight, and the webview origin is otherwise not in the allowlist.
 //
 // In dev mode (`pnpm tauri:dev`), the webview loads from the Next.js dev
-// server at http://localhost:3118 — that is the actual Origin header the
+// server at http://localhost:3118 - that is the actual Origin header the
 // browser sends. In production builds (`tauri://localhost` and the
 // `http(s)://tauri.localhost` variants on macOS/iOS/Android), the webview
 // loads from the custom scheme instead.
 //
 // `null` (the literal 4-character string) is the Origin header WebKit sends
-// for sandboxed loads from `tauri://localhost` on macOS — without it the
+// for sandboxed loads from `tauri://localhost` on macOS - without it the
 // preflight comes back 204 with no `Access-Control-Allow-Origin` and the
 // browser silently drops the negotiate request as a CORS failure, surfacing
 // in the desktop as `TypeError: Load failed`.
@@ -101,7 +101,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 return Task.CompletedTask;
             },
             // Re-attach CORS headers on 401 responses.  See the comment
-            // above `AddCors` for the full explanation — without this the
+            // above `AddCors` for the full explanation - without this the
             // browser blocks the 401 with "No Access-Control-Allow-Origin
             // header" and the dashboard sees ERR_FAILED instead of a real
             // auth error.
@@ -126,7 +126,7 @@ builder.Services.AddSignalR();
 // ── CORS ───────────────────────────────────────────────────────────────────
 // Dashboard runs on http://localhost:3000 and calls this API on :5001.
 // We allow credentials (JWT in Authorization header) so the policy must
-// list explicit origins — `AllowAnyOrigin()` is incompatible with
+// list explicit origins - `AllowAnyOrigin()` is incompatible with
 // `AllowCredentials()`.
 //
 // Why `WithExposedHeaders("*")`: the file-download and chunked endpoints
@@ -249,7 +249,7 @@ using (var scope = app.Services.CreateScope())
         // MigrateAsync applies any pending EF Core migrations in order.
         // We previously used EnsureCreatedAsync here, which only creates
         // the schema when the database is empty and silently ignores any
-        // migrations added afterwards — that left a previous
+        // migrations added afterwards - that left a previous
         // AddEnrichmentStatus migration unapplied, causing every upload
         // to 500 with "column EnrichmentStatus does not exist".
         // MigrateAsync is idempotent: it applies only what hasn't been
@@ -373,7 +373,7 @@ app.MapGet("/api/v1/meetings", async (CallPilotDbContext db, ClaimsPrincipal use
 }).RequireAuthorization();
 
 // ── Single meeting detail (replaces desktop SQLite api_get_meeting +
-//    api_get_meeting_metadata). Includes metadata but not transcripts —
+//    api_get_meeting_metadata). Includes metadata but not transcripts -
 //    use /api/v1/meetings/{id}/transcripts for those.
 app.MapGet("/api/v1/meetings/{id:guid}", async (Guid id, CallPilotDbContext db, ClaimsPrincipal user) =>
 {
@@ -401,7 +401,7 @@ app.MapGet("/api/v1/meetings/{id:guid}", async (Guid id, CallPilotDbContext db, 
     return Results.Ok(meeting);
 }).RequireAuthorization();
 
-// ── Meeting summary — JSON blob generated client-side by the desktop and
+// ── Meeting summary - JSON blob generated client-side by the desktop and
 //    persisted here so it survives an app restart. The desktop polls this
 //    endpoint to detect when a summary it kicked off has finished. Replaces
 //    the desktop SQLite `summary_processes` table.
@@ -470,7 +470,7 @@ app.MapDelete("/api/v1/meetings/{id:guid}", async (Guid id, CallPilotDbContext d
     return Results.Ok(new { id, deleted = true });
 }).RequireAuthorization();
 
-// ── Partial update — currently just the user-supplied title and folder
+// ── Partial update - currently just the user-supplied title and folder
 //    path. Replaces desktop SQLite api_save_meeting_title.
 app.MapPatch("/api/v1/meetings/{id:guid}", async (
     Guid id,
@@ -704,7 +704,7 @@ app.MapGet("/internal/knowledge/entities", async (CallPilotDbContext db) =>
 });
 
 // ── Transcript search (replaces desktop SQLite api_search_transcripts).
-//    ILIKE-based — simple, correct, and good enough for the desktop sidebar.
+//    ILIKE-based - simple, correct, and good enough for the desktop sidebar.
 //    Returns up to 50 results per query. Each hit carries the meeting id,
 //    title, and a 200-char match snippet (truncation is done client-side
 //    after the query because slice operators aren't allowed inside an
@@ -807,7 +807,7 @@ app.MapGet("/api/v1/providers/{id:guid}/api-key", async (
 }).RequireAuthorization();
 
 // Upsert a provider config keyed by ProviderType (so the desktop's
-// "summary model" config — a single record per provider type — is
+// "summary model" config - a single record per provider type - is
 // idempotent across re-saves). Replaces api_save_model_config +
 // api_save_custom_openai_config.
 app.MapPost("/api/v1/providers", async (

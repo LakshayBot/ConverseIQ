@@ -116,7 +116,7 @@ export async function apiGetKnowledgeDocument(id: string) {
 }
 
 /**
- * Lightweight status poller — returns just the two status fields and
+ * Lightweight status poller - returns just the two status fields and
  * cheap counts.  Used by the ProcessingStepper to refresh every ~1.5s
  * without pulling the full chunk/entity payload.  Resolves to null if
  * the document was deleted between polls.
@@ -173,7 +173,7 @@ export interface KnowledgeDocument {
   contentType: string;
   fileSizeBytes: number;
   processingStatus: string;
-  /** LLM enrichment state — null in fast mode, otherwise "enriching" | "enriched" | "enrichment_failed" */
+  /** LLM enrichment state - null in fast mode, otherwise "enriching" | "enriched" | "enrichment_failed" */
   enrichmentStatus: string | null;
   createdAt: string;
   chunkCount: number;

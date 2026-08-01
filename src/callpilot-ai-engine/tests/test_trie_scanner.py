@@ -31,7 +31,7 @@ class TestIsValidPattern:
         assert _is_valid_pattern("prodigy")
 
     def test_short_canonical_invalid(self):
-        # "han" is 3 chars and not in the acronym list — invalid.
+        # "han" is 3 chars and not in the acronym list - invalid.
         assert not _is_valid_pattern("han")
         assert not _is_valid_pattern("am")
         # "ct" IS in the acronym allowlist (current transformer) so it
@@ -62,16 +62,16 @@ class TestHasWordBoundary:
         assert _has_word_boundary("we talked about prodigy", 16, 23)
 
     def test_substring_inside_word_rejected(self):
-        # "han" inside "hancock" — boundary check at position 11-14 should
+        # "han" inside "hancock" - boundary check at position 11-14 should
         # see that the next char is 'c' (word char) → reject.
         assert not _has_word_boundary("hancock", 0, 3)
 
     def test_substring_at_end_rejected(self):
-        # "han" at the end of "john han" — boundary check at position 5-8
+        # "han" at the end of "john han" - boundary check at position 5-8
         # should see that the next char is the end of string. Good.
         # But the char BEFORE should not be a word char.
         assert _has_word_boundary("john han", 5, 8)
-        # "johnhan" — no space boundary, reject.
+        # "johnhan" - no space boundary, reject.
         assert not _has_word_boundary("johnhan", 4, 7)
 
     def test_punctuation_is_boundary(self):
@@ -123,7 +123,7 @@ class TestBuildTrie:
         assert "am" not in result
 
     def test_aliases_also_indexed(self):
-        # The seed builder calls expand_with_aliases — so both the canonical
+        # The seed builder calls expand_with_aliases - so both the canonical
         # AND its spoken forms are inserted.
         result = build_trie([
             {"entity_text": "apex 100", "entity_type": "product", "document_id": "d1"},
@@ -141,7 +141,7 @@ class TestScanText:
         assert "prodigy" in names
 
     def test_substring_match_rejected(self):
-        # "hancock" contains "han" — but "han" is not in the trie.
+        # "hancock" contains "han" - but "han" is not in the trie.
         # "prodigy" is in the trie but is not a substring of any other word.
         _seed_trie()
         hits = scan_text("Johnson Hancock said something about a prodigy.")
@@ -200,7 +200,7 @@ class TestScanText:
 
     def test_punctuation_doesnt_break_match(self):
         _seed_trie()
-        hits = scan_text("Prodigy, Sprint 210 — these are the winners.")
+        hits = scan_text("Prodigy, Sprint 210 - these are the winners.")
         names = [h["entity_text"] for h in hits]
         assert "prodigy" in names
         assert "sprint 210" in names

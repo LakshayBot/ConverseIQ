@@ -82,7 +82,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const { isRecording } = useRecordingState();
 
   // Auth status is what really determines whether an authenticated request
-  // will succeed — serverAddress alone is not enough. The backend rejects
+  // will succeed - serverAddress alone is not enough. The backend rejects
   // requests with no Authorization header, so firing fetchMeetings before
   // AuthContext has finished restoring the session used to 401 and silently
   // wipe the meetings list (SidebarProvider legacy bug). We gate on auth
@@ -99,7 +99,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Extract fetchMeetings as a reusable function. Gated on auth rather than
-  // on serverAddress — the backend doesn't care about serverAddress, it
+  // on serverAddress - the backend doesn't care about serverAddress, it
   // cares about the bearer token.
   const fetchMeetings = React.useCallback(async () => {
     if (authStatus !== 'authenticated') {
@@ -136,7 +136,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
         if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
         retryTimerRef.current = setTimeout(() => {
           retryTimerRef.current = null;
-          // Re-enter through fetchMeetings — it re-reads authStatus from
+          // Re-enter through fetchMeetings - it re-reads authStatus from
           // closure. If auth flipped to unauthenticated in the meantime the
           // guard at the top will skip.
           void fetchMeetings();
@@ -145,14 +145,14 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     }
   }, [authStatus]);
 
-  // Fire when auth flips to 'authenticated' — both cold-start restore and
+  // Fire when auth flips to 'authenticated' - both cold-start restore and
   // a fresh login go through this transition. The retry inside fetchMeetings
   // covers the case where the very first attempt races with token refresh.
   useEffect(() => {
     if (authStatus === 'authenticated') {
       void fetchMeetings();
     } else if (authStatus === 'unauthenticated') {
-      // Logged out — cancel any pending retry and leave the meetings list
+      // Logged out - cancel any pending retry and leave the meetings list
       // as it is (the next authenticated login will refresh it).
       retryScheduledRef.current = false;
       if (retryTimerRef.current) {

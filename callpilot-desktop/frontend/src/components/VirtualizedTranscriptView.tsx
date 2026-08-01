@@ -1,6 +1,6 @@
 'use client';
 
-// VirtualizedTranscriptView — live transcript feed.
+// VirtualizedTranscriptView - live transcript feed.
 //
 // Reference for the visual language: a court-reporter's live feed / broadcast
 // subtitles. Dense, calm, focused. The signature element is a 3px-wide
@@ -15,7 +15,7 @@
 //   --ink-300  #cbd5e1   timestamps, dividers
 //   --rep      #10b981   REP speaker chip
 //   --prospect #0ea5e9   PROSPECT speaker chip
-//   brand gradient (blue→indigo→violet) — the "now" indicator
+//   brand gradient (blue→indigo→violet) - the "now" indicator
 //
 // Performance:
 //   - Virtualizer uses dynamic measurement so row heights match real content
@@ -42,7 +42,7 @@ const BRAND_GRADIENT = 'linear-gradient(180deg, #3b82f6 0%, #6366f1 50%, #8b5cf6
 // Format helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
-/** Recording-relative time as MM:SS. No brackets — the timestamp is its own
+/** Recording-relative time as MM:SS. No brackets - the timestamp is its own
  *  monospace column, brackets would compete with the text. */
 function formatRecordingTime(seconds: number | undefined): string {
   if (seconds === undefined) return '--:--';
@@ -53,7 +53,7 @@ function formatRecordingTime(seconds: number | undefined): string {
 }
 
 /** Soft-filler cleanup ("uh", "um") so the live feed reads cleanly. Final
- *  segment text only — partials stay verbatim so the user sees the current
+ *  segment text only - partials stay verbatim so the user sees the current
  *  utterance as it is. */
 function cleanStopWords(text: string): string {
   return text
@@ -116,7 +116,7 @@ const TranscriptRow = memo(function TranscriptRow({
       }`}
     >
       <div className="flex items-start gap-3">
-        {/* Speaker circle — 24px (or 20px while partial). Figma's saturated
+        {/* Speaker circle - 24px (or 20px while partial). Figma's saturated
             green (REP) / purple (PROSPECT). */}
         <Tooltip>
           <TooltipTrigger asChild>
@@ -148,14 +148,14 @@ const TranscriptRow = memo(function TranscriptRow({
           </TooltipContent>
         </Tooltip>
 
-        {/* Column — timestamp on top, body text below. */}
+        {/* Column - timestamp on top, body text below. */}
         <div className="min-w-0 flex-1">
           <div className="font-mono text-[12px] text-[var(--nav-muted-text)] tabular-nums">
             {formatRecordingTime(timestamp)}
           </div>
           <p className={`min-w-0 ${textClass}`}>
             {displayText}
-            {/* Live caret — breathes on the active partial row. */}
+            {/* Live caret - breathes on the active partial row. */}
             {isPartial && isActive && (
               <span
                 aria-hidden
@@ -232,7 +232,7 @@ export const VirtualizedTranscriptView: React.FC<{
     disableAutoScroll,
   });
 
-  // The "active" row is the most-recent segment — it's the one that gets the
+  // The "active" row is the most-recent segment - it's the one that gets the
   // pulsing left-edge bar + caret. Reference equality on the last segment.
   const lastIndex = segments.length - 1;
   const lastSegment = lastIndex >= 0 ? segments[lastIndex] : null;
@@ -275,7 +275,7 @@ export const VirtualizedTranscriptView: React.FC<{
     [showConfidence]
   );
 
-  // Streaming flag is intentionally ignored now — the typewriter was the
+  // Streaming flag is intentionally ignored now - the typewriter was the
   // bottleneck. The prop is kept for API compat (callers don't need to
   // change) but no animation runs.
   void enableStreaming;

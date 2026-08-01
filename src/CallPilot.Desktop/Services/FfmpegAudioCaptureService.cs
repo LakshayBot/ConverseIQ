@@ -189,7 +189,7 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
                     if (bytesRead == 0) break;
 
                     // Pre-flight silence check: only for microphone sources, not desktop audio.
-                    // Desktop loopback (BlackHole/VB-Cable) is silent until system audio plays — that's normal.
+                    // Desktop loopback (BlackHole/VB-Cable) is silent until system audio plays - that's normal.
                     if (!preflightComplete)
                     {
                         var remaining = preflightBuffer.Length - preflightOffset;
@@ -218,7 +218,7 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
                                         "    The selected microphone device is producing silent audio.\n" +
                                         "    Possible causes:\n" +
                                         "      (1) Microphone permissions not granted to Terminal (System Settings > Privacy > Microphone)\n" +
-                                        "      (2) Wrong device index — run 'dotnet run -- --list-devices' to see current devices\n" +
+                                        "      (2) Wrong device index - run 'dotnet run -- --list-devices' to see current devices\n" +
                                         "      (3) Device indices may have changed if peripherals were plugged/unplugged\n" +
                                         "      (4) Microphone is muted or input volume is zero\n" +
                                         "    Try different --mic-device values: :0, :1, or :2");
@@ -244,7 +244,7 @@ public class FfmpegAudioCaptureService : IAudioCaptureService, IDisposable
                     var exitCode = _ffmpegProcess.ExitCode;
                     if (exitCode != 0)
                     {
-                        _logger.LogError("FFmpeg exited with code {ExitCode} — device may be invalid or permissions denied", exitCode);
+                        _logger.LogError("FFmpeg exited with code {ExitCode} - device may be invalid or permissions denied", exitCode);
                     }
                     else
                     {

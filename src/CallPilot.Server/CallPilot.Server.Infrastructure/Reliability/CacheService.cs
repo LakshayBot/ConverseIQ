@@ -43,7 +43,7 @@ public class CacheService
 
     public void InvalidateByPrefix(string prefix)
     {
-        // Simple invalidation — only works with keys that are directly stored
+        // Simple invalidation - only works with keys that are directly stored
         _cache.Remove(prefix);
     }
 }

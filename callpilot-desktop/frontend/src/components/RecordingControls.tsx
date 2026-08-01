@@ -146,7 +146,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
    * The "stop" path is special: it must invoke the `stop_recording` Tauri
    * command FIRST (so the backend actually stops the audio pipeline), then
    * notify the parent for post-stop processing. The old wiring only called
-   * the parent hook — which never fired `stop_recording` — leaving the
+   * the parent hook - which never fired `stop_recording` - leaving the
    * backend recording while the React state thought otherwise.
    *
    * Defined after `stopRecordingAction` so it's in scope; React hoists state
@@ -221,16 +221,16 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   /**
    * Toggle recording by querying the backend's actual state first. This is
    * the function wired to the main mic button so a single click always
-   * does the right thing — recovers from React/backend state mismatch.
+   * does the right thing - recovers from React/backend state mismatch.
    *
    * The "stop" path MUST call stopRecordingAction() (which invokes the Rust
    * stop_recording command), NOT just the parent post-stop hook. Otherwise
    * the audio pipeline keeps running while the UI thinks it's idle.
    */
   const handleToggleRecording = useCallback(async () => {
-    console.log('[DIAG] mic button click — handleToggleRecording entered. isStarting=', isStarting, 'isValidatingModel=', isValidatingModel, 'isRecording=', isRecording);
+    console.log('[DIAG] mic button click - handleToggleRecording entered. isStarting=', isStarting, 'isValidatingModel=', isValidatingModel, 'isRecording=', isRecording);
     if (isStarting || isValidatingModel) {
-      console.log('[DIAG] mic click ignored — busy (isStarting or isValidatingModel true)');
+      console.log('[DIAG] mic click ignored - busy (isStarting or isValidatingModel true)');
       return;
     }
 
@@ -468,6 +468,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                         <button
                           onClick={handleToggleRecording}
                           disabled={isStarting || isProcessing || isValidatingModel}
+                          aria-label={isRecording ? 'Stop recording' : 'Start recording'}
                           className={`w-12 h-12 flex items-center justify-center ${isStarting || isProcessing || isValidatingModel ? 'bg-[var(--opaline-on-surface-variant)]' : 'bg-[var(--opaline-primary)] hover:bg-[var(--opaline-on-primary-container)]'
                             } rounded-full text-white transition-colors relative`}
                         >
@@ -542,19 +543,35 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                     </>
                   )}
 
-                  <div className="flex items-center space-x-1 mx-4">
-                    {barHeights.map((height, index) => (
+                  {/* Audio-level bars. When idle they render as three small
+                      dots next to the mic - visually identical to an
+                      overflow "…" affordance - so label them explicitly to
+                      avoid a mystery button. */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
                       <div
-                        key={index}
-                        className={`w-1 rounded-full transition-all duration-200 ${isPaused ? 'bg-[var(--opaline-primary)]' : 'bg-[var(--opaline-primary)]'
-                          }`}
-                        style={{
-                          height: isRecording && !isPaused ? height : '4px',
-                          opacity: isPaused ? 0.6 : 1,
-                        }}
-                      />
-                    ))}
-                  </div>
+                        role="img"
+                        aria-label={isRecording ? 'Audio level indicator' : 'Audio level indicator (idle)'}
+                        title="Audio level indicator"
+                        className="flex items-center space-x-1 mx-4"
+                      >
+                        {barHeights.map((height, index) => (
+                          <div
+                            key={index}
+                            className={`w-1 rounded-full transition-all duration-200 ${isPaused ? 'bg-[var(--opaline-primary)]' : 'bg-[var(--opaline-primary)]'
+                              }`}
+                            style={{
+                              height: isRecording && !isPaused ? height : '4px',
+                              opacity: isPaused ? 0.6 : 1,
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{isRecording ? 'Audio level' : 'Audio level - goes live when recording'}</p>
+                    </TooltipContent>
+                  </Tooltip>
                 </>
               )}
             </>

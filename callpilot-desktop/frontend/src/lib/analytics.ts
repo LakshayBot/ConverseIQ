@@ -1,4 +1,4 @@
-// Stub for Meetily's PostHog analytics — removed during CallPilot adaptation.
+// Stub for Meetily's PostHog analytics - removed during CallPilot adaptation.
 // Exists only so existing import statements keep type-checking. No-ops.
 
 const noop: (...args: any[]) => void = () => {};
@@ -37,7 +37,7 @@ const AnalyticsImpl: any = {
 const Analytics: any = new Proxy(AnalyticsImpl, {
   get(target, prop: string) {
     if (prop in target) return target[prop];
-    // Unknown method — return a no-op (sync) or a resolved Promise (async).
+    // Unknown method - return a no-op (sync) or a resolved Promise (async).
     return (..._args: any[]) => undefined;
   },
 });
