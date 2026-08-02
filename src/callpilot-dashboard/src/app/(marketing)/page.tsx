@@ -3,6 +3,15 @@ import { TextAnimate } from "@/components/magicui/text-animate";
 import { BorderBeam } from "@/components/magicui/border-beam";
 import { LiveCallDemo } from "@/components/marketing/LiveCallDemo";
 import { SiteNav } from "@/components/marketing/SiteNav";
+import { HowItWorks } from "@/components/marketing/HowItWorks";
+import { FeatureGrid } from "@/components/marketing/FeatureGrid";
+import { ProductShots } from "@/components/marketing/ProductShots";
+import { Privacy } from "@/components/marketing/Privacy";
+import { CompareTable } from "@/components/marketing/CompareTable";
+import { OpenSource } from "@/components/marketing/OpenSource";
+import { FAQSection } from "@/components/marketing/FAQSection";
+import { FinalCTA } from "@/components/marketing/FinalCTA";
+import { Footer } from "@/components/marketing/Footer";
 
 const GITHUB_URL = "https://github.com/LakshayBot/ConverseIQ";
 
@@ -11,6 +20,8 @@ export default function LandingPage() {
     <>
       {/* Scroll-aware nav (fixed; hero's top padding clears it) */}
       <SiteNav />
+
+      <span id="top" aria-hidden />
 
       {/* Hero — the live-call demo is the signature moment */}
       <section className="hero">
@@ -43,6 +54,16 @@ export default function LandingPage() {
           <p className="demo-caption">A live call, as CallPilot reads it</p>
         </div>
       </section>
+
+      <HowItWorks />
+      <FeatureGrid />
+      <ProductShots />
+      <Privacy />
+      <CompareTable />
+      <OpenSource />
+      <FAQSection />
+      <FinalCTA />
+      <Footer />
     </>
   );
 }

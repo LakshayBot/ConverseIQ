@@ -63,13 +63,17 @@ export function SiteNav() {
         </SheetContent>
       </Sheet>
 
-      <Link
-        href="/login"
-        className="btn-ghost hidden sm:inline-flex"
-        style={{ minHeight: 40, padding: "0.5rem 1.25rem" }}
-      >
-        Sign in
-      </Link>
+      {/* Sign in is hidden below sm via a plain wrapper (Tailwind utilities
+          would lose to .btn-ghost's display in the cascade) */}
+      <div className="hidden sm:block">
+        <Link
+          href="/login"
+          className="btn-ghost"
+          style={{ minHeight: 40, padding: "0.5rem 1.25rem" }}
+        >
+          Sign in
+        </Link>
+      </div>
       <Link
         href="/login"
         className="btn-primary"

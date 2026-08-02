@@ -37,7 +37,7 @@ export const FloatingNav = ({
     <motion.header
       initial={false}
       className={cn(
-        "fixed inset-x-0 top-0 z-[5000] transition-[background-color,border-color,backdrop-filter] duration-300 ease-out",
+        "site-nav fixed inset-x-0 top-0 z-[5000] transition-[background-color,border-color,backdrop-filter] duration-300 ease-out",
         scrolled
           ? "border-b border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface)]/80 backdrop-blur-md"
           : "border-b border-transparent bg-transparent",
@@ -47,7 +47,7 @@ export const FloatingNav = ({
       <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-3">
         <a
           href="#top"
-          className="font-display text-[1.25rem] font-bold tracking-[-0.02em] text-[var(--opaline-on-surface)]"
+          className="wordmark font-display text-[1.25rem] font-bold tracking-[-0.02em] text-[var(--opaline-on-surface)]"
         >
           CallPilot
         </a>

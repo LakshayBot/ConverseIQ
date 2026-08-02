@@ -21,6 +21,7 @@ export interface SafariProps extends HTMLAttributes<HTMLDivElement> {
   imageSrc?: string
   videoSrc?: string
   mode?: SafariMode
+  children?: React.ReactNode
 }
 
 export function Safari({
@@ -30,6 +31,7 @@ export function Safari({
   mode = "default",
   className,
   style,
+  children,
   ...props
 }: SafariProps) {
   const hasVideo = !!videoSrc
@@ -82,6 +84,21 @@ export function Safari({
             alt=""
             className="block size-full object-cover object-top"
           />
+        </div>
+      )}
+
+      {/* Content layer — the Safari chrome is drawn over this via the SVG
+          above. Children (our app-view mockups) render behind the toolbar
+          and window controls, clipped to the viewport area. */}
+      {children && (
+        <div
+          className="absolute inset-0 z-0 size-full overflow-hidden"
+          style={{
+            WebkitMaskImage:
+              "radial-gradient(circle at 50% 30%, black 30%, black 100%)",
+          }}
+        >
+          {children}
         </div>
       )}
 
