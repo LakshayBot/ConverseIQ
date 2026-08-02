@@ -84,6 +84,18 @@
   --color-muted-foreground:   var(--opaline-on-surface-variant);
   --color-border:             var(--opaline-outline-variant);
   --color-ring:               var(--opaline-primary);
+  --font-display: var(--font-space), "Space Grotesk", system-ui, sans-serif;
+  --font-body:    var(--font-inter), "Inter", system-ui, sans-serif;
+  --font-mono:    var(--font-jetbrains), "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* Shared page container — every section below the hero uses this so all
+ * content shares the hero's horizontal bounds (80rem = max-w-7xl). */
+.landing-container {
+  width: 100%;
+  max-width: 80rem;
+  margin-inline: auto;
+  padding-inline: var(--page-gutter);
 }
 
 /* Magic UI typing cursor (unused by the demo but required by the source). */
@@ -110,25 +122,6 @@ body { overflow-x: clip; }
   color: var(--opaline-on-surface);
   font-family: var(--font-body);
   min-height: 100dvh;
-}
-
-/* ── Nav ──────────────────────────────────────────────────────────────── */
-.landing-nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  max-width: 80rem;
-  margin-inline: auto;
-  padding-block: var(--space-lg);
-  padding-inline: var(--page-gutter);
-}
-
-.landing-nav .wordmark {
-  font-family: var(--font-display);
-  font-size: 1.25rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
 }
 
 /* ── Hero ─────────────────────────────────────────────────────────────── */

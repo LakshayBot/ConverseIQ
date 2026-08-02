@@ -2,35 +2,15 @@ import Link from "next/link";
 import { TextAnimate } from "@/components/magicui/text-animate";
 import { BorderBeam } from "@/components/magicui/border-beam";
 import { LiveCallDemo } from "@/components/marketing/LiveCallDemo";
+import { SiteNav } from "@/components/marketing/SiteNav";
 
 const GITHUB_URL = "https://github.com/LakshayBot/ConverseIQ";
 
 export default function LandingPage() {
   return (
     <>
-      {/* Nav */}
-      <header className="landing-nav">
-        <Link href="/" className="wordmark">
-          CallPilot
-        </Link>
-        <div className="flex items-center gap-2">
-          <Link
-            href="/login"
-            className="btn-ghost"
-            style={{ minHeight: 40, padding: "0.5rem 1.25rem" }}
-          >
-            Sign in
-          </Link>
-          <Link
-            href="/login"
-            className="btn-primary"
-            style={{ minHeight: 40, padding: "0.5rem 1.25rem" }}
-          >
-            <span className="hidden sm:inline">Open dashboard</span>
-            <span className="sm:hidden">Open</span>
-          </Link>
-        </div>
-      </header>
+      {/* Scroll-aware nav (fixed; hero's top padding clears it) */}
+      <SiteNav />
 
       {/* Hero — the live-call demo is the signature moment */}
       <section className="hero">
