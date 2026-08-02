@@ -1,17 +1,17 @@
 import type { Metadata } from "next";
-import { Space_Grotesk, Inter, JetBrains_Mono } from "next/font/google";
+import { Bodoni_Moda, Geist, JetBrains_Mono } from "next/font/google";
 import "./landing.css";
 
-const spaceGrotesk = Space_Grotesk({
+const bodoni = Bodoni_Moda({
   subsets: ["latin"],
-  weight: ["500", "600", "700"],
-  variable: "--font-space",
+  weight: ["600", "700"],
+  variable: "--font-bodoni",
 });
 
-const inter = Inter({
+const geist = Geist({
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-inter",
+  weight: ["400", "500"],
+  variable: "--font-geist",
 });
 
 const jetbrains = JetBrains_Mono({
@@ -32,9 +32,7 @@ export default function MarketingLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div
-      className={`${spaceGrotesk.variable} ${inter.variable} ${jetbrains.variable} landing`}
-    >
+    <div className={`${bodoni.variable} ${geist.variable} ${jetbrains.variable} landing`}>
       {children}
     </div>
   );
