@@ -61,8 +61,10 @@ const MENU_STYLES = {
 export function SiteNav() {
   return (
     <FloatingNav navItems={[]}>
-      {/* Desktop nav — hidden below md */}
-      <NavigationMenu className="hidden md:block">
+      {/* Desktop nav — hidden below md. viewport={false} renders the
+          dropdown panels in place (no radix viewport indirection), which
+          avoids positioning/background quirks across browsers. */}
+      <NavigationMenu viewport={false} className="hidden md:block">
         <NavigationMenuList>
           <NavigationMenuItem>
             <NavigationMenuTrigger className={MENU_STYLES.trigger}>

@@ -84,6 +84,13 @@
   --color-secondary-foreground: var(--opaline-on-secondary);
   --color-muted:              var(--opaline-surface-container-low);
   --color-muted-foreground:   var(--opaline-on-surface-variant);
+  --color-accent:             var(--opaline-surface-container-low);
+  --color-accent-foreground:  var(--opaline-on-surface);
+  --color-popover:            var(--opaline-surface-container-lowest);
+  --color-popover-foreground: var(--opaline-on-surface);
+  --color-card:               var(--opaline-surface-container-lowest);
+  --color-card-foreground:    var(--opaline-on-surface);
+  --color-input:              var(--opaline-surface-container-low);
   --color-border:             var(--opaline-outline-variant);
   --color-ring:               var(--opaline-primary);
   --font-display: var(--font-inter), "Inter", system-ui, sans-serif;
