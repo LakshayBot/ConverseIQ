@@ -1,11 +1,14 @@
 "use client";
 
-// CapabilityOverview — the 6-card capability row (Salesken-style product
-// card grid). Real-Time Detection is the 2x anchor; each card links
-// "Learn more" to the relevant section further down the page.
+// CapabilityOverview — the 6-card capability row. Uses the Magic UI
+// BentoGrid container (auto-rows, 3-col) with MagicCard spotlight-border
+// tiles, restyled to the Opaline tokens. Real-Time Detection is the 2x
+// anchor; each card links "Learn more" to its section.
 
 import { Radar, BookOpen, Mic, KeyRound, Plug, History } from "lucide-react";
 import Link from "next/link";
+import { BentoGrid } from "@/components/magicui/bento-grid";
+import { MagicCard } from "@/components/magicui/magic-card";
 
 const CARDS = [
   {
@@ -48,6 +51,43 @@ const CARDS = [
   },
 ];
 
+function CapabilityTile({
+  card,
+  featured,
+}: {
+  card: (typeof CARDS)[number];
+  featured?: boolean;
+}) {
+  return (
+    <MagicCard
+      className={`border border-[var(--opaline-outline-variant)] ${
+        featured ? "col-span-2" : ""
+      }`}
+    >
+      <div className={`flex h-full flex-col justify-between p-6 ${featured ? "min-h-[20rem]" : "min-h-[14rem]"}`}>
+        <div>
+          <span className="feature-icon">
+            <card.icon className="h-5 w-5" strokeWidth={1.75} />
+          </span>
+          <h3 className="mt-4 font-display text-lg font-bold tracking-[-0.01em] text-[var(--opaline-on-surface)]">
+            {card.name}
+          </h3>
+          <p className={`mt-2 text-sm leading-relaxed text-[var(--opaline-on-surface-variant)] ${featured ? "max-w-md" : ""}`}>
+            {card.description}
+          </p>
+        </div>
+        <Link
+          href={card.href}
+          className="mt-6 inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--opaline-primary)] transition-colors hover:text-[var(--opaline-on-primary-container)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--opaline-primary)]"
+        >
+          Learn more
+          <span aria-hidden>→</span>
+        </Link>
+      </div>
+    </MagicCard>
+  );
+}
+
 export function CapabilityOverview() {
   const anchor = CARDS[0];
   const rest = CARDS.slice(1);
@@ -63,43 +103,12 @@ export function CapabilityOverview() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="feature-card featured sm:col-span-2">
-            <div>
-              <span className="feature-icon">
-                <anchor.icon className="h-5 w-5" strokeWidth={1.75} />
-              </span>
-              <h3>{anchor.name}</h3>
-              <p className="max-w-md">{anchor.description}</p>
-            </div>
-            <Link
-              href={anchor.href}
-              className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--opaline-primary)] transition-colors hover:text-[var(--opaline-on-primary-container)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--opaline-primary)]"
-            >
-              Learn more
-              <span aria-hidden>→</span>
-            </Link>
-          </div>
-
-          {rest.map((f) => (
-            <div key={f.name} className="feature-card">
-              <div>
-                <span className="feature-icon">
-                  <f.icon className="h-5 w-5" strokeWidth={1.75} />
-                </span>
-                <h3>{f.name}</h3>
-                <p>{f.description}</p>
-              </div>
-              <Link
-                href={f.href}
-                className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--opaline-primary)] transition-colors hover:text-[var(--opaline-on-primary-container)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--opaline-primary)]"
-              >
-                Learn more
-                <span aria-hidden>→</span>
-              </Link>
-            </div>
+        <BentoGrid className="auto-rows-[auto] gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <CapabilityTile card={anchor} featured />
+          {rest.map((card) => (
+            <CapabilityTile key={card.name} card={card} />
           ))}
-        </div>
+        </BentoGrid>
       </div>
     </section>
   );

@@ -1,30 +1,28 @@
 "use client";
 
 // SecuritySection — honest substitute for compliance badges: three
-// plain cards, one Border Beam accent max. No SOC2/ISO/GDPR logos —
-// no certification is held yet.
+// MagicCard surfaces (subtle spotlight border on hover, brand tokens),
+// calm and non-flashy. No SOC2/ISO/GDPR logos — no certification is
+// held yet.
 
 import { Cpu, KeyRound, ShieldCheck } from "lucide-react";
-import { BorderBeam } from "@/components/magicui/border-beam";
+import { MagicCard } from "@/components/magicui/magic-card";
 
 const CARDS = [
   {
     icon: Cpu,
     title: "Local-first transcription",
     body: "Parakeet runs on-device — the raw audio never leaves the machine by default.",
-    beam: true,
   },
   {
     icon: KeyRound,
     title: "Bring your own model",
     body: "You control which LLM provider handles synthesis — Ollama, OpenAI, DeepSeek, whatever you configure.",
-    beam: false,
   },
   {
     icon: ShieldCheck,
     title: "Self-managed knowledge bank",
     body: "Your documents on your own Postgres — not a shared or pooled model.",
-    beam: false,
   },
 ];
 
@@ -39,21 +37,22 @@ export function SecuritySection() {
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {CARDS.map((card) => (
-            <div key={card.title} className="privacy-card">
-              {card.beam && (
-                <BorderBeam
-                  size={160}
-                  borderWidth={1.5}
-                  colorFrom="#e58a7b"
-                  colorTo="#93483c"
-                />
-              )}
-              <span className="privacy-icon">
-                <card.icon className="h-5 w-5" strokeWidth={1.75} />
-              </span>
-              <h3>{card.title}</h3>
-              <p>{card.body}</p>
-            </div>
+            <MagicCard
+              key={card.title}
+              className="border border-[var(--opaline-outline-variant)]"
+            >
+              <div className="flex h-full min-h-[14rem] flex-col p-6">
+                <span className="privacy-icon">
+                  <card.icon className="h-5 w-5" strokeWidth={1.75} />
+                </span>
+                <h3 className="font-display text-lg font-bold tracking-[-0.01em] text-[var(--opaline-on-surface)]">
+                  {card.title}
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-[var(--opaline-on-surface-variant)]">
+                  {card.body}
+                </p>
+              </div>
+            </MagicCard>
           ))}
         </div>
       </div>
