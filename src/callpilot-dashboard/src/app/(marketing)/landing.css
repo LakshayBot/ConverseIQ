@@ -86,7 +86,7 @@
   --color-muted-foreground:   var(--opaline-on-surface-variant);
   --color-border:             var(--opaline-outline-variant);
   --color-ring:               var(--opaline-primary);
-  --font-display: var(--font-space), "Space Grotesk", system-ui, sans-serif;
+  --font-display: var(--font-inter), "Inter", system-ui, sans-serif;
   --font-body:    var(--font-inter), "Inter", system-ui, sans-serif;
   --font-mono:    var(--font-jetbrains), "JetBrains Mono", ui-monospace, monospace;
 }
@@ -125,10 +125,10 @@ html { overflow-x: clip; }
 body { overflow-x: clip; }
 
 .landing {
-  /* Typography — loaded via next/font in layout.tsx. The next/font
-   * variables (--font-space/--font-inter/--font-jetbrains) live on this
-   * same element, so the family tokens must too — :root cannot see them. */
-  --font-display: var(--font-space), "Space Grotesk", system-ui, sans-serif;
+  /* Typography — loaded via next/font in layout.tsx. Inter is the single
+   * family (display + body); hierarchy comes from weight. The next/font
+   * variables live on this same element, so the family tokens must too. */
+  --font-display: var(--font-inter), "Inter", system-ui, sans-serif;
   --font-body:    var(--font-inter), "Inter", system-ui, sans-serif;
   --font-mono:    var(--font-jetbrains), "JetBrains Mono", ui-monospace, monospace;
 
