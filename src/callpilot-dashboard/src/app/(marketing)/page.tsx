@@ -13,9 +13,23 @@ export default function LandingPage() {
         <Link href="/" className="wordmark">
           CallPilot
         </Link>
-        <Link href="/login" className="btn-ghost" style={{ minHeight: 40, padding: "0.5rem 1.25rem" }}>
-          Sign in
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/login"
+            className="btn-ghost"
+            style={{ minHeight: 40, padding: "0.5rem 1.25rem" }}
+          >
+            Sign in
+          </Link>
+          <Link
+            href="/login"
+            className="btn-primary"
+            style={{ minHeight: 40, padding: "0.5rem 1.25rem" }}
+          >
+            <span className="hidden sm:inline">Open dashboard</span>
+            <span className="sm:hidden">Open</span>
+          </Link>
+        </div>
       </header>
 
       {/* Hero — the live-call demo is the signature moment */}

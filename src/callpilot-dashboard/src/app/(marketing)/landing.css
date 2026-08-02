@@ -117,7 +117,11 @@ body { overflow-x: clip; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-lg) var(--page-gutter);
+  width: 100%;
+  max-width: 80rem;
+  margin-inline: auto;
+  padding-block: var(--space-lg);
+  padding-inline: var(--page-gutter);
 }
 
 .landing-nav .wordmark {
@@ -129,11 +133,15 @@ body { overflow-x: clip; }
 
 /* ── Hero ─────────────────────────────────────────────────────────────── */
 .hero {
-  padding: var(--space-3xl) var(--page-gutter) var(--space-3xl);
   display: grid;
   grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
   gap: var(--space-2xl);
   align-items: center;
+  width: 100%;
+  max-width: 80rem;
+  margin-inline: auto;
+  padding-block: var(--space-3xl);
+  padding-inline: var(--page-gutter);
 }
 
 .hero .eyebrow {
@@ -182,6 +190,7 @@ body { overflow-x: clip; }
   font-size: 0.9375rem;
   padding: 0.75rem 1.5rem;
   min-height: 44px;
+  white-space: nowrap;
   transition: background var(--dur-short) var(--ease-out);
 }
 .btn-primary:hover { background: var(--opaline-on-primary-container); }
@@ -201,6 +210,7 @@ body { overflow-x: clip; }
   font-size: 0.9375rem;
   padding: 0.75rem 1.5rem;
   min-height: 44px;
+  white-space: nowrap;
   transition: border-color var(--dur-short) var(--ease-out), background var(--dur-short) var(--ease-out);
 }
 .btn-ghost:hover { border-color: var(--opaline-primary); background: var(--opaline-surface-container-low); }
@@ -229,7 +239,7 @@ body { overflow-x: clip; }
   .hero {
     grid-template-columns: 1fr;
     gap: var(--space-xl);
-    padding: var(--space-2xl) var(--page-gutter);
+    padding-block: var(--space-2xl);
   }
   .hero .display { letter-spacing: -0.02em; }
 }
@@ -237,4 +247,7 @@ body { overflow-x: clip; }
 @media (max-width: 40rem) {
   .hero-ctas { gap: var(--space-sm); }
   .btn-primary, .btn-ghost { flex: 1 1 100%; justify-content: center; }
+
+  /* Nav: shrink the wordmark so both CTAs keep their full labels at 320 px. */
+  .landing-nav .wordmark { font-size: 1.125rem; }
 }

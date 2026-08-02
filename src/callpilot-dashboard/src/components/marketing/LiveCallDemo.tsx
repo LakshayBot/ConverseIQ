@@ -160,7 +160,7 @@ export function LiveCallDemo() {
         title="CallPilot — live call"
         sequence
         startOnView
-        className="border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] max-w-none"
+        className="border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] max-w-none max-h-none min-h-[24rem]"
       >
         <SequenceContext.Provider
           value={{
