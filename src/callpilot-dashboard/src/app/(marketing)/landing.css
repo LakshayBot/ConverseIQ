@@ -247,6 +247,28 @@ body { overflow-x: clip; }
   width: 100%;
 }
 
+/* Ambient maroon glow behind the demo window — heavy blur, low opacity,
+   receded in 3D space so it reads as atmosphere around the elevated
+   card, never as a visible colored shape. */
+.demo-glow {
+  position: absolute;
+  left: 50%;
+  top: 55%;
+  width: 132%;
+  height: 118%;
+  transform: translate(-50%, -50%) translateZ(-90px);
+  border-radius: 9999px;
+  background: radial-gradient(
+    closest-side,
+    rgba(147, 72, 60, 0.13),
+    rgba(147, 72, 60, 0.05) 55%,
+    transparent 78%
+  );
+  filter: blur(36px);
+  pointer-events: none;
+  z-index: 0;
+}
+
 .demo-wrap .demo-caption {
   margin-top: var(--space-md);
   text-align: center;

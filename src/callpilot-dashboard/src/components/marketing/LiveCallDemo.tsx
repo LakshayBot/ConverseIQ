@@ -13,7 +13,7 @@
 // dark/gradient styling.
 
 import { useRef, useState } from "react";
-import { useInView } from "motion/react";
+import { useInView, useMotionValue, useSpring } from "motion/react";
 import { AnimatePresence, motion } from "motion/react";
 import {
   Terminal,
@@ -173,14 +173,59 @@ export function LiveCallDemo() {
   const frameRef = useRef<HTMLDivElement | null>(null);
   const inView = useInView(frameRef, { amount: 0.3, once: true });
 
+  // Subtle 3D presentation: static tilt (rotateX 4° / rotateY −6°) plus a
+  // few degrees of mouse parallax on hover-capable devices. Disabled for
+  // touch and prefers-reduced-motion — the static tilt stays either way.
+  // The reduced-motion check reads the media query directly per event
+  // (motion's useReducedMotion hook doesn't update reactively here).
+  const rotateX = useMotionValue(4);
+  const rotateY = useMotionValue(-6);
+  const springX = useSpring(rotateX, { stiffness: 120, damping: 20 });
+  const springY = useSpring(rotateY, { stiffness: 120, damping: 20 });
+
+  const canParallax =
+    typeof window !== "undefined" &&
+    window.matchMedia("(hover: hover) and (pointer: fine)").matches &&
+    !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!canParallax) return;
+    // Live check too — covers mid-session preference changes.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const px = (e.clientX - rect.left) / rect.width - 0.5;
+    const py = (e.clientY - rect.top) / rect.height - 0.5;
+    rotateX.set(4 - py * 6);
+    rotateY.set(-6 + px * 6);
+  };
+
+  const resetTilt = () => {
+    rotateX.set(4);
+    rotateY.set(-6);
+  };
+
   return (
-    <div ref={frameRef}>
-      <Terminal
-        title="CallPilot — live call"
-        sequence
-        startOnView
-        className="border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] max-w-none max-h-none min-h-[24rem]"
+    <div
+      ref={frameRef}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={resetTilt}
+      style={{ perspective: 1200 }}
+      className="relative"
+    >
+      <motion.div
+        style={{ rotateX: springX, rotateY: springY, transformStyle: "preserve-3d" }}
+        className="relative"
       >
+        {/* Ambient maroon glow radiating from behind the window — barely
+            there atmosphere, not a beam. Sits back in 3D space. */}
+        <div aria-hidden className="demo-glow" />
+
+        <Terminal
+          title="CallPilot — live call"
+          sequence
+          startOnView
+          className="border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] max-w-none max-h-none min-h-[24rem] shadow-[0_2px_8px_rgba(139,58,58,0.06),0_16px_40px_rgba(139,58,58,0.08),0_32px_80px_rgba(0,0,0,0.10)]"
+        >
         <SequenceContext.Provider
           value={{
             activeIndex,
@@ -235,6 +280,7 @@ export function LiveCallDemo() {
           </div>
         </SequenceContext.Provider>
       </Terminal>
+      </motion.div>
     </div>
   );
 }
