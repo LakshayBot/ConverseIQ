@@ -1,7 +1,8 @@
 "use client";
 
-// Privacy & Architecture — three calm, trust-led cards. One Border Beam
-// accent max (on "Runs locally" — the strongest claim), the rest plain.
+// SecuritySection — honest substitute for compliance badges: three
+// plain cards, one Border Beam accent max. No SOC2/ISO/GDPR logos —
+// no certification is held yet.
 
 import { Cpu, KeyRound, ShieldCheck } from "lucide-react";
 import { BorderBeam } from "@/components/magicui/border-beam";
@@ -9,30 +10,30 @@ import { BorderBeam } from "@/components/magicui/border-beam";
 const CARDS = [
   {
     icon: Cpu,
-    title: "Runs locally",
-    body: "Parakeet transcribes on-device — audio never leaves the machine by default.",
+    title: "Local-first transcription",
+    body: "Parakeet runs on-device — the raw audio never leaves the machine by default.",
     beam: true,
   },
   {
     icon: KeyRound,
     title: "Bring your own model",
-    body: "The synthesis step is BYOK: Ollama, OpenAI, DeepSeek — whatever you configure.",
+    body: "You control which LLM provider handles synthesis — Ollama, OpenAI, DeepSeek, whatever you configure.",
     beam: false,
   },
   {
     icon: ShieldCheck,
-    title: "Your knowledge, your control",
-    body: "A self-managed knowledge bank on your own Postgres — not a shared or pooled model.",
+    title: "Self-managed knowledge bank",
+    body: "Your documents on your own Postgres — not a shared or pooled model.",
     beam: false,
   },
 ];
 
-export function Privacy() {
+export function SecuritySection() {
   return (
-    <section id="privacy" className="section">
+    <section id="security" className="section">
       <div className="landing-container">
         <div className="section-head">
-          <p className="section-eyebrow">05 — Privacy & architecture</p>
+          <p className="section-eyebrow">Security & architecture</p>
           <h2 className="section-title">Your calls stay yours</h2>
         </div>
 

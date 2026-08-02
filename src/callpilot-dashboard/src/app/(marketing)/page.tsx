@@ -3,12 +3,15 @@ import { TextAnimate } from "@/components/magicui/text-animate";
 import { BorderBeam } from "@/components/magicui/border-beam";
 import { LiveCallDemo } from "@/components/marketing/LiveCallDemo";
 import { SiteNav } from "@/components/marketing/SiteNav";
+import { CapabilityOverview } from "@/components/marketing/CapabilityOverview";
+import { PersonaCards } from "@/components/marketing/PersonaCards";
+import { TrustSignals } from "@/components/marketing/TrustSignals";
 import { HowItWorks } from "@/components/marketing/HowItWorks";
-import { FeatureGrid } from "@/components/marketing/FeatureGrid";
-import { ProductShots } from "@/components/marketing/ProductShots";
-import { Privacy } from "@/components/marketing/Privacy";
+import { FeatureTabs } from "@/components/marketing/FeatureTabs";
+import { WhyTeams } from "@/components/marketing/WhyTeams";
+import { UseCases } from "@/components/marketing/UseCases";
+import { SecuritySection } from "@/components/marketing/SecuritySection";
 import { CompareTable } from "@/components/marketing/CompareTable";
-import { OpenSource } from "@/components/marketing/OpenSource";
 import { FAQSection } from "@/components/marketing/FAQSection";
 import { FinalCTA } from "@/components/marketing/FinalCTA";
 import { Footer } from "@/components/marketing/Footer";
@@ -55,13 +58,37 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* 1. Capability overview */}
+      <CapabilityOverview />
+
+      {/* 2. Personas */}
+      <PersonaCards />
+
+      {/* 3. Trust signals */}
+      <TrustSignals />
+
+      {/* 4. How it works */}
       <HowItWorks />
-      <FeatureGrid />
-      <ProductShots />
-      <Privacy />
+
+      {/* 5. Feature deep dive */}
+      <FeatureTabs />
+
+      {/* 6. Why teams */}
+      <WhyTeams />
+
+      {/* 7. Use cases */}
+      <UseCases />
+
+      {/* 8. Security & architecture */}
+      <SecuritySection />
+
+      {/* 9. Comparison */}
       <CompareTable />
-      <OpenSource />
+
+      {/* 10. FAQ */}
       <FAQSection />
+
+      {/* 11. Final CTA + footer */}
       <FinalCTA />
       <Footer />
     </>

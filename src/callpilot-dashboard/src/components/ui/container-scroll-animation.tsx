@@ -1,6 +1,7 @@
 "use client";
 import React, { useRef } from "react";
 import { useScroll, useTransform, motion, MotionValue } from "motion/react";
+import { cn } from "@/lib/utils";
 
 // CallPilot adaptation of Aceternity's ContainerScroll:
 //   - 3D rotate-in-on-scroll reveal (rotateX 20deg → 0)
@@ -10,9 +11,13 @@ import { useScroll, useTransform, motion, MotionValue } from "motion/react";
 export const ContainerScroll = ({
   titleComponent,
   children,
+  className,
+  heightClass,
 }: {
   titleComponent: string | React.ReactNode;
   children: React.ReactNode;
+  className?: string;
+  heightClass?: string;
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({
@@ -41,7 +46,11 @@ export const ContainerScroll = ({
 
   return (
     <div
-      className="relative flex h-[46rem] items-center justify-center p-2 md:h-[56rem] md:p-20"
+      className={cn(
+        "relative flex h-[46rem] items-center justify-center p-2 md:h-[56rem] md:p-20",
+        heightClass,
+        className
+      )}
       ref={containerRef}
     >
       <div
