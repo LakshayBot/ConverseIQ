@@ -259,6 +259,12 @@
 
   /* ── Tonal alphas (chipped against surface-tint) ─────────────────────── */
   --opaline-tone-4:                     rgba(147, 72, 60, 0.08);
+  /* Intelligence cards — priority accent variants (desaturated maroon)
+     and the 10% maroon tint used for type badges. */
+  --intel-high:                        var(--opaline-primary);
+  --intel-medium:                      #8f6358;
+  --intel-low:                         var(--opaline-outline);
+  --intel-type-bg:                     rgba(147, 72, 60, 0.10);
   --opaline-tone-8:                     rgba(147, 72, 60, 0.16);
   --opaline-tone-12:                    rgba(147, 72, 60, 0.24);
   --opaline-tone-20:                    rgba(147, 72, 60, 0.40);

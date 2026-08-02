@@ -36,9 +36,21 @@ const TYPE_META: Record<IntelligenceCard['type'], { icon: React.ReactNode; label
 };
 
 const SEVERITY_BORDER: Record<IntelligenceCard['severity'], string> = {
-  high: 'border-l-[var(--opaline-error)]',
-  medium: 'border-l-[var(--opaline-primary)]',
-  low: 'border-l-[var(--opaline-secondary)]',
+  high: 'border-l-[3px] border-l-[var(--intel-high)]',
+  medium: 'border-l-2 border-l-[var(--intel-medium)]',
+  low: 'border-l-2 border-l-[var(--intel-low)]',
+};
+
+const SEVERITY_ACCENT: Record<IntelligenceCard['severity'], string> = {
+  high: 'text-[var(--intel-high)]',
+  medium: 'text-[var(--intel-medium)]',
+  low: 'text-[var(--intel-low)]',
+};
+
+const SEVERITY_DOT: Record<IntelligenceCard['severity'], string> = {
+  high: 'bg-[var(--intel-high)]',
+  medium: 'bg-[var(--intel-medium)]',
+  low: 'bg-[var(--intel-low)]',
 };
 
 /**
@@ -217,39 +229,64 @@ export const IntelligencePanel: React.FC<Props> = ({ cards, connected, error, se
 
 const IntelligenceCardItem: React.FC<{ card: IntelligenceCard }> = ({ card }) => {
   const [open, setOpen] = useState(false);
-  const meta = TYPE_META[card.type] ?? { icon: <MessageCircle className="w-4 h-4" />, label: card.type };
+  const meta = TYPE_META[card.type] ?? { icon: <MessageCircle className="h-4 w-4" strokeWidth={2} />, label: card.type };
   const hasChunks = card.chunks && card.chunks.length > 0;
 
   return (
     <div
-      className={`bg-[var(--opaline-surface-container-lowest)] rounded-md border border-[var(--opaline-outline-variant)] border-l-4 ${SEVERITY_BORDER[card.severity]} overflow-hidden`}
+      className={`rounded-xl border border-black/[0.06] bg-[var(--opaline-surface-container-lowest)] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.06)] overflow-hidden ${SEVERITY_BORDER[card.severity]}`}
     >
-      <div className="p-3">
-        <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-[var(--opaline-on-surface-variant)]">
-          <span className="text-[var(--opaline-on-surface-variant)]">{meta.icon}</span>
-          <span>{meta.label}</span>
-          <span className="ml-auto text-[10px] font-semibold uppercase text-[var(--opaline-on-surface-variant)]">{card.severity}</span>
-        </div>
-        <div className="mt-1 text-sm font-semibold text-[var(--opaline-on-surface)]">{card.title}</div>
-        {card.body && <div className="mt-1 text-sm text-[var(--opaline-on-surface-variant)] whitespace-pre-wrap">{card.body}</div>}
-        {hasChunks && (
-          <button
-            type="button"
-            onClick={() => setOpen((o) => !o)}
-            className="mt-2 inline-flex items-center gap-1 text-xs text-[var(--opaline-primary)] hover:underline"
+      <div className="p-4">
+        {/* Label row — type badge (tinted pill) + priority badge (outline chip),
+            each in the severity accent. */}
+        <div className="flex items-center justify-between gap-2">
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full bg-[var(--intel-type-bg)] px-2.5 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] ${SEVERITY_ACCENT[card.severity]}`}
           >
-            {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-            View sources ({card.chunks.length})
-          </button>
+            {meta.icon}
+            {meta.label}
+          </span>
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full border border-black/[0.08] px-2.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.1em] ${SEVERITY_ACCENT[card.severity]}`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${SEVERITY_DOT[card.severity]}`} aria-hidden />
+            {card.severity}
+          </span>
+        </div>
+
+        {/* Title — largest text in the card, heaviest weight. */}
+        <div className="mt-2 text-[15px] font-bold leading-snug text-[var(--opaline-on-surface)]">
+          {card.title}
+        </div>
+
+        {/* Body — medium weight, muted, comfortable leading. */}
+        {card.body && (
+          <div className="mt-1.5 text-[13px] leading-[1.5] whitespace-pre-wrap text-[var(--opaline-on-surface-variant)]">
+            {card.body}
+          </div>
         )}
-        {open && hasChunks && (
-          <ul className="mt-2 space-y-2">
-            {card.chunks.map((chunk, i) => (
-              <li key={i} className="text-xs text-[var(--opaline-on-surface-variant)] border-l-2 border-[var(--opaline-outline-variant)] pl-2">
-                {chunk}
-              </li>
-            ))}
-          </ul>
+
+        {/* Footer — hairline divider, smallest muted type. */}
+        {hasChunks && (
+          <div className="mt-3 border-t border-black/[0.06] pt-2.5">
+            <button
+              type="button"
+              onClick={() => setOpen((o) => !o)}
+              className="inline-flex items-center gap-1 font-mono text-[11px] text-[var(--opaline-on-surface-variant)] transition-colors hover:text-[var(--opaline-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--opaline-primary)]"
+            >
+              {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              View sources ({card.chunks.length})
+            </button>
+            {open && (
+              <ul className="mt-2 space-y-2">
+                {card.chunks.map((chunk, i) => (
+                  <li key={i} className="text-xs text-[var(--opaline-on-surface-variant)] border-l-2 border-[var(--opaline-outline-variant)] pl-2">
+                    {chunk}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
       </div>
     </div>

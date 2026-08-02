@@ -41,6 +41,14 @@
 
   --opaline-tone-4:                   rgba(147, 72, 60, 0.08);
 
+  /* Intelligence cards — priority accent variants (desaturated maroon)
+     and the 10% maroon tint used for type badges. Same values as the
+     desktop app so hero demo and live rail stay identical. */
+  --intel-high:                       var(--opaline-primary);
+  --intel-medium:                     #8f6358;
+  --intel-low:                        var(--opaline-outline);
+  --intel-type-bg:                    rgba(147, 72, 60, 0.10);
+
   /* ── Speaker tones (real app values) ── */
   --grain-rep:                        #84c95f;
   --grain-prospect:                   #7d5df6;

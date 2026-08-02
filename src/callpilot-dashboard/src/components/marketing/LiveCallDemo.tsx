@@ -77,29 +77,48 @@ const CARDS: DemoCard[] = [
 ];
 
 const SEVERITY_BORDER: Record<DemoCard["severity"], string> = {
-  high: "border-l-[var(--opaline-error)]",
-  medium: "border-l-[var(--opaline-primary)]",
-  low: "border-l-[var(--opaline-secondary)]",
+  high: "border-l-[3px] border-l-[var(--intel-high)]",
+  medium: "border-l-2 border-l-[var(--intel-medium)]",
+  low: "border-l-2 border-l-[var(--intel-low)]",
+};
+
+const SEVERITY_ACCENT: Record<DemoCard["severity"], string> = {
+  high: "text-[var(--intel-high)]",
+  medium: "text-[var(--intel-medium)]",
+  low: "text-[var(--intel-low)]",
+};
+
+const SEVERITY_DOT: Record<DemoCard["severity"], string> = {
+  high: "bg-[var(--intel-high)]",
+  medium: "bg-[var(--intel-medium)]",
+  low: "bg-[var(--intel-low)]",
 };
 
 function ProductMatchCard({ card }: { card: DemoCard }) {
   const Icon = card.kind === "Product match" ? Package : HelpCircle;
   return (
     <div
-      className={`rounded-md border border-[var(--opaline-outline-variant)] border-l-4 ${SEVERITY_BORDER[card.severity]} bg-[var(--opaline-surface-container-lowest)] overflow-hidden`}
+      className={`rounded-xl border border-black/[0.06] bg-[var(--opaline-surface-container-lowest)] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_12px_rgba(0,0,0,0.06)] overflow-hidden ${SEVERITY_BORDER[card.severity]}`}
     >
-      <div className="p-3">
-        <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-[var(--opaline-on-surface-variant)]">
-          <Icon className="h-3 w-3" strokeWidth={2} />
-          <span>{card.kind}</span>
-          <span className="ml-auto text-[10px] font-semibold uppercase">
+      <div className="p-4">
+        <div className="flex items-center justify-between gap-2">
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full bg-[var(--intel-type-bg)] px-2.5 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] ${SEVERITY_ACCENT[card.severity]}`}
+          >
+            <Icon className="h-4 w-4" strokeWidth={2} />
+            {card.kind}
+          </span>
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full border border-black/[0.08] px-2.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.1em] ${SEVERITY_ACCENT[card.severity]}`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${SEVERITY_DOT[card.severity]}`} aria-hidden />
             {card.severity}
           </span>
         </div>
-        <div className="mt-1 text-[13px] font-semibold text-[var(--opaline-on-surface)]">
+        <div className="mt-2 text-[15px] font-bold leading-snug text-[var(--opaline-on-surface)]">
           {card.title}
         </div>
-        <div className="mt-0.5 text-xs leading-relaxed text-[var(--opaline-on-surface-variant)]">
+        <div className="mt-1.5 text-[13px] leading-[1.5] whitespace-pre-wrap text-[var(--opaline-on-surface-variant)]">
           {card.body}
         </div>
       </div>
