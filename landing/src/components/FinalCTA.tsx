@@ -6,7 +6,12 @@
 import { useRef } from 'react'
 import { gsap } from 'gsap'
 import { SplitText } from 'gsap/SplitText'
-import { EASE, prefersReducedMotion, useSectionTimeline } from '@/lib/motion'
+import {
+  EASE,
+  paintAccentGradient,
+  prefersReducedMotion,
+  useSectionTimeline,
+} from '@/lib/motion'
 import { IconArrow, IconArrowUpRight, IconGitHub } from './icons'
 import { Magnetic } from './Magnetic'
 
@@ -22,6 +27,7 @@ export function FinalCTA(): React.JSX.Element {
     () => {
       if (reduced) return
       const split = SplitText.create(h2Ref.current!, { type: 'chars', charsClass: 'char' })
+      const clearGradient = paintAccentGradient(h2Ref.current!)
       const tl = gsap.timeline({
         scrollTrigger: { trigger: rootRef.current, start: 'top 72%' },
       })
@@ -39,6 +45,7 @@ export function FinalCTA(): React.JSX.Element {
       tl.from('[data-cta-foot]', { opacity: 0, duration: 0.6 }, '-=0.3')
       return () => {
         tl.kill()
+        clearGradient()
         split.revert()
       }
     },

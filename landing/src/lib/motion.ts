@@ -105,6 +105,45 @@ export function useHeadingReveal<T extends HTMLElement>(ref: RefObject<T | null>
   }, [ref])
 }
 
+/**
+ * Paints the accent gradient onto the split characters directly.
+ *
+ * `background-clip: text` on the accent <em> stops working the moment
+ * SplitText moves its text into child .char boxes — the em is left with
+ * no text of its own, so the clip region is empty and the gradient paints
+ * nothing (glyphs become invisible until a text-selection repaints them).
+ * Painting each character individually with a phrase-sized background
+ * keeps the gradient flowing continuously across the word, and works in
+ * every browser regardless of the split structure.
+ */
+export function paintAccentGradient(root: HTMLElement): () => void {
+  const accentChars = Array.from(root.querySelectorAll<HTMLElement>('.accent .char'))
+  if (!accentChars.length) return () => {}
+
+  const apply = (): void => {
+    const first = accentChars[0].getBoundingClientRect()
+    const last = accentChars[accentChars.length - 1].getBoundingClientRect()
+    const width = Math.max(1, last.right - first.left)
+    for (const char of accentChars) {
+      const left = char.getBoundingClientRect().left - first.left
+      char.style.backgroundImage =
+        'linear-gradient(115deg, var(--color-brand-live) 10%, #ffb48a 55%, var(--color-brand-soft) 90%)'
+      char.style.backgroundSize = `${width}px 100%`
+      char.style.backgroundPosition = `${-left}px 0`
+      char.style.backgroundRepeat = 'no-repeat'
+      char.style.backgroundClip = 'text'
+      char.style.webkitBackgroundClip = 'text'
+      char.style.color = 'transparent'
+      char.style.webkitTextFillColor = 'transparent'
+    }
+  }
+  apply()
+
+  // Characters reflow on resize — keep the phrase gradient aligned.
+  window.addEventListener('resize', apply, { passive: true })
+  return () => window.removeEventListener('resize', apply)
+}
+
 export function refreshScrollTriggers(): void {
   ScrollTrigger.refresh()
 }

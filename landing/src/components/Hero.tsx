@@ -11,7 +11,7 @@
 import { useEffect, useRef } from 'react'
 import { gsap } from 'gsap'
 import { SplitText } from 'gsap/SplitText'
-import { EASE, prefersReducedMotion } from '@/lib/motion'
+import { EASE, paintAccentGradient, prefersReducedMotion } from '@/lib/motion'
 import { VoiceField } from './three/VoiceField'
 import { LiveCallWindow } from './LiveCallWindow'
 import { IconArrow, IconArrowUpRight, IconGitHub } from './icons'
@@ -30,6 +30,7 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
   useEffect(() => {
     if (!booted || !rootRef.current) return
 
+    let clearGradient: () => void = () => {}
     const tl = gsap.timeline()
     tl.from('[data-hero="eyebrow"]', {
       y: 16,
@@ -40,6 +41,7 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
 
     if (!prefersReducedMotion()) {
       const split = SplitText.create(h1Ref.current!, { type: 'chars', charsClass: 'char' })
+      clearGradient = paintAccentGradient(h1Ref.current!)
       tl.from(
         split.chars,
         {
@@ -75,6 +77,7 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
 
     return () => {
       tl.kill()
+      clearGradient()
     }
   }, [booted])
 
