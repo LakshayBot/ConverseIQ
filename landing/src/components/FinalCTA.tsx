@@ -32,6 +32,7 @@ export function FinalCTA(): React.JSX.Element {
         duration: 1.0,
         stagger: 0.02,
         ease: 'power4.out',
+        onComplete: () => gsap.set(split.chars, { overflow: 'visible' }),
       })
       tl.from('[data-cta-sub]', { y: 22, opacity: 0, duration: 0.7, ease: EASE.out }, '-=0.45')
       tl.from('[data-cta-actions]', { y: 20, opacity: 0, duration: 0.7, ease: EASE.out }, '-=0.45')

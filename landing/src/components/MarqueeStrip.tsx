@@ -5,7 +5,7 @@
 
 import { cx } from '@/lib/cx'
 
-export const STACK_MARQUEE = [
+const STACK_MARQUEE = [
   'Nemotron',
   'Aho-Corasick',
   'SignalR',

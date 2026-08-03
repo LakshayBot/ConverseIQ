@@ -3,11 +3,15 @@
 // system in three acts: capture (the waveform), detect (the trie lighting
 // up on SCIM / SAML / Okta), surface (the grounded card). Scrubbed, so the
 // visitor drives the pipeline with their scroll.
+// Mobile (< 1024px) and reduced motion: the three acts stack naturally in
+// the page flow — nothing is pinned, nothing is hidden.
 // ============================================================================
 
 import { useRef } from 'react'
 import { gsap } from 'gsap'
-import { EASE, prefersReducedMotion, useSectionTimeline } from '@/lib/motion'
+import { EASE, prefersReducedMotion, useSectionTimeline, useHeadingReveal } from '@/lib/motion'
+import { useIsDesktop } from '@/lib/media'
+import { cx } from '@/lib/cx'
 import { IntelCard, type Severity } from './IntelCard'
 import { IconTechnical } from './icons'
 import { Equalizer } from './Equalizer'
@@ -40,11 +44,15 @@ export function PipelineSection(): React.JSX.Element {
   const rootRef = useRef<HTMLElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const reduced = prefersReducedMotion()
+  const isDesktop = useIsDesktop()
+  const staticLayout = reduced || !isDesktop
+
+  useHeadingReveal(rootRef)
 
   useSectionTimeline(
     rootRef,
     () => {
-      if (reduced) return
+      if (staticLayout) return
       const stage = stageRef.current
       if (!stage) return
 
@@ -131,33 +139,34 @@ export function PipelineSection(): React.JSX.Element {
         2.1,
       )
     },
-    [reduced],
+    [staticLayout],
   )
 
   return (
     <section id="pipeline" ref={rootRef} className="nocturne section">
       <div className="container">
         <p className="eyebrow">How it works · one utterance, three acts</p>
-        <h2 className="h2-display mask-lines mt-6 max-w-[16ch]">
-          Every signal has a <em className="accent">journey.</em>
+        <h2 className="h2-display mt-6 max-w-[16ch]">
+          <span className="mask-line"><span className="mask-line-inner">Every signal has a</span></span>
+          <span className="mask-line"><span className="mask-line-inner"><em className="accent">journey.</em></span></span>
         </h2>
       </div>
 
       <div
         ref={stageRef}
         className="relative mx-auto mt-16 w-full max-w-[1240px] px-[clamp(1.25rem,4vw,3rem)]"
-        style={{ height: reduced ? undefined : 'clamp(480px, 68vh, 620px)' }}
+        style={{ height: staticLayout ? undefined : 'clamp(480px, 68vh, 620px)' }}
       >
-        <div className="grid h-full gap-10 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:items-center">
+        <div className="grid gap-10 lg:h-full lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:items-center">
           {/* ── Left: act descriptions ─────────────────────────────────── */}
           <div className="relative min-h-[240px]">
-            <div className="flex items-center gap-2.5" aria-hidden="true">
+            <div className={cx('flex items-center gap-2.5', staticLayout && 'hidden')} aria-hidden="true">
               {[1, 2, 3].map((n) => (
                 <span
                   key={n}
                   data-tick={n}
                   className="h-1.5 w-1.5 rounded-full bg-brand-live"
-                  style={{ transform: 'scale(0)' }}
+                  style={{ transform: staticLayout ? undefined : 'scale(0)' }}
                 />
               ))}
             </div>
@@ -166,8 +175,8 @@ export function PipelineSection(): React.JSX.Element {
                 <div
                   key={act.num}
                   data-act={ACTS[i].num}
-                  className={reduced ? 'mt-8' : 'absolute inset-0 opacity-0'}
-                  style={reduced ? undefined : { opacity: i === 0 && !reduced ? 1 : undefined }}
+                  className={staticLayout ? (i > 0 ? 'mt-10' : '') : 'absolute inset-0 opacity-0'}
+                  style={!staticLayout && i === 0 ? { opacity: 1 } : undefined}
                 >
                   <div className="flex items-baseline gap-5">
                     <span className="font-mono text-[13px] tracking-[0.2em] text-brand-live">
@@ -191,8 +200,7 @@ export function PipelineSection(): React.JSX.Element {
             {/* Act 1 — capture */}
             <div
               data-panel="capture"
-              className={reduced ? 'glass rounded-2xl p-8' : 'glass absolute inset-0 rounded-2xl p-8'}
-              style={{ opacity: reduced ? undefined : 1 }}
+              className={cx('glass rounded-2xl p-8', !staticLayout && 'absolute inset-0')}
             >
               <div className="flex items-center justify-between">
                 <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-moon-3">
@@ -201,7 +209,7 @@ export function PipelineSection(): React.JSX.Element {
                 <span className="font-mono text-[10px] text-brand-live">● 16 kHz</span>
               </div>
               <div className="mt-10 flex h-36 items-end justify-center gap-[5px] sm:h-44">
-                <Equalizer active bars={18} className="h-full !gap-[5px]" />
+                <Equalizer active bars={18} className="h-full" />
               </div>
               <p className="mt-8 text-center font-mono text-[11px] uppercase tracking-[0.18em] text-moon-3">
                 ffmpeg → signalr → nemotron
@@ -211,7 +219,7 @@ export function PipelineSection(): React.JSX.Element {
             {/* Act 2 — detect */}
             <div
               data-panel="detect"
-              className={reduced ? 'glass mt-8 rounded-2xl p-8' : 'glass absolute inset-0 rounded-2xl p-8 opacity-0'}
+              className={cx('glass rounded-2xl p-8', staticLayout ? 'mt-8' : 'absolute inset-0 opacity-0')}
             >
               <div className="flex items-center justify-between">
                 <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-moon-3">
@@ -241,11 +249,11 @@ export function PipelineSection(): React.JSX.Element {
             {/* Act 3 — surface */}
             <div
               data-panel="surface"
-              className={reduced ? 'mt-8' : 'absolute inset-0 opacity-0'}
+              className={staticLayout ? 'mt-8' : 'absolute inset-0 opacity-0'}
             >
               <div className="mx-auto max-w-[440px]">
                 <IntelCard
-                  animateIn={!reduced}
+                  animateIn={!staticLayout}
                   kind="Technical question"
                   icon={<IconTechnical size={11} />}
                   severity={'medium' as Severity}

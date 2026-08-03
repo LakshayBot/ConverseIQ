@@ -8,8 +8,8 @@ import { useRef, useState } from 'react'
 import { gsap } from 'gsap'
 import { ANATOMY_NOTES } from '@/data/content'
 import { cx } from '@/lib/cx'
-import { useSectionTimeline, prefersReducedMotion } from '@/lib/motion'
-import { SEV_COLOR, type Severity } from './IntelCard'
+import { useSectionTimeline, prefersReducedMotion, useHeadingReveal } from '@/lib/motion'
+import { SEV_COLOR, type Severity } from './severity'
 import { IconProduct, IconSource } from './icons'
 
 const SEVERITIES: Severity[] = ['high', 'medium', 'low']
@@ -19,6 +19,8 @@ export function CardAnatomy(): React.JSX.Element {
   const [severity, setSeverity] = useState<Severity>('high')
   const [note, setNote] = useState<string>('n1')
   const reduced = prefersReducedMotion()
+
+  useHeadingReveal(rootRef)
 
   useSectionTimeline(
     rootRef,
@@ -52,8 +54,9 @@ export function CardAnatomy(): React.JSX.Element {
         <div className="flex flex-wrap items-end justify-between gap-6">
           <div>
             <p className="eyebrow">The artifact · anatomy of a card</p>
-            <h2 className="h2-display mask-lines mt-6 max-w-[17ch]">
-              A claim with <em className="accent">receipts.</em>
+            <h2 className="h2-display mt-6 max-w-[17ch]">
+              <span className="mask-line"><span className="mask-line-inner">A claim with</span></span>
+              <span className="mask-line"><span className="mask-line-inner"><em className="accent">receipts.</em></span></span>
             </h2>
           </div>
           <p className="max-w-[36ch] text-[14px] leading-[1.6] text-moon-3">

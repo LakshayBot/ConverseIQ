@@ -61,8 +61,8 @@ export function TopNav(): React.JSX.Element {
           </nav>
 
           <div className="flex items-center gap-3">
-            <Magnetic strength={0.3}>
-              <a href="#cta" className="btn btn--primary !px-5 !py-2.5 !text-[13px]">
+            <Magnetic strength={0.3} className="hidden sm:block">
+              <a href="#cta" className="btn btn--primary px-5! py-2.5! text-[13px]!">
                 Start your next call
                 <span className="btn-arrow">
                   <IconArrow size={13} />

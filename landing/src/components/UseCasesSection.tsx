@@ -7,11 +7,13 @@ import { useRef } from 'react'
 import { gsap } from 'gsap'
 import { USE_CASES_NEW } from '@/data/content'
 import { cx } from '@/lib/cx'
-import { useSectionTimeline, prefersReducedMotion } from '@/lib/motion'
+import { useSectionTimeline, prefersReducedMotion, useHeadingReveal } from '@/lib/motion'
 
 export function UseCasesSection(): React.JSX.Element {
   const rootRef = useRef<HTMLElement>(null)
   const reduced = prefersReducedMotion()
+
+  useHeadingReveal(rootRef)
 
   useSectionTimeline(
     rootRef,
@@ -43,8 +45,9 @@ export function UseCasesSection(): React.JSX.Element {
         <div className="flex flex-wrap items-end justify-between gap-6">
           <div>
             <p className="eyebrow">Who it serves · the people on the call</p>
-            <h2 className="h2-display mask-lines mt-6 max-w-[15ch] text-ink">
-              Built for the <em className="accent">voice</em> on the line.
+            <h2 className="h2-display mt-6 max-w-[15ch] text-ink">
+              <span className="mask-line"><span className="mask-line-inner">Built for the</span></span>
+              <span className="mask-line"><span className="mask-line-inner"><em className="accent">voice</em> on the line.</span></span>
             </h2>
           </div>
           <p className="max-w-[36ch] text-[14px] leading-[1.6] text-ink-4">

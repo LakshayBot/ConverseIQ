@@ -8,6 +8,7 @@ import {
   IconCompetitor,
   IconObjection,
   IconPricing,
+  IconPricingQuestion,
   IconProduct,
   IconRecommendation,
   IconTechnical,
@@ -25,9 +26,16 @@ export const KIND_META: Record<
   recommendation: { label: 'Talking point', icon: <IconRecommendation size={11} /> },
 }
 
+const KIND_META_EXTRA: Record<string, { label: string; icon: React.ReactNode }> = {
+  PricingQuestion: { label: 'Pricing question', icon: <IconPricingQuestion size={11} /> },
+}
+
 export function kindMeta(kind: string): { label: string; icon: React.ReactNode } {
-  return KIND_META[kind as IntelligenceKind] ?? {
-    label: kind,
-    icon: <IconRecommendation size={11} />,
-  }
+  return (
+    KIND_META[kind as IntelligenceKind] ??
+    KIND_META_EXTRA[kind] ?? {
+      label: kind,
+      icon: <IconRecommendation size={11} />,
+    }
+  )
 }

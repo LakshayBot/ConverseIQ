@@ -7,8 +7,9 @@ import { useState } from 'react'
 import { cx } from '@/lib/cx'
 import { IconSource } from './icons'
 import { IconChevronDown, IconChevronRight } from './chevrons'
+import { SEV_COLOR, type Severity } from './severity'
 
-export type Severity = 'high' | 'medium' | 'low'
+export type { Severity } from './severity'
 
 export interface IntelCardProps {
   kind: string
@@ -25,12 +26,6 @@ const SEV_BORDER: Record<Severity, string> = {
   high: 'border-l-[3px] border-l-[var(--sev-high)]',
   medium: 'border-l-2 border-l-[var(--sev-med)]',
   low: 'border-l-2 border-l-[var(--sev-low)]',
-}
-
-export const SEV_COLOR: Record<Severity, string> = {
-  high: 'var(--sev-high)',
-  medium: 'var(--sev-med)',
-  low: 'var(--sev-low)',
 }
 
 export function IntelCard({

@@ -50,6 +50,7 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
           stagger: 0.014,
           ease: 'power4.out',
           delay: 0.05,
+          onComplete: () => gsap.set(split.chars, { overflow: 'visible' }),
         },
         '<0.1',
       )
@@ -152,7 +153,7 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
           className="display mask-chars mt-6 max-w-[15ch]"
           style={{ opacity: prefersReducedMotion() ? 1 : undefined }}
         >
-          The answer arrives <em className="accent">mid-question.</em>
+          The answer, <em className="accent">mid&#8209;question.</em>
         </h1>
 
         <p ref={ledeRef} className="lede mt-6 max-w-[58ch]">
@@ -187,7 +188,7 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
         </div>
 
         {/* ── Meta row ────────────────────────────────────────────────── */}
-        <div ref={metaRef} className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-2 eyebrow !text-[10.5px]">
+        <div ref={metaRef} className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-2 eyebrow text-[10.5px]!">
           <span>MIT licensed</span>
           <span aria-hidden="true">·</span>
           <span>Self-hosted</span>

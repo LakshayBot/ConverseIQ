@@ -128,20 +128,20 @@ export function LiveCallWindow({ className }: { className?: string }): React.JSX
       )}
     >
       {/* ── Window chrome ─────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between border-b border-white/[0.07] px-4 py-2.5 sm:px-5">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-2 border-b border-white/[0.07] px-4 py-2.5 sm:px-5">
+        <div className="flex min-w-0 items-center gap-3">
           <div className="flex items-center gap-1.5" aria-hidden="true">
             <span className="h-2.5 w-2.5 rounded-full bg-[#e0726b]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#d8b25c]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#7ea36a]" />
           </div>
-          <span className="ml-2 font-mono text-[10.5px] tracking-[0.04em] text-moon-3">
+          <span className="hidden truncate font-mono text-[10.5px] tracking-[0.04em] text-moon-3 sm:block">
             callpilot · live · meeting_2f9c4d
           </span>
         </div>
         <div
           className={cx(
-            'flex items-center gap-2 rounded-full border px-3 py-1 font-mono text-[10px] uppercase tracking-[0.14em] transition-colors duration-300',
+            'flex shrink-0 items-center gap-2 rounded-full border px-3 py-1 font-mono text-[10px] uppercase tracking-[0.14em] transition-colors duration-300',
             speaking >= 0
               ? 'border-[rgba(255,122,80,0.35)] text-brand-live'
               : 'border-white/[0.1] text-moon-3',

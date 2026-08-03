@@ -4,6 +4,7 @@
 // ============================================================================
 
 import { useRef, useState } from 'react'
+import { useHeadingReveal } from '@/lib/motion'
 import { FAQ } from '@/data/content'
 import { cx } from '@/lib/cx'
 import { IconChevronDown } from './chevrons'
@@ -12,14 +13,17 @@ export function FAQSection(): React.JSX.Element {
   const rootRef = useRef<HTMLElement>(null)
   const [open, setOpen] = useState<number>(0)
 
+  useHeadingReveal(rootRef)
+
   return (
     <section id="faq" ref={rootRef} className="dawn section">
       <div className="container">
         <div className="grid gap-12 lg:grid-cols-[minmax(0,4fr)_minmax(0,8fr)]">
           <div>
             <p className="eyebrow">FAQ · asked, answered</p>
-            <h2 className="h2-display mask-lines mt-6 max-w-[12ch] text-ink">
-              Straight <em className="accent">answers.</em>
+            <h2 className="h2-display mt-6 max-w-[12ch] text-ink">
+              <span className="mask-line"><span className="mask-line-inner">Straight</span></span>
+              <span className="mask-line"><span className="mask-line-inner"><em className="accent">answers.</em></span></span>
             </h2>
             <p className="mt-6 max-w-[34ch] text-[14px] leading-[1.7] text-ink-4">
               The questions every rep and every security team asks — answered

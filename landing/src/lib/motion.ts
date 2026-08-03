@@ -1,7 +1,8 @@
 // ============================================================================
-// Motion — shared GSAP setup, reveal primitives and the per-section
-// timeline hook. Every section owns its timeline through `useSectionTimeline`,
-// which scopes selectors to the section and reverts cleanly on unmount.
+// Motion — shared GSAP setup, the masked heading-reveal primitive and the
+// per-section timeline hook. Every section owns its timeline through
+// `useSectionTimeline`, which scopes selectors to the section and reverts
+// cleanly on unmount.
 // ============================================================================
 
 import { useEffect, useRef, type DependencyList, type RefObject } from 'react'
@@ -38,14 +39,6 @@ export const EASE = {
   spring: 'back.out(1.6)',
 } as const
 
-export const DUR = {
-  micro: 0.14,
-  short: 0.24,
-  medium: 0.42,
-  long: 0.72,
-  narrative: 1.2,
-} as const
-
 export const prefersReducedMotion = (): boolean =>
   typeof window !== 'undefined' &&
   window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -76,86 +69,40 @@ export function useSectionTimeline<T extends HTMLElement>(
   }, deps)
 }
 
-export interface SplitMaskOptions {
-  stagger?: number
-  duration?: number
-  ease?: string
-  start?: string
-}
-
 /**
- * Masked line reveal — each line of a SplitText is clipped by CSS
- * (.mask-lines .line) and slides up from below on enter.
+ * Masked heading reveal — the section h2's hand-authored `.mask-line`
+ * rows slide up on enter, clipped by the line mask. Clipping is released
+ * once the reveal completes so descenders are never cut.
  */
-export function revealLines(
-  el: HTMLElement,
-  options: SplitMaskOptions = {},
-): () => void {
-  if (prefersReducedMotion()) return () => {}
+export function useHeadingReveal<T extends HTMLElement>(ref: RefObject<T | null>): void {
+  useEffect(() => {
+    const root = ref.current
+    const inners = root?.querySelectorAll<HTMLElement>('.mask-line-inner')
+    if (!root || !inners?.length) return
 
-  const split = SplitText.create(el, { type: 'lines', linesClass: 'line' })
-  gsap.from(split.lines, {
-    yPercent: 112,
-    duration: options.duration ?? 1.05,
-    stagger: options.stagger ?? 0.09,
-    ease: options.ease ?? EASE.out,
-    scrollTrigger: { start: options.start ?? 'top 82%' },
-  })
-  return () => {
-    split.revert()
-  }
-}
+    if (prefersReducedMotion()) {
+      gsap.set(inners, { yPercent: 0 })
+      return
+    }
 
-/**
- * Masked character reveal — headline characters rise into their clipped
- * boxes. Slower, more deliberate than lines: reserved for the moments
- * that carry the narrative.
- */
-export function revealChars(
-  el: HTMLElement,
-  options: SplitMaskOptions = {},
-): () => void {
-  if (prefersReducedMotion()) {
-    gsap.set(el, { opacity: 1 })
-    return () => {}
-  }
+    const tween = gsap.fromTo(
+      inners,
+      { yPercent: 112 },
+      {
+        yPercent: 0,
+        duration: 1.0,
+        stagger: 0.09,
+        ease: EASE.out,
+        scrollTrigger: { start: 'top 84%' },
+        onComplete: () => gsap.set(inners, { overflow: 'visible' }),
+      },
+    )
 
-  const split = SplitText.create(el, { type: 'chars' })
-  gsap.from(split.chars, {
-    yPercent: 118,
-    rotateX: -55,
-    transformOrigin: '50% 100%',
-    duration: options.duration ?? 0.9,
-    stagger: options.stagger ?? 0.016,
-    ease: options.ease ?? 'power4.out',
-    scrollTrigger: { start: options.start ?? 'top 80%' },
-  })
-  return () => {
-    split.revert()
-  }
-}
-
-/**
- * Word-level mask reveal for mixed-content elements (spans inside headings
- * with accent styling survive: we split plain-text nodes only).
- */
-export function revealWords(
-  el: HTMLElement,
-  options: SplitMaskOptions = {},
-): () => void {
-  if (prefersReducedMotion()) return () => {}
-
-  const split = SplitText.create(el, { type: 'words' })
-  gsap.from(split.words, {
-    yPercent: 110,
-    duration: options.duration ?? 0.95,
-    stagger: options.stagger ?? 0.03,
-    ease: options.ease ?? EASE.out,
-    scrollTrigger: { start: options.start ?? 'top 82%' },
-  })
-  return () => {
-    split.revert()
-  }
+    return () => {
+      tween.scrollTrigger?.kill()
+      tween.kill()
+    }
+  }, [ref])
 }
 
 export function refreshScrollTriggers(): void {

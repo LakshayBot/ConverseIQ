@@ -9,7 +9,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { gsap } from 'gsap'
 import { SIGNAL_DEMOS } from '@/data/content'
 import { cx } from '@/lib/cx'
-import { useSectionTimeline, prefersReducedMotion } from '@/lib/motion'
+import { useSectionTimeline, prefersReducedMotion, useHeadingReveal } from '@/lib/motion'
 import { IntelCard, type Severity } from './IntelCard'
 import { kindMeta } from './kinds'
 import { IconChevronDown } from './chevrons'
@@ -27,6 +27,8 @@ export function SignalLab(): React.JSX.Element {
   const rootRef = useRef<HTMLElement>(null)
   const [active, setActive] = useState<string>('competitor')
   const reduced = prefersReducedMotion()
+
+  useHeadingReveal(rootRef)
 
   useSectionTimeline(
     rootRef,
@@ -60,8 +62,9 @@ export function SignalLab(): React.JSX.Element {
         <div className="flex flex-wrap items-end justify-between gap-6">
           <div>
             <p className="eyebrow">The signals · detection vocabulary</p>
-            <h2 className="h2-display mask-lines mt-6 max-w-[16ch]">
-              Six signals. <em className="accent">One ear.</em>
+            <h2 className="h2-display mt-6 max-w-[16ch]">
+              <span className="mask-line"><span className="mask-line-inner">Six signals.</span></span>
+              <span className="mask-line"><span className="mask-line-inner"><em className="accent">One ear.</em></span></span>
             </h2>
           </div>
           <p className="max-w-[34ch] text-[14px] leading-[1.6] text-moon-3">

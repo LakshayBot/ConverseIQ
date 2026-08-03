@@ -7,7 +7,7 @@
 import { useRef } from 'react'
 import { gsap } from 'gsap'
 import { ARCH_NODES, LATENCY, STACK } from '@/data/content'
-import { useSectionTimeline, prefersReducedMotion } from '@/lib/motion'
+import { useSectionTimeline, prefersReducedMotion, useHeadingReveal } from '@/lib/motion'
 import { useCountUp } from '@/lib/count'
 import { IconArrow } from './icons'
 import { Magnetic } from './Magnetic'
@@ -15,6 +15,8 @@ import { Magnetic } from './Magnetic'
 export function ArchitectureSection(): React.JSX.Element {
   const rootRef = useRef<HTMLElement>(null)
   const reduced = prefersReducedMotion()
+
+  useHeadingReveal(rootRef)
 
   useSectionTimeline(
     rootRef,
@@ -60,8 +62,9 @@ export function ArchitectureSection(): React.JSX.Element {
 
       <div className="container relative">
         <p className="eyebrow">Architecture · your hardware, your key</p>
-        <h2 className="h2-display mask-lines mt-6 max-w-[17ch] text-ink">
-          The whole stack, <em className="accent">on your machine.</em>
+        <h2 className="h2-display mt-6 max-w-[17ch] text-ink">
+          <span className="mask-line"><span className="mask-line-inner">The whole stack,</span></span>
+          <span className="mask-line"><span className="mask-line-inner"><em className="accent">on your machine.</em></span></span>
         </h2>
         <p className="lede mt-6 max-w-[58ch]">
           No subscription, no call-home, no third-party bot in the room.

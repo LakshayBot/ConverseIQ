@@ -56,7 +56,7 @@ export function Footer(): React.JSX.Element {
               href={GITHUB_URL}
               target="_blank"
               rel="noreferrer"
-              className="btn btn--ghost mt-8 !px-5 !py-2.5 !text-[13px]"
+              className="btn btn--ghost mt-8 px-5! py-2.5! text-[13px]!"
             >
               <IconGitHub size={14} />
               github.com/LakshayBot/ConverseIQ
@@ -77,7 +77,7 @@ export function Footer(): React.JSX.Element {
                         href={link.href}
                         target={link.external ? '_blank' : undefined}
                         rel={link.external ? 'noreferrer' : undefined}
-                        className="nav-link !text-[13.5px]"
+                        className="nav-link text-[13.5px]!"
                       >
                         {link.label}
                       </a>

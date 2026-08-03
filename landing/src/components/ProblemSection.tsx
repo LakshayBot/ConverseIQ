@@ -1,36 +1,44 @@
 // ============================================================================
 // ProblemSection — the narrative pivot of the page.
-// Pinned scroll story: a recap timeline scrubs forward ("call ends →
-// uploaded → transcribed → summarized → recap at 9am") until the stamp
-// "TOO LATE" slams down. Then the whole timeline blurs away and the same
-// moment inverts: the card that lands DURING the call. The giant word
+// Desktop: a pinned scroll story — the recap timeline scrubs forward
+// ("call ends → uploaded → transcribed → summarized → recap at 9am") until
+// the stamp "TOO LATE" slams down, then the whole machine blurs away and the
+// same moment inverts: the card that lands DURING the call. The giant word
 // behind the stage flips from "LATER" to "NOW."
+// Mobile (< 1024px) and reduced motion: the two acts stack naturally in the
+// page flow — nothing is pinned, nothing is hidden.
 // ============================================================================
 
 import { useRef } from 'react'
 import { gsap } from 'gsap'
-import { EASE, prefersReducedMotion, useSectionTimeline } from '@/lib/motion'
+import { EASE, prefersReducedMotion, useSectionTimeline, useHeadingReveal } from '@/lib/motion'
+import { useIsDesktop } from '@/lib/media'
+import { cx } from '@/lib/cx'
 import { IntelCard, type Severity } from './IntelCard'
 import { IconPricing } from './icons'
 import { SpeakerDot } from './SpeakerDot'
 
 const TIMELINE_NODES = [
   { label: 'Call ends', meta: '14:32' },
-  { label: 'Uploaded', meta: '14:34' },
-  { label: 'Transcribed', meta: '15:10' },
-  { label: 'Summarized', meta: '16:45' },
-  { label: 'Recap arrives', meta: '09:00 · +1d' },
+  { label: 'Upload', meta: '14:34' },
+  { label: 'Transcribe', meta: '15:10' },
+  { label: 'Summarize', meta: '16:45' },
+  { label: 'Recap', meta: '09:00 · +1d' },
 ]
 
 export function ProblemSection(): React.JSX.Element {
   const rootRef = useRef<HTMLElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const reduced = prefersReducedMotion()
+  const isDesktop = useIsDesktop()
+  const staticLayout = reduced || !isDesktop
+
+  useHeadingReveal(rootRef)
 
   useSectionTimeline(
     rootRef,
     () => {
-      if (reduced) return
+      if (staticLayout) return
 
       const stage = stageRef.current
       if (!stage) return
@@ -117,15 +125,16 @@ export function ProblemSection(): React.JSX.Element {
         4.3,
       )
     },
-    [reduced],
+    [staticLayout],
   )
 
   return (
     <section id="problem" ref={rootRef} className="nocturne section">
       <div className="container">
         <p className="eyebrow">The problem · post-call intelligence</p>
-        <h2 className="h2-display mask-lines mt-6 max-w-[18ch]">
-          The recap arrives when it <em className="accent">can’t</em> help you.
+        <h2 className="h2-display mt-6 max-w-[24ch]">
+          <span className="mask-line"><span className="mask-line-inner">The recap arrives when</span></span>
+          <span className="mask-line"><span className="mask-line-inner">it <em className="accent">can’t help you.</em></span></span>
         </h2>
         <p className="lede mt-6 max-w-[56ch]">
           Every meeting platform records the call, transcribes it, summarizes
@@ -134,17 +143,20 @@ export function ProblemSection(): React.JSX.Element {
         </p>
       </div>
 
-      {/* ── Pinned stage ──────────────────────────────────────────────── */}
+      {/* ── Pinned stage (desktop) / stacked flow (mobile) ────────────── */}
       <div
         ref={stageRef}
         className="relative mx-auto mt-16 w-full max-w-[1240px] px-[clamp(1.25rem,4vw,3rem)]"
-        style={{ height: reduced ? undefined : 'clamp(430px, 62vh, 560px)' }}
+        style={{ height: staticLayout ? undefined : 'clamp(430px, 62vh, 560px)' }}
       >
         {/* Giant words behind the stage */}
         <div
           aria-hidden="true"
           data-bigword="later"
-          className="text-outline pointer-events-none absolute inset-0 flex items-center justify-center"
+          className={cx(
+            'text-outline pointer-events-none absolute inset-0 flex items-center justify-center',
+            staticLayout && 'hidden',
+          )}
           style={{ fontSize: 'clamp(6rem, 18vw, 16rem)', zIndex: 0 }}
         >
           LATER
@@ -152,17 +164,17 @@ export function ProblemSection(): React.JSX.Element {
         <div
           aria-hidden="true"
           data-bigword="now"
-          className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0"
+          className={cx(
+            'pointer-events-none absolute inset-0 flex items-center justify-center',
+            staticLayout && 'hidden',
+          )}
           style={{ fontSize: 'clamp(6rem, 18vw, 16rem)', zIndex: 0, color: 'rgba(181,69,31,0.5)' }}
         >
           NOW
         </div>
 
         {/* ── Act one: the recap timeline ─────────────────────────────── */}
-        <div
-          data-stage="later"
-          className={reduced ? 'relative mt-14' : 'absolute inset-0 z-[1]'}
-        >
+        <div data-stage="later" className={staticLayout ? 'relative mt-14' : 'absolute inset-0 z-[1]'}>
           <div className="relative mx-auto max-w-[900px] pt-[14vh]">
             <div className="relative">
               <div
@@ -177,22 +189,24 @@ export function ProblemSection(): React.JSX.Element {
                   background:
                     'linear-gradient(90deg, var(--color-brand), var(--color-brand-live))',
                   boxShadow: '0 0 12px rgba(255,122,80,0.5)',
-                  transform: 'scaleX(0)',
+                  transform: staticLayout ? undefined : 'scaleX(0)',
                 }}
               />
-              <div className="relative flex justify-between">
+              <div className="relative flex justify-between gap-1">
                 {TIMELINE_NODES.map((node) => (
                   <div key={node.label} className="flex flex-col items-center gap-3">
                     <span
                       data-tl-dot
-                      className="block h-[11px] w-[11px] rounded-full border-2 border-brand-live bg-ink-950"
-                      style={{ transform: 'scale(0)' }}
+                      className="block h-[11px] w-[11px] shrink-0 rounded-full border-2 border-brand-live bg-ink-950"
+                      style={{ transform: staticLayout ? undefined : 'scale(0)' }}
                     />
-                    <div data-tl-label className="text-center">
-                      <div className="font-mono text-[11px] tracking-[0.08em] text-moon-2">
+                    <div data-tl-label className="text-center" style={{ opacity: staticLayout ? undefined : 0.22 }}>
+                      <div className="font-mono text-[10px] tracking-[0.06em] text-moon-2 sm:text-[11px] sm:tracking-[0.08em]">
                         {node.label}
                       </div>
-                      <div className="mt-1 font-mono text-[10px] text-moon-3">{node.meta}</div>
+                      <div className="mt-1 hidden font-mono text-[10px] text-moon-3 sm:block">
+                        {node.meta}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -202,7 +216,10 @@ export function ProblemSection(): React.JSX.Element {
             <div className="mt-[10vh] flex justify-center">
               <span
                 data-stamp
-                className="inline-block rounded-xl border-2 border-brand-live/60 px-8 py-4 font-mono text-[clamp(1.6rem,4vw,2.6rem)] font-semibold uppercase tracking-[0.28em] text-brand-live opacity-0"
+                className={cx(
+                  'inline-block rounded-xl border-2 border-brand-live/60 px-8 py-4 font-mono text-[clamp(1.6rem,4vw,2.6rem)] font-semibold uppercase tracking-[0.28em] text-brand-live',
+                  !staticLayout && 'opacity-0',
+                )}
                 style={{ boxShadow: '0 0 60px rgba(255,122,80,0.25), inset 0 0 30px rgba(255,122,80,0.08)' }}
               >
                 Too late.
@@ -212,10 +229,7 @@ export function ProblemSection(): React.JSX.Element {
         </div>
 
         {/* ── Act two: the same moment, live ──────────────────────────── */}
-        <div
-          data-stage="now"
-          className={reduced ? 'relative mt-16' : 'absolute inset-0 z-[2] opacity-0'}
-        >
+        <div data-stage="now" className={staticLayout ? 'relative mt-16' : 'absolute inset-0 z-[2] opacity-0'}>
           <div className="mx-auto grid max-w-[980px] items-center gap-8 lg:grid-cols-2">
             <div data-now-transcript>
               <div className="flex items-start gap-3">
@@ -247,7 +261,7 @@ export function ProblemSection(): React.JSX.Element {
 
             <div data-now-card className="mx-auto w-full max-w-[400px]">
               <IntelCard
-                animateIn={!reduced}
+                animateIn={!staticLayout}
                 kind="Pricing question"
                 icon={<IconPricing size={11} />}
                 severity={'high' as Severity}
@@ -261,7 +275,7 @@ export function ProblemSection(): React.JSX.Element {
             </div>
           </div>
 
-          <div data-now-meta className="mt-12 flex flex-wrap items-center gap-6 eyebrow !text-[10.5px]">
+          <div data-now-meta className="mt-12 flex flex-wrap items-center gap-6 eyebrow text-[10.5px]!">
             <span>recap pipeline</span>
             <span aria-hidden="true">·</span>
             <span className="text-brand-live">live rail · ~300 ms</span>

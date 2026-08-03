@@ -185,29 +185,34 @@
 
 .display {
   font-family: var(--font-display);
-  font-size: clamp(2.9rem, 7.2vw, 7.25rem);
+  font-size: clamp(2.5rem, 7vw, 7.25rem);
   font-weight: 400;
   line-height: 0.98;
   letter-spacing: -0.03em;
-  text-wrap: balance;
 }
 
 .display-xl {
   font-family: var(--font-display);
-  font-size: clamp(3.2rem, 11vw, 11rem);
+  font-size: clamp(2.75rem, 11vw, 11rem);
   font-weight: 400;
   line-height: 0.94;
   letter-spacing: -0.035em;
-  text-wrap: balance;
 }
 
 .h2-display {
   font-family: var(--font-display);
-  font-size: clamp(2.1rem, 4.6vw, 4.4rem);
+  font-size: clamp(1.75rem, 4.6vw, 4.4rem);
   font-weight: 400;
-  line-height: 1.02;
+  line-height: 1.04;
   letter-spacing: -0.025em;
-  text-wrap: balance;
+}
+
+/* The narrowest phones: section headings step down once more so the
+   authored line masks hold without any single-word lines. */
+@media (max-width: 359px) {
+  .h2-display {
+    font-size: 1.55rem;
+  }
 }
 
 .h3-display {
@@ -247,12 +252,14 @@
   font-family: var(--font-mono);
 }
 
-/* Serif-italic accent word — the voice in the noise */
+/* Serif-italic accent word — the voice in the noise. Never breaks
+   internally; the browser treats it as a single, indivisible word. */
 .accent {
   font-family: var(--font-display);
   font-style: italic;
   font-weight: 400;
   letter-spacing: -0.02em;
+  white-space: nowrap;
 }
 
 .nocturne .accent {
@@ -267,16 +274,26 @@
 }
 
 /* =========================================================================
-   Masked reveal primitives (driven by GSAP; clipping is pure CSS)
+   Masked reveal primitives (driven by GSAP; clipping is pure CSS).
+   Headings use hand-authored line masks (`.mask-line`) — deterministic
+   breaks at every viewport. Chars get vertical padding so the glyph fits
+   inside the clipping box at tight line-heights.
    ========================================================================= */
 
-.mask-lines .line {
+.mask-line {
+  display: block;
   overflow: hidden;
+}
+
+.mask-line-inner {
+  display: block;
+  will-change: transform;
 }
 
 .mask-chars .char {
   overflow: hidden;
   display: inline-block;
+  padding: 0.06em 0;
   will-change: transform;
 }
 

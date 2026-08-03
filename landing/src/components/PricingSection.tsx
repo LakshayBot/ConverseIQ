@@ -6,13 +6,15 @@
 import { useRef } from 'react'
 import { gsap } from 'gsap'
 import { PRICING } from '@/data/content'
-import { useSectionTimeline, prefersReducedMotion } from '@/lib/motion'
+import { useSectionTimeline, prefersReducedMotion, useHeadingReveal } from '@/lib/motion'
 import { IconArrow, IconCheck } from './icons'
 import { Magnetic } from './Magnetic'
 
 export function PricingSection(): React.JSX.Element {
   const rootRef = useRef<HTMLElement>(null)
   const reduced = prefersReducedMotion()
+
+  useHeadingReveal(rootRef)
 
   useSectionTimeline(
     rootRef,
@@ -43,8 +45,9 @@ export function PricingSection(): React.JSX.Element {
       <div className="container">
         <div className="text-center">
           <p className="eyebrow">Pricing · one line</p>
-          <h2 className="h2-display mask-lines mx-auto mt-6 max-w-[14ch] text-ink">
-            The honest price is <em className="accent">$0.</em>
+          <h2 className="h2-display mx-auto mt-6 max-w-[14ch] text-ink">
+            <span className="mask-line"><span className="mask-line-inner">The honest price is</span></span>
+            <span className="mask-line"><span className="mask-line-inner"><em className="accent">$0.</em></span></span>
           </h2>
           <p className="lede mx-auto mt-6 max-w-[54ch]">
             Open source is not a growth hack here — it is the product. Run it
