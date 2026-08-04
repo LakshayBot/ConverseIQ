@@ -56,16 +56,19 @@ export function ProblemSection(): React.JSX.Element {
       gsap.set('[data-bigword="now"]', { opacity: 0, scale: 0.96 })
       gsap.set('[data-stage="now"]', { opacity: 0, y: 40, force3D: true })
       gsap.set('[data-now-transcript]', { clipPath: 'inset(0% 0% 100% 0%)', y: 14 })
-      gsap.set('[data-now-signal]', { scaleX: 0, transformOrigin: 'left center' })
+      gsap.set('[data-now-signal-beam]', { scaleY: 0, transformOrigin: 'top center' })
+      gsap.set('[data-now-signal-dot]', { y: 0 })
+      gsap.set('[data-now-signal-label]', { opacity: 0, x: -8 })
       gsap.set('[data-now-card]', {
         opacity: 0,
-        y: 44,
-        scale: 0.94,
-        rotate: 2,
+        y: 56,
+        scale: 0.93,
+        rotate: 1.5,
         filter: 'blur(6px)',
         force3D: true,
       })
       gsap.set('[data-now-pedestal]', { opacity: 0 })
+      gsap.set('[data-now-decision]', { opacity: 0, x: 14 })
       gsap.set('[data-now-meta]', { opacity: 0 })
 
       const tl = gsap.timeline({
@@ -129,7 +132,7 @@ export function ProblemSection(): React.JSX.Element {
       // The word settles into the environment first — dim, behind everything.
       tl.to(
         '[data-bigword="now"]',
-        { opacity: 0.9, scale: 1.02, duration: 0.55, ease: EASE.out },
+        { opacity: 0.8, scale: 1.05, duration: 0.55, ease: EASE.out },
         3.55,
       )
       tl.to(
@@ -138,21 +141,33 @@ export function ProblemSection(): React.JSX.Element {
         3.6,
       )
 
-      // 01 — the moment: the quote wipes up from its own mask.
+      // 01 — the question wipes up from its own mask.
       tl.to(
         '[data-now-transcript]',
         { clipPath: 'inset(0% 0% 0% 0%)', y: 0, duration: 0.55, ease: EASE.out },
         3.9,
       )
-      // the signal line travels the hairline
+
+      // the signal — the AI understands: the beam grows downward, the
+      // pulse travels it, and the reading annotates itself.
       tl.to(
-        '[data-now-signal]',
-        { scaleX: 1, duration: 0.5, ease: 'power2.inOut' },
-        4.1,
+        '[data-now-signal-beam]',
+        { scaleY: 1, duration: 0.45, ease: 'power2.inOut' },
+        4.15,
+      )
+      tl.to(
+        '[data-now-signal-dot]',
+        { y: 32, duration: 0.45, ease: 'power2.inOut' },
+        4.2,
+      )
+      tl.to(
+        '[data-now-signal-label]',
+        { opacity: 1, x: 0, duration: 0.35, ease: EASE.out },
+        4.35,
       )
 
-      // 02 — the rail: the card rises, un-rotates and sharpens onto its
-      // pedestal, whose glow blooms as it lands.
+      // 02 — the payoff: the card rises, levels and sharpens onto its
+      // pedestal; the glow blooms as it lands.
       tl.to(
         '[data-now-card]',
         {
@@ -161,15 +176,22 @@ export function ProblemSection(): React.JSX.Element {
           scale: 1,
           rotate: 0,
           filter: 'blur(0px)',
-          duration: 0.7,
-          ease: 'back.out(1.7)',
+          duration: 0.75,
+          ease: 'back.out(1.6)',
         },
-        4.05,
+        4.5,
       )
-      tl.to('[data-now-pedestal]', { opacity: 1, duration: 0.5 }, 4.15)
+      tl.to('[data-now-pedestal]', { opacity: 1, duration: 0.5 }, 4.6)
+
+      // the decision slides in beside it.
+      tl.to(
+        '[data-now-decision]',
+        { opacity: 1, x: 0, duration: 0.5, ease: EASE.out },
+        4.75,
+      )
 
       // 03 — the same minute strip closes the reading path.
-      tl.to('[data-now-meta]', { opacity: 1, duration: 0.4 }, 4.35)
+      tl.to('[data-now-meta]', { opacity: 1, duration: 0.4 }, 4.95)
     },
     [staticLayout],
   )
@@ -193,7 +215,7 @@ export function ProblemSection(): React.JSX.Element {
       <div
         ref={stageRef}
         className="relative mx-auto mt-16 w-full max-w-[1240px] px-[clamp(1.25rem,4vw,3rem)]"
-        style={{ height: staticLayout ? undefined : 'clamp(420px, 58vh, 520px)' }}
+        style={{ height: staticLayout ? undefined : 'clamp(580px, 72vh, 700px)' }}
       >
         {/* Giant words behind the stage — Fraunces editorial type, sized
             to always fit the container. LATER is a hairline stroke with a
@@ -213,10 +235,10 @@ export function ProblemSection(): React.JSX.Element {
           aria-hidden="true"
           data-bigword="now"
           className={cx(
-            'stage-bigword stage-bigword--now pointer-events-none absolute inset-0 flex items-center justify-center',
+            'stage-bigword stage-bigword--now pointer-events-none absolute right-[9%] top-[16%] z-0',
             staticLayout && 'hidden',
           )}
-          style={{ fontSize: 'clamp(3.75rem, 14vw, 12rem)', zIndex: 0 }}
+          style={{ fontSize: 'clamp(7rem, 15vw, 14rem)' }}
         >
           NOW
         </div>
@@ -319,95 +341,132 @@ export function ProblemSection(): React.JSX.Element {
         </div>
 
         {/* ── Act two: the same moment, live ────────────────────────────
-            Reading path: 01 the moment → 02 the rail → 03 the same minute.
-            The card overlaps the quote on an invisible grid line, sits on a
-            soft pedestal glow, and the wordmark stays atmosphere behind. */}
+            A cinematic sequence in layers, not rows:
+            01 the question (top) → the signal travels (middle) →
+            02 the card lands (bottom) → 03 the decision strip (edge).
+            The NOW wordmark is pure environment — dim, right, behind
+            the card's edge. The bottom fade pulls into the next chapter. */}
         <div data-stage="now" className={staticLayout ? 'relative mt-16' : 'absolute inset-0 z-[2] opacity-0'}>
-          <div className="mx-auto flex h-full max-w-[1080px] flex-col justify-center gap-8 lg:gap-10">
-            <div className="grid items-end gap-8 lg:grid-cols-12 lg:gap-6">
-              {/* 01 — the moment */}
-              <div data-now-transcript className="lg:col-span-7">
-                <div className="flex items-center gap-3">
-                  <span className="font-mono text-[10px] tracking-[0.2em] text-moon-3">01</span>
-                  <span aria-hidden="true" className="h-px w-6 bg-white/[0.12]" />
-                  <SpeakerDot speaker="prospect" pulse />
-                  <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--color-prospect)' }}>
-                    PROSPECT
-                  </span>
-                  <span className="font-mono text-[10px] text-moon-3">14:32:14</span>
-                  <span className="ml-1 flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.14em] text-brand-live">
-                    <span className="h-1 w-1 animate-pulse rounded-full bg-brand-live" />
-                    live
-                  </span>
-                </div>
-
-                <p className="mt-5 font-display text-[clamp(1.45rem,2.9vw,2.4rem)] leading-[1.26] tracking-[-0.02em] text-moon">
-                  What does the <em className="accent">enterprise license</em> run per year —
-                  and is there a self-hosted option?
-                </p>
-
-                <div className="mt-6 flex max-w-[420px] items-center gap-4">
-                  <div className="relative h-px flex-1 bg-white/[0.08]">
-                    <div
-                      data-now-signal
-                      aria-hidden="true"
-                      className="absolute inset-0 origin-left"
-                      style={{
-                        transform: staticLayout ? undefined : 'scaleX(0)',
-                        background:
-                          'linear-gradient(90deg, var(--color-brand), var(--color-brand-live))',
-                        boxShadow: '0 0 8px rgba(255,122,80,0.5)',
-                      }}
-                    />
-                  </div>
-                  <span className="whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.16em] text-brand-live">
-                    surfaced · +298 ms
-                  </span>
-                </div>
-
-                <p className="mt-5 max-w-[44ch] text-[13.5px] leading-[1.7] text-moon-3">
-                  The pricing card reaches the rail before the buyer finishes
-                  the sentence — grounded in the rate card you uploaded.
-                </p>
+          <div className="relative mx-auto flex h-full max-w-[1120px] flex-col justify-between pb-2">
+            {/* 01 — the question */}
+            <div data-now-transcript className="max-w-[48ch]">
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-[10px] tracking-[0.2em] text-moon-3">01</span>
+                <span aria-hidden="true" className="h-px w-6 bg-white/[0.12]" />
+                <SpeakerDot speaker="prospect" pulse />
+                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--color-prospect)' }}>
+                  PROSPECT
+                </span>
+                <span className="font-mono text-[10px] text-moon-3">14:32:14</span>
+                <span className="ml-1 flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.14em] text-brand-live">
+                  <span className="h-1 w-1 animate-pulse rounded-full bg-brand-live" />
+                  live
+                </span>
               </div>
 
-              {/* 02 — the rail */}
-              <div data-now-card className="lg:col-span-5 lg:-ml-8 lg:-mt-10">
-                <div className="relative mx-auto w-full max-w-[400px] lg:mx-0">
+              <p className="mt-5 font-display text-[clamp(1.5rem,2.7vw,2.3rem)] leading-[1.24] tracking-[-0.02em] text-moon">
+                What does the <em className="accent">enterprise license</em> run per year —
+                and is there a self-hosted option?
+              </p>
+
+              <p className="mt-2.5 max-w-[44ch] text-[13px] leading-[1.6] text-moon-3">
+                The trie caught the phrase in 200 ms — grounded in the rate
+                card you uploaded.
+              </p>
+            </div>
+
+            {/* the signal — the AI understands */}
+            <div data-now-signal className="flex items-center gap-5 pl-[3px]">
+              <div className="relative h-10 w-px bg-white/[0.08]">
+                <span
+                  data-now-signal-beam
+                  aria-hidden="true"
+                  className="absolute inset-0 origin-top"
+                  style={{
+                    transform: staticLayout ? undefined : 'scaleY(0)',
+                    background:
+                      'linear-gradient(180deg, var(--color-brand-live), rgba(255,122,80,0.08))',
+                    boxShadow: '0 0 12px rgba(255,122,80,0.6)',
+                  }}
+                />
+                <span
+                  data-now-signal-dot
+                  aria-hidden="true"
+                  className="absolute -left-[3.5px] top-0 h-2 w-2 rounded-full bg-brand-live"
+                  style={{ boxShadow: '0 0 12px rgba(255,122,80,1)' }}
+                />
+              </div>
+              <span data-now-signal-label className="font-mono text-[10px] uppercase tracking-[0.16em] text-moon-3">
+                pricing · trie + regex · <span className="text-brand-live">0.88</span>
+              </span>
+            </div>
+
+            {/* 02 — the card, the payoff */}
+            <div className="grid items-end gap-8 lg:grid-cols-12 lg:gap-10">
+              <div data-now-card className="lg:col-span-7">
+                <div className="group relative mx-auto w-full max-w-[430px] lg:mx-0">
                   <div
                     aria-hidden="true"
-                    className="glow -right-12 -top-12 h-56 w-56 bg-[rgba(181,69,31,0.2)]"
+                    className="glow -top-20 left-1/2 h-64 w-[140%] -translate-x-1/2 bg-[rgba(181,69,31,0.2)]"
                   />
                   <div
                     data-now-pedestal
                     aria-hidden="true"
-                    className="absolute -bottom-7 left-1/2 h-7 w-4/5 -translate-x-1/2 rounded-full bg-[rgba(255,122,80,0.16)] blur-2xl"
+                    className="absolute -bottom-8 left-1/2 h-8 w-4/5 -translate-x-1/2 rounded-full bg-[rgba(255,122,80,0.18)] blur-2xl"
                   />
-                  <div className="relative">
-                    <IntelCard
-                      animateIn={!staticLayout}
-                      kind="Pricing question"
-                      icon={<IconPricing size={11} />}
-                      severity={'high' as Severity}
-                      title="Enterprise license · self-hosted"
-                      body="Quote the annual rate card, then lead with VPC deployment: Docker Compose on their infra, BYOK LLM key, no audio persisted."
-                      sources={[
-                        'rate-card-2026.md · "Enterprise annual · page 2"',
-                        'security-brief.md · "All processing on customer infrastructure"',
-                      ]}
+                  {/* gradient-ring shell — the payoff frame */}
+                  <div
+                    className="relative rounded-2xl p-px transition-transform duration-500 group-hover:-translate-y-1"
+                    style={{
+                      background:
+                        'linear-gradient(160deg, rgba(255,122,80,0.55), rgba(255,122,80,0.1) 38%, rgba(238,240,247,0.1))',
+                    }}
+                  >
+                    <div className="rounded-[calc(1rem-1px)] bg-ink-900/95 shadow-[0_30px_80px_-24px_rgba(0,0,0,0.8)] backdrop-blur-xl transition-shadow duration-500 group-hover:shadow-[0_40px_100px_-24px_rgba(255,122,80,0.28)]">
+                      <IntelCard
+                        animateIn={!staticLayout}
+                        kind="Pricing question"
+                        icon={<IconPricing size={11} />}
+                        severity={'high' as Severity}
+                        title="Enterprise license · self-hosted"
+                        body="Quote the annual rate card, then lead with VPC deployment: Docker Compose on their infra, BYOK LLM key, no audio persisted."
+                        sources={[
+                          'rate-card-2026.md · "Enterprise annual · page 2"',
+                          'security-brief.md · "All processing on customer infrastructure"',
+                        ]}
+                      />
+                    </div>
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-x-8 top-0 h-8 rounded-full bg-white/[0.07] blur-xl"
                     />
                   </div>
-                  <p className="mt-4 flex items-center justify-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-moon-3">
+                  <p className="mt-2 flex items-center justify-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-moon-3">
                     <span>02</span>
                     <span aria-hidden="true" className="h-px w-4 bg-white/[0.12]" />
                     the rail · live
                   </p>
                 </div>
               </div>
+
+              {/* the decision */}
+              <div data-now-decision className="lg:col-span-5 lg:pb-4">
+                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-brand-live">
+                  the decision
+                </p>
+                <p className="mt-3 max-w-[34ch] text-[14px] leading-[1.7] text-moon-2">
+                  Quote the annual rate card, then lead with VPC deployment —
+                  BYOK key, no audio persisted.
+                </p>
+                <p className="mt-4 flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.14em] text-moon-3">
+                  your next sentence
+                  <span aria-hidden="true" className="text-brand-live">→</span>
+                </p>
+              </div>
             </div>
 
             {/* 03 — the same minute */}
-            <div data-now-meta className="border-t border-white/[0.06] pt-5">
+            <div data-now-meta className="border-t border-white/[0.06] pt-3">
               <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
                 <span className="font-mono text-[10px] tracking-[0.2em] text-moon-3">03</span>
                 <span aria-hidden="true" className="hidden h-px w-6 bg-white/[0.12] sm:block" />
@@ -416,7 +475,11 @@ export function ProblemSection(): React.JSX.Element {
                 </span>
                 <span aria-hidden="true" className="text-brand-live">→</span>
                 <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-moon-2">
-                  +298 ms · the card lands
+                  +200 ms · the trie
+                </span>
+                <span aria-hidden="true" className="text-brand-live">→</span>
+                <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-moon-2">
+                  +298 ms · the card
                 </span>
                 <span aria-hidden="true" className="text-brand-live">→</span>
                 <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-brand-live">
@@ -425,6 +488,12 @@ export function ProblemSection(): React.JSX.Element {
               </div>
             </div>
           </div>
+
+          {/* pull into the next chapter */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-ink-950/60 to-transparent"
+          />
         </div>
       </div>
     </section>
