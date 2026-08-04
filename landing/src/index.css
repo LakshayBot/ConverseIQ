@@ -253,6 +253,12 @@
   /* Deeper terracotta ramp for the light register */
   --accent-gradient-mid: #c0603f;
 
+  /* Light hero — the brightest moment of the page: a lit ceiling that
+     melts into the page tone, with a warm daylight wash at the top. */
+  --hero-top-light: radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.5), transparent 60%);
+  --glow-cool: rgba(125, 93, 246, 0.045);
+  --reflection: rgba(222, 133, 94, 0.12);
+
   /* Re-map the nocturne color set */
   --color-ink-950: #f5f2ec;
   --color-ink-900: #fbf9f5;
@@ -304,7 +310,6 @@
   --glow-cool: rgba(125, 93, 246, 0.06);
   --glow-card: rgba(214, 115, 80, 0.12);
   --glow-pedestal: rgba(147, 72, 60, 0.1);
-  --hero-top-light: radial-gradient(120% 90% at 50% 0%, rgba(214, 115, 80, 0.06), transparent 62%);
 
   /* Accent tints */
   --accent-tint: rgba(147, 72, 60, 0.1);
@@ -359,6 +364,28 @@ html.theme-transition *::after {
     text-shadow 0.55s ease,
     fill 0.55s ease,
     stroke 0.55s ease !important;
+}
+
+/* =========================================================================
+   Hero atmosphere — a dedicated daylight layer for the Light theme.
+   Warm sunlight from the upper-left, a whisper of lavender behind the
+   stage, and a grounded warm glow behind the preview. In Nocturne the
+   layer is transparent — the dark hero keeps its ember field untouched.
+   ========================================================================= */
+
+.hero-light-atmosphere {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: transparent;
+}
+
+[data-theme='light'] .hero-light-atmosphere {
+  background:
+    radial-gradient(58% 42% at 24% 6%, rgba(222, 133, 94, 0.11), transparent 72%),
+    radial-gradient(46% 38% at 84% 28%, rgba(125, 93, 246, 0.045), transparent 72%),
+    radial-gradient(60% 44% at 50% 92%, rgba(222, 133, 94, 0.07), transparent 74%);
 }
 
 /* =========================================================================
@@ -422,6 +449,10 @@ html.theme-transition *::after {
   .h2-display {
     font-size: 1.55rem;
   }
+}
+
+[data-theme='light'] #top {
+  background: linear-gradient(180deg, #faf7f1 0%, #f5f2ec 68%, #f2eee6 100%);
 }
 
 .h3-display {

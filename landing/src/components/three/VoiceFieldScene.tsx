@@ -129,9 +129,9 @@ const LIGHT_FRAG = /* glsl */ `
     vec2 c2 = vec2(0.72 + 0.06 * cos(uTime * 0.03), 0.48 + 0.05 * sin(uTime * 0.04));
     vec2 c3 = vec2(0.42 + 0.04 * sin(uTime * 0.026 + 2.0), 0.86 + 0.05 * cos(uTime * 0.042 + 1.0));
 
-    // Light theme: half the intensity, colours warmed toward the paper.
-    float intensity = mix(1.0, 0.45, uTheme);
-    vec3 warm = mix(vec3(1.0, 0.52, 0.32), vec3(0.86, 0.56, 0.42), uTheme);
+    // Light theme: a warm daylight field — brighter warm, gentler cool.
+    float intensity = mix(1.0, 0.55, uTheme);
+    vec3 warm = mix(vec3(1.0, 0.52, 0.32), vec3(0.92, 0.62, 0.46), uTheme);
     vec3 cool = mix(vec3(0.55, 0.42, 1.0), vec3(0.55, 0.5, 0.72), uTheme);
     vec3 deep = mix(vec3(1.0, 0.62, 0.42), vec3(0.82, 0.6, 0.5), uTheme);
 
@@ -140,7 +140,10 @@ const LIGHT_FRAG = /* glsl */ `
     col += blob(uv, c2, 0.48, cool, 0.05 * intensity);
     col += blob(uv, c3, 0.52, deep, 0.045 * intensity);
 
-    gl_FragColor = vec4(col, 1.0);
+    // Alpha follows the light's intensity: empty regions stay transparent,
+    // so the canvas never paints an opaque veil over the page.
+    float alpha = clamp(length(col) * 3.0, 0.0, 1.0);
+    gl_FragColor = vec4(col, alpha);
   }
 `
 

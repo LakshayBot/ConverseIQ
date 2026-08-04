@@ -164,6 +164,7 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
     >
       {/* ── The room: voice field + ambient glow ───────────────────────── */}
       <VoiceField className="absolute inset-0 z-0 h-full w-full" />
+      <div aria-hidden="true" className="hero-light-atmosphere" />
       <div aria-hidden="true" className="glow right-[-20%] top-[30%] h-[48vmax] w-[48vmax] bg-[var(--glow-cool)]" />
       <div
         aria-hidden="true"
