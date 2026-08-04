@@ -5,7 +5,7 @@
 // cleanly on unmount.
 // ============================================================================
 
-import { useEffect, useLayoutEffect, useRef, type DependencyList, type RefObject } from 'react'
+import { useLayoutEffect, useRef, type DependencyList, type RefObject } from 'react'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { SplitText } from 'gsap/SplitText'
