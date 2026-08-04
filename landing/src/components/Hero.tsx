@@ -1,21 +1,24 @@
 // ============================================================================
 // Hero — the signature moment.
-//   · The claim: "The answer arrives mid-question." Characters rise into
-//     their clipped boxes while the page is still booting.
+//   · The claim: "The answer, mid-question." Characters rise into their
+//     clipped boxes while the page is still booting.
 //   · The proof: the live call window below, typing a real call and landing
 //     intelligence cards. The window sits on a tilted stage that flattens
 //     as you scroll — the demo becomes the product.
 //   · The room: the voice field — a particle sea that breathes with the call.
 //
-// Initial-state discipline: every element that the boot timeline animates
-// starts already at its "from" state the moment it enters the DOM. The
-// setup runs in useLayoutEffect (synchronous, before paint), waits for
-// fonts.ready (so the first paint uses the same metrics as the resting
-// state), and only then releases the timeline. The visitor never sees a
-// pre-animation frame.
+// Initial-state discipline — two phases, no gaps:
+//   PHASE 1 (mount, useLayoutEffect, BEFORE the first paint): the heading is
+//   split into characters and every element the boot timeline animates is
+//   placed in its hidden "from" state. The resting state never paints — not
+//   even behind the preloader, which reveals the hero progressively while
+//   its curtain lifts.
+//   PHASE 2 (boot, when the curtain completes): the timeline releases and
+//   everything animates to rest. Nothing was ever shown pre-animation, so
+//   there is no stable → animate → stable sequence.
 // ============================================================================
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { gsap } from 'gsap'
 import { SplitText } from 'gsap/SplitText'
 import { EASE, paintAccentGradient, prefersReducedMotion } from '@/lib/motion'
@@ -26,16 +29,6 @@ import { Magnetic } from './Magnetic'
 
 const GITHUB_URL = 'https://github.com/LakshayBot/ConverseIQ'
 
-// Boot the timeline only after we have final measurements. The preloader
-// already gives us ~1.2 s of font-loading time, so this almost always
-// resolves immediately.
-const waitForFonts = (): Promise<void> => {
-  if (typeof document === 'undefined' || !document.fonts?.ready) {
-    return Promise.resolve()
-  }
-  return document.fonts.ready.then(() => undefined).catch(() => undefined)
-}
-
 export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
   const rootRef = useRef<HTMLElement>(null)
   const eyebrowRef = useRef<HTMLDivElement>(null)
@@ -44,44 +37,24 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
   const metaRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const cueRef = useRef<HTMLDivElement>(null)
-  const [fontsReady, setFontsReady] = useState(false)
+  const splitRef = useRef<SplitText | null>(null)
+  const clearGradientRef = useRef<() => void>(() => {})
 
-  // Wait for fonts once, globally for the hero. The promise resolves with
-  // the document fonts being loaded — after this, getBoundingClientRect()
-  // is stable and SplitText's measurement won't shift.
-  useEffect(() => {
-    let cancelled = false
-    void waitForFonts().then(() => {
-      if (!cancelled) setFontsReady(true)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  // ── Boot choreography — runs SYNCHRONOUSLY before paint ────────────
-  // useLayoutEffect fires after React commits the DOM but BEFORE the
-  // browser paints, so gsap.set() puts every animated element in its
-  // from-state in time for the first frame. The preloader still covers
-  // the hero at this point, so even the from-state is never visible to
-  // the visitor.
+  // ── Phase 1: hidden from-state, applied before the first paint ──────
+  // The preloader's curtain reveals the hero gradually while booted is
+  // still false — so the from-state must exist from mount, not from boot.
   useLayoutEffect(() => {
-    if (!booted || !fontsReady || !rootRef.current) return
-
     const reduced = prefersReducedMotion()
-    let split: SplitText | null = null
-    let clearGradient: () => void = () => {}
-
-    // ── Step 1: split the heading into chars, paint the accent gradient,
-    //           and set every animated element to its from-state. All of
-    //           this happens synchronously before the next paint.
-    if (!reduced && h1Ref.current) {
-      split = SplitText.create(h1Ref.current, { type: 'chars', charsClass: 'char' })
-      clearGradient = paintAccentGradient(h1Ref.current)
-      gsap.set(split.chars, { yPercent: 118, rotateX: -50, opacity: 0, force3D: true })
-    } else if (h1Ref.current) {
-      gsap.set(h1Ref.current, { opacity: 1 })
+    if (reduced) {
+      if (h1Ref.current) gsap.set(h1Ref.current, { opacity: 1 })
+      return
     }
+    if (!h1Ref.current) return
+
+    const split = SplitText.create(h1Ref.current, { type: 'chars', charsClass: 'char' })
+    splitRef.current = split
+    clearGradientRef.current = paintAccentGradient(h1Ref.current)
+    gsap.set(split.chars, { yPercent: 118, rotateX: -50, opacity: 0, force3D: true })
 
     if (eyebrowRef.current) gsap.set(eyebrowRef.current, { y: 16, opacity: 0, force3D: true })
     if (ledeRef.current) gsap.set(ledeRef.current, { y: 22, opacity: 0, force3D: true })
@@ -89,8 +62,26 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
     if (stageRef.current) gsap.set(stageRef.current, { y: 90, opacity: 0, force3D: true })
     if (cueRef.current) gsap.set(cueRef.current, { opacity: 0 })
 
-    // ── Step 2: build the timeline. It plays immediately — but everything
-    //           starts at its from-state, so there is no jump.
+    // The accent gradient is measured against the layout. If the webfonts
+    // swap in after mount, re-measure once so the phrase stays continuous.
+    const reapplyGradient = (): void => {
+      clearGradientRef.current()
+      if (h1Ref.current) clearGradientRef.current = paintAccentGradient(h1Ref.current)
+    }
+    void (document.fonts?.ready ?? Promise.resolve()).then(() => reapplyGradient())
+
+    return () => {
+      split.revert()
+      splitRef.current = null
+      clearGradientRef.current()
+    }
+  }, [])
+
+  // ── Phase 2: the boot timeline — plays the moment the curtain lifts ──
+  useLayoutEffect(() => {
+    if (!booted) return
+
+    const split = splitRef.current
     const tl = gsap.timeline()
     tl.to(eyebrowRef.current, { y: 0, opacity: 1, duration: 0.6, ease: EASE.out })
     if (split) {
@@ -120,10 +111,8 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
 
     return () => {
       tl.kill()
-      clearGradient()
-      if (split) split.revert()
     }
-  }, [booted, fontsReady])
+  }, [booted])
 
   // ── Scroll flattening — the stage tilts back and settles as you scroll ──
   useLayoutEffect(() => {
