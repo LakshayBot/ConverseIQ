@@ -745,22 +745,6 @@ body.cp-cursor-on button {
 }
 
 /* =========================================================================
-   Scroll progress — hairline at the very top
-   ========================================================================= */
-
-.scroll-progress {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  z-index: 120;
-  transform-origin: 0 50%;
-  transform: scaleX(0);
-  background: linear-gradient(90deg, var(--color-brand), var(--color-brand-live));
-}
-
-/* =========================================================================
    Sections
    ========================================================================= */
 

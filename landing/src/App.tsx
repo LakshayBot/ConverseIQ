@@ -10,7 +10,6 @@ import { useCursor } from '@/lib/cursor'
 import { refreshScrollTriggers } from '@/lib/motion'
 import { Grain } from './components/Grain'
 import { Preloader } from './components/Preloader'
-import { ScrollProgress } from './components/ScrollProgress'
 import { TopNav } from './components/TopNav'
 import { Hero } from './components/Hero'
 import { MarqueeStrip } from './components/MarqueeStrip'
@@ -67,7 +66,6 @@ export default function App(): React.JSX.Element {
   return (
     <div className="relative min-h-screen bg-ink-950">
       <Grain />
-      <ScrollProgress />
       <Preloader onDone={() => setBooted(true)} />
 
       <TopNav />
