@@ -9,6 +9,7 @@ import { cx } from '@/lib/cx'
 import { IconArrow } from './icons'
 import { Brand } from './Brand'
 import { Magnetic } from './Magnetic'
+import { ThemeToggle } from './ThemeToggle'
 
 const LINKS = [
   { label: 'Problem', href: '#problem' },
@@ -43,7 +44,7 @@ export function TopNav(): React.JSX.Element {
         className={cx(
           'nocturne fixed inset-x-0 top-0 z-[110] transition-all duration-500',
           scrolled
-            ? 'border-b border-white/[0.07] bg-ink-950/70 backdrop-blur-xl'
+            ? 'border-b border-[var(--border-soft)] bg-[var(--surface-glass-strong)] backdrop-blur-xl'
             : 'border-b border-transparent bg-transparent',
         )}
       >
@@ -61,6 +62,7 @@ export function TopNav(): React.JSX.Element {
           </nav>
 
           <div className="flex items-center gap-3">
+            <ThemeToggle className="hidden sm:flex" />
             <Magnetic strength={0.3} className="hidden sm:block">
               <a href="#cta" className="btn btn--primary px-5! py-2.5! text-[13px]!">
                 Start your next call
@@ -74,7 +76,7 @@ export function TopNav(): React.JSX.Element {
               onClick={() => setOpen((o) => !o)}
               aria-label={open ? 'Close menu' : 'Open menu'}
               aria-expanded={open}
-              className="flex h-10 w-10 flex-col items-center justify-center gap-[5px] rounded-full border border-white/[0.12] lg:hidden"
+              className="flex h-10 w-10 flex-col items-center justify-center gap-[5px] rounded-full border border-[var(--border-mid)] lg:hidden"
             >
               <span
                 className={cx('h-px w-4 bg-moon transition-transform duration-300', open && 'translate-y-[3px] rotate-45')}
@@ -95,7 +97,7 @@ export function TopNav(): React.JSX.Element {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.28 }}
-            className="nocturne fixed inset-0 z-[105] flex flex-col justify-end bg-ink-950/95 px-[clamp(1.25rem,4vw,3rem)] pb-12 pt-28 backdrop-blur-xl lg:hidden"
+            className="nocturne fixed inset-0 z-[105] flex flex-col justify-end bg-[var(--sheet-bg)] px-[clamp(1.25rem,4vw,3rem)] pb-12 pt-28 backdrop-blur-xl lg:hidden"
           >
             <nav aria-label="Mobile" className="flex flex-col gap-2">
               {LINKS.map((link, i) => (
@@ -106,7 +108,7 @@ export function TopNav(): React.JSX.Element {
                   initial={{ y: 26, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
                   transition={{ delay: 0.05 + i * 0.05, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-                  className="h3-display flex items-baseline justify-between border-b border-white/[0.08] py-4 text-moon"
+                  className="h3-display flex items-baseline justify-between border-b border-[var(--border-soft)] py-4 text-moon"
                 >
                   {link.label}
                   <span className="font-mono text-[11px] tracking-[0.2em] text-moon-3">
@@ -121,6 +123,12 @@ export function TopNav(): React.JSX.Element {
               transition={{ delay: 0.4, duration: 0.4 }}
               className="mt-8"
             >
+              <div className="mb-4 flex items-center justify-between">
+                <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-moon-3">
+                  appearance
+                </span>
+                <ThemeToggle />
+              </div>
               <a href="#cta" onClick={() => setOpen(false)} className="btn btn--primary w-full justify-center">
                 Start with your next call
                 <IconArrow size={15} />

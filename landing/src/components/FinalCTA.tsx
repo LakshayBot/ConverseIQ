@@ -74,7 +74,7 @@ export function FinalCTA(): React.JSX.Element {
         className="pointer-events-none absolute inset-x-0 top-0 h-[30vh]"
         style={{
           background:
-            'radial-gradient(120% 90% at 50% 0%, rgba(238,240,247,0.04), transparent 60%)',
+            'var(--hero-top-light)',
         }}
       />
 

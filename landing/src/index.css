@@ -100,6 +100,7 @@
   body {
     background: var(--color-ink-950);
     color: var(--color-moon);
+    transition: background-color 0.4s ease, color 0.4s ease;
     font-feature-settings: 'ss01', 'cv11';
     overflow-x: hidden;
     min-height: 100vh;
@@ -135,7 +136,7 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-brand-live);
+    outline: 2px solid var(--focus-ring);
     outline-offset: 3px;
     border-radius: 2px;
   }
@@ -153,7 +154,215 @@
 }
 
 /* =========================================================================
-   Registers — night & day
+   THEME SYSTEM — one token layer, two identities
+   =========================================================================
+   · NOCTURNE (dark)  — the live call: ink, ember glow, additive light.
+   · LIGHT ("Dawn")   — the open product: warm editorial paper, hairline
+     precision, daylight. Not an inversion — a companion identity with its
+     own lighting physics (soft ambient shadows, restrained glow).
+
+   All component styling flows through the semantic tokens below. The
+   `@theme` color names (--color-moon, --color-ink-950, …) are re-mapped by
+   [data-theme] so existing utilities (text-moon, bg-ink-950, …) adapt
+   automatically; the tokens (--surface-glass, --shadow-*, --glow-*, …)
+   carry the treatments that used to be hardcoded in components.
+   ========================================================================= */
+
+:root {
+  color-scheme: dark;
+
+  /* ── Accent gradient — the voice wordmark. Mid stop is a token so the
+     light theme can deepen it against paper. ───────────────────────── */
+  --accent-gradient-mid: #ffb48a;
+
+  /* ── Surfaces & glass ─────────────────────────────────────────────── */
+  --surface-glass: rgba(18, 21, 31, 0.55);          /* .glass panels */
+  --surface-glass-strong: rgba(10, 11, 16, 0.8);    /* window body, nav */
+  --surface-glass-solid: rgba(10, 11, 16, 0.95);    /* card shell inner, overlays */
+  --glass-border: rgba(238, 240, 247, 0.09);
+
+  /* ── Hairlines ────────────────────────────────────────────────────── */
+  --border-faint: rgba(238, 240, 247, 0.06);
+  --border-soft: rgba(238, 240, 247, 0.07);
+  --border-mid: rgba(238, 240, 247, 0.09);
+  --border-strong: rgba(238, 240, 247, 0.14);
+  --border-track: rgba(238, 240, 247, 0.08);
+
+  /* ── Shadows — depth by elevation, tuned per theme ────────────────── */
+  --shadow-window: 0 2px 16px rgba(0, 0, 0, 0.4), 0 40px 90px -24px rgba(0, 0, 0, 0.7);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.2), 0 10px 28px rgba(0, 0, 0, 0.25);
+  --shadow-shell: 0 30px 80px -24px rgba(0, 0, 0, 0.8);
+  --shadow-shell-hover: 0 40px 100px -24px rgba(255, 122, 80, 0.28);
+  --shadow-accent: 0 8px 28px -8px rgba(181, 69, 31, 0.55);
+  --shadow-stamp: 0 0 70px rgba(255, 122, 80, 0.18);
+  --shadow-rail: 0 0 12px rgba(255, 122, 80, 0.5);
+  --shadow-dot: 0 0 12px rgba(255, 122, 80, 1);
+
+  /* ── Glows & lighting ─────────────────────────────────────────────── */
+  --glow-warm: rgba(181, 69, 31, 0.16);
+  --glow-cool: rgba(125, 93, 246, 0.09);
+  --glow-card: rgba(255, 122, 80, 0.24);
+  --glow-pedestal: rgba(255, 122, 80, 0.18);
+  --hero-top-light: radial-gradient(120% 90% at 50% 0%, rgba(238, 240, 247, 0.05), transparent 62%);
+
+  /* ── Accent tints (chips, badges, borders) ────────────────────────── */
+  --accent-tint: rgba(255, 122, 80, 0.12);
+  --accent-tint-2: rgba(255, 122, 80, 0.1);
+  --accent-tint-3: rgba(255, 122, 80, 0.06);
+  --accent-border: rgba(255, 122, 80, 0.45);
+  --accent-dot: rgba(255, 122, 80, 1);
+
+  /* ── Detection tokens (the "trie caught it" marks) ────────────────── */
+  --tok-bg: rgba(255, 122, 80, 0.16);
+  --tok-border: rgba(255, 122, 80, 0.35);
+  --tok-text: #ffd9c8;
+  --prospect-tint: rgba(125, 93, 246, 0.14);
+  --prospect-text: #a89bff;
+
+  /* ── Wordmarks, overlays, chrome ──────────────────────────────────── */
+  --wordmark-stroke: rgba(238, 240, 247, 0.16);
+  --wordmark-now: rgba(181, 69, 31, 0.14);
+  --sheet-bg: rgba(10, 11, 16, 0.95);
+  --loop-overlay: rgba(10, 11, 16, 0.6);
+  --section-fade: linear-gradient(to top, rgba(10, 11, 16, 0.6), transparent);
+  --card-bg: rgba(255, 255, 255, 0.04);
+  --card-border: rgba(255, 255, 255, 0.08);
+
+  /* Gradient rings, stamp, reflection */
+  --ring-accent: linear-gradient(
+    160deg,
+    rgba(255, 122, 80, 0.55),
+    rgba(255, 122, 80, 0.1) 38%,
+    rgba(238, 240, 247, 0.1)
+  );
+  --stamp-bg: linear-gradient(180deg, rgba(255, 122, 80, 0.12), rgba(255, 122, 80, 0.02));
+  --reflection: rgba(255, 255, 255, 0.07);
+
+  --noise-opacity: 0.05;
+  --focus-ring: var(--color-brand-live);
+}
+
+/* ── LIGHT THEME — "Dawn" ──────────────────────────────────────────────
+   Warm editorial paper, terracotta accent (Opaline primary), daylight
+   shadows. The nocturne color tokens re-map so every existing utility
+   adapts; the treatment tokens re-map so glows become washes, glass
+   becomes white, shadows become soft. */
+[data-theme='light'] {
+  color-scheme: light;
+
+  /* Deeper terracotta ramp for the light register */
+  --accent-gradient-mid: #c0603f;
+
+  /* Re-map the nocturne color set */
+  --color-ink-950: #f5f2ec;
+  --color-ink-900: #fbf9f5;
+  --color-ink-850: #fbf9f5;
+  --color-ink-800: #f2eee6;
+  --color-ink-700: #e9e3d8;
+  --color-moon: #211d19;
+  --color-moon-2: #57524a;
+  --color-moon-3: #78716a;
+  --color-rule-dark: rgba(24, 24, 27, 0.08);
+  --color-brand: #93483c;
+  --color-brand-2: #7d2c12;
+  --color-brand-3: #5e1f0c;
+  --color-brand-live: #93483c;
+  --color-brand-soft: #f1c9b3;
+  --color-brand-paper: #fbe7da;
+
+  /* Re-map severity + badge */
+  --sev-high: #93483c;
+  --sev-med: #8f6358;
+  --sev-low: #9d968c;
+  --intel-badge: #fbe7da;
+
+  /* Surfaces & glass */
+  --surface-glass: rgba(255, 255, 255, 0.72);
+  --surface-glass-strong: rgba(251, 249, 245, 0.86);
+  --surface-glass-solid: rgba(255, 255, 255, 0.96);
+  --glass-border: rgba(24, 24, 27, 0.08);
+
+  /* Hairlines */
+  --border-faint: rgba(24, 24, 27, 0.06);
+  --border-soft: rgba(24, 24, 27, 0.07);
+  --border-mid: rgba(24, 24, 27, 0.1);
+  --border-strong: rgba(24, 24, 27, 0.16);
+  --border-track: rgba(24, 24, 27, 0.1);
+
+  /* Shadows — daylight: small, directional, never deep-night */
+  --shadow-window: 0 2px 8px rgba(24, 24, 27, 0.05), 0 24px 60px -24px rgba(24, 24, 27, 0.12);
+  --shadow-card: 0 1px 2px rgba(24, 24, 27, 0.04), 0 8px 20px -8px rgba(24, 24, 27, 0.1);
+  --shadow-shell: 0 20px 60px -24px rgba(24, 24, 27, 0.16);
+  --shadow-shell-hover: 0 28px 70px -24px rgba(147, 72, 60, 0.24);
+  --shadow-accent: 0 8px 24px -10px rgba(147, 72, 60, 0.4);
+  --shadow-stamp: 0 0 60px rgba(147, 72, 60, 0.14);
+  --shadow-rail: 0 0 10px rgba(147, 72, 60, 0.4);
+  --shadow-dot: 0 0 10px rgba(147, 72, 60, 0.7);
+
+  /* Glows — washes, not blooms */
+  --glow-warm: rgba(214, 115, 80, 0.1);
+  --glow-cool: rgba(125, 93, 246, 0.06);
+  --glow-card: rgba(214, 115, 80, 0.12);
+  --glow-pedestal: rgba(147, 72, 60, 0.1);
+  --hero-top-light: radial-gradient(120% 90% at 50% 0%, rgba(214, 115, 80, 0.06), transparent 62%);
+
+  /* Accent tints */
+  --accent-tint: rgba(147, 72, 60, 0.1);
+  --accent-tint-2: rgba(147, 72, 60, 0.08);
+  --accent-tint-3: rgba(147, 72, 60, 0.05);
+  --accent-border: rgba(147, 72, 60, 0.45);
+  --accent-dot: #93483c;
+
+  /* Detection tokens */
+  --tok-bg: #fbe7da;
+  --tok-border: rgba(147, 72, 60, 0.3);
+  --tok-text: #5e1f0c;
+  --prospect-tint: rgba(125, 93, 246, 0.1);
+  --prospect-text: #5a3fb8;
+
+  /* Wordmarks, overlays, chrome */
+  --wordmark-stroke: rgba(24, 24, 27, 0.2);
+  --wordmark-now: rgba(147, 72, 60, 0.22);
+  --sheet-bg: rgba(245, 242, 236, 0.96);
+  --loop-overlay: rgba(245, 242, 236, 0.6);
+  --section-fade: linear-gradient(to top, rgba(245, 242, 236, 0.6), transparent);
+  --card-bg: rgba(255, 255, 255, 0.72);
+  --card-border: rgba(24, 24, 27, 0.07);
+
+  --ring-accent: linear-gradient(
+    160deg,
+    rgba(147, 72, 60, 0.4),
+    rgba(147, 72, 60, 0.08) 38%,
+    rgba(24, 24, 27, 0.06)
+  );
+  --stamp-bg: linear-gradient(180deg, rgba(147, 72, 60, 0.1), rgba(147, 72, 60, 0.02));
+  --reflection: rgba(255, 255, 255, 0.5);
+
+  --noise-opacity: 0.03;
+  --focus-ring: #93483c;
+}
+
+/* Theme-switch transition — color-carrying properties only. Transforms
+   and opacity stay GSAP-owned; no timeline is ever touched. */
+html.theme-transition,
+html.theme-transition body,
+html.theme-transition .nocturne,
+html.theme-transition .dawn,
+html.theme-transition *,
+html.theme-transition *::before,
+html.theme-transition *::after {
+  transition:
+    background-color 0.55s ease,
+    color 0.55s ease,
+    border-color 0.55s ease,
+    box-shadow 0.55s ease,
+    text-shadow 0.55s ease,
+    fill 0.55s ease,
+    stroke 0.55s ease !important;
+}
+
+/* =========================================================================
+   Registers
    ========================================================================= */
 
 .nocturne {
@@ -269,6 +478,14 @@
   color: transparent;
 }
 
+/* Light theme — the ember gradient gives way to the solid terracotta. */
+[data-theme='light'] .nocturne .accent {
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: var(--color-brand);
+}
+
 .dawn .accent {
   color: var(--color-brand);
 }
@@ -328,16 +545,12 @@
 .btn--primary {
   background: var(--color-brand);
   color: #fff8f2;
-  box-shadow:
-    0 0 0 1px rgba(255, 122, 80, 0.25),
-    0 8px 28px -8px rgba(181, 69, 31, 0.55);
+  box-shadow: 0 0 0 1px var(--accent-border), var(--shadow-accent);
 }
 
 .btn--primary:hover {
   background: var(--color-brand-2);
-  box-shadow:
-    0 0 0 1px rgba(255, 122, 80, 0.4),
-    0 12px 36px -8px rgba(181, 69, 31, 0.7);
+  box-shadow: 0 0 0 1px var(--accent-border), var(--shadow-accent);
 }
 
 .btn--ghost {
@@ -386,10 +599,10 @@
    ========================================================================= */
 
 .glass {
-  background: rgba(18, 21, 31, 0.55);
+  background: var(--surface-glass);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--color-rule-dark);
+  border: 1px solid var(--glass-border);
 }
 
 .dawn .glass {
@@ -406,7 +619,7 @@
 }
 
 .text-outline {
-  -webkit-text-stroke: 1px rgba(238, 240, 247, 0.22);
+  -webkit-text-stroke: 1px var(--wordmark-stroke);
   color: transparent;
 }
 
@@ -426,15 +639,15 @@
   line-height: 0.9;
   letter-spacing: -0.03em;
   white-space: nowrap;
-  -webkit-text-stroke: 1.5px rgba(238, 240, 247, 0.16);
+  -webkit-text-stroke: 1.5px var(--wordmark-stroke);
   color: transparent;
-  text-shadow: 0 0 90px rgba(255, 122, 80, 0.2);
+  text-shadow: 0 0 90px var(--glow-warm);
 }
 
 .stage-bigword--now {
   -webkit-text-stroke: 0px;
-  color: rgba(181, 69, 31, 0.14);
-  text-shadow: 0 0 90px rgba(255, 122, 80, 0.16);
+  color: var(--wordmark-now);
+  text-shadow: 0 0 90px var(--glow-warm);
 }
 
 /* =========================================================================
@@ -448,7 +661,7 @@
   height: 220%;
   pointer-events: none;
   z-index: 80;
-  opacity: 0.05;
+  opacity: var(--noise-opacity);
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   animation: grain-shift 0.9s steps(4) infinite;

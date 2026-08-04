@@ -77,6 +77,7 @@ const DUST_VERT = /* glsl */ `
 const DUST_FRAG = /* glsl */ `
   uniform vec3 uColorA;
   uniform vec3 uColorB;
+  uniform float uTheme;
 
   varying float vMix;
   varying float vFade;
@@ -87,7 +88,8 @@ const DUST_FRAG = /* glsl */ `
     float d = length(uv);
     // Soft-blurred sprite: heavy, smooth falloff — dust, not dots.
     float alpha = pow(smoothstep(0.5, 0.02, d), 2.6);
-    alpha *= vFade * vOpacity;
+    // Light theme: the dust recedes further into the paper.
+    alpha *= vFade * vOpacity * mix(1.0, 0.5, uTheme);
     if (alpha < 0.004) discard;
 
     vec3 color = mix(uColorA, uColorB, vMix);
@@ -108,6 +110,7 @@ const LIGHT_VERT = /* glsl */ `
 const LIGHT_FRAG = /* glsl */ `
   uniform float uTime;
   uniform vec2 uMouse;
+  uniform float uTheme;
 
   varying vec2 vUv;
 
@@ -126,10 +129,16 @@ const LIGHT_FRAG = /* glsl */ `
     vec2 c2 = vec2(0.72 + 0.06 * cos(uTime * 0.03), 0.48 + 0.05 * sin(uTime * 0.04));
     vec2 c3 = vec2(0.42 + 0.04 * sin(uTime * 0.026 + 2.0), 0.86 + 0.05 * cos(uTime * 0.042 + 1.0));
 
+    // Light theme: half the intensity, colours warmed toward the paper.
+    float intensity = mix(1.0, 0.45, uTheme);
+    vec3 warm = mix(vec3(1.0, 0.52, 0.32), vec3(0.86, 0.56, 0.42), uTheme);
+    vec3 cool = mix(vec3(0.55, 0.42, 1.0), vec3(0.55, 0.5, 0.72), uTheme);
+    vec3 deep = mix(vec3(1.0, 0.62, 0.42), vec3(0.82, 0.6, 0.5), uTheme);
+
     vec3 col = vec3(0.0);
-    col += blob(uv, c1, 0.42, vec3(1.0, 0.52, 0.32), 0.075);  // terracotta — behind the headline
-    col += blob(uv, c2, 0.48, vec3(0.55, 0.42, 1.0), 0.05);   // lavender — behind the stage
-    col += blob(uv, c3, 0.52, vec3(1.0, 0.62, 0.42), 0.045);  // warm deep — the bottom transition
+    col += blob(uv, c1, 0.42, warm, 0.075 * intensity);
+    col += blob(uv, c2, 0.48, cool, 0.05 * intensity);
+    col += blob(uv, c3, 0.52, deep, 0.045 * intensity);
 
     gl_FragColor = vec4(col, 1.0);
   }
@@ -144,6 +153,9 @@ export function VoiceFieldScene(): React.JSX.Element {
   const ampRef = useRef(TARGET_REST)
   const targetRef = useRef(TARGET_REST)
   const decayRef = useRef(1)
+  const themeRef = useRef(
+    document.documentElement.dataset.theme === 'light' ? 1 : 0,
+  )
 
   // ── Dust geometry: denser below (behind the stage), sparse in the text
   //    zone, spread across nine depth layers.
@@ -190,6 +202,7 @@ export function VoiceFieldScene(): React.JSX.Element {
           uMaskSize: { value: new THREE.Vector2(5.4, 3.1) },
           uColorA: { value: new THREE.Color('#ff7a50') },
           uColorB: { value: new THREE.Color('#7d5df6') },
+          uTheme: { value: 0 },
         },
         vertexShader: DUST_VERT,
         fragmentShader: DUST_FRAG,
@@ -211,6 +224,7 @@ export function VoiceFieldScene(): React.JSX.Element {
         uniforms: {
           uTime: { value: 0 },
           uMouse: { value: new THREE.Vector2(0, 0) },
+          uTheme: { value: 0 },
         },
         vertexShader: LIGHT_VERT,
         fragmentShader: LIGHT_FRAG,
@@ -229,6 +243,16 @@ export function VoiceFieldScene(): React.JSX.Element {
     }
     window.addEventListener('cp:voice-pulse', onPulse)
     return () => window.removeEventListener('cp:voice-pulse', onPulse)
+  }, [])
+
+  // Theme adaptation — the light theme gets a softer, warmer ambient.
+  useEffect(() => {
+    const onTheme = (e: Event): void => {
+      const detail = (e as CustomEvent<string>).detail
+      themeRef.current = detail === 'light' ? 1 : 0
+    }
+    window.addEventListener('callpilot:theme', onTheme)
+    return () => window.removeEventListener('callpilot:theme', onTheme)
   }, [])
 
   const mouse = useRef({ x: 0, y: 0 })
@@ -255,6 +279,14 @@ export function VoiceFieldScene(): React.JSX.Element {
     }
     ampRef.current += (targetRef.current - ampRef.current) * Math.min(1, delta * 2.5)
     dustMaterial.uniforms.uAmp.value = ampRef.current
+
+    // Theme blends in smoothly — the swap never snaps the lighting.
+    const theme = dustMaterial.uniforms.uTheme.value
+    const nextTheme = themeRef.current
+    if (Math.abs(nextTheme - theme) > 0.001) {
+      dustMaterial.uniforms.uTheme.value = theme + (nextTheme - theme) * Math.min(1, delta * 3)
+      lightMaterial.uniforms.uTheme.value = dustMaterial.uniforms.uTheme.value
+    }
 
     // Restrained mouse parallax — the room leans, nothing chases the cursor.
     const mx = mouse.current.x

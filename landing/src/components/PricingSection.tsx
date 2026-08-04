@@ -58,21 +58,21 @@ export function PricingSection(): React.JSX.Element {
             data-price-card
             className="nocturne relative overflow-hidden rounded-3xl p-8 sm:p-10"
             style={{
-              border: '1px solid rgba(255,122,80,0.3)',
+              border: '1px solid var(--accent-border)',
               boxShadow:
-                '0 40px 90px -30px rgba(181,69,31,0.5), inset 0 0 60px rgba(255,122,80,0.06)',
+                '0 40px 90px -30px rgba(181,69,31,0.5), inset 0 0 60px var(--accent-tint-3)',
             }}
           >
             <div
               aria-hidden="true"
-              className="glow left-1/2 top-0 h-[220px] w-[420px] -translate-x-1/2 -translate-y-1/2 bg-[rgba(255,122,80,0.22)]"
+              className="glow left-1/2 top-0 h-[220px] w-[420px] -translate-x-1/2 -translate-y-1/2 bg-[var(--glow-warm)]"
             />
             <div className="relative">
               <div className="flex items-center justify-between">
                 <span className="font-mono text-[10.5px] uppercase tracking-[0.18em] text-brand-live">
                   {PRICING.selfHosted.label}
                 </span>
-                <span className="rounded-full bg-[rgba(255,122,80,0.14)] px-3 py-1 font-mono text-[9.5px] uppercase tracking-[0.14em] text-brand-live">
+                <span className="rounded-full bg-[var(--accent-tint-2)] px-3 py-1 font-mono text-[9.5px] uppercase tracking-[0.14em] text-brand-live">
                   the whole stack
                 </span>
               </div>
@@ -91,7 +91,7 @@ export function PricingSection(): React.JSX.Element {
               <ul className="mt-8 space-y-3">
                 {PRICING.selfHosted.points.map((point) => (
                   <li key={point} className="flex items-start gap-3 text-[13.5px] text-moon">
-                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[rgba(255,122,80,0.16)] text-brand-live">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-tint-2)] text-brand-live">
                       <IconCheck size={11} />
                     </span>
                     {point}

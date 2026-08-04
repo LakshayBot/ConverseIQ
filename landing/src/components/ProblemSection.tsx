@@ -256,7 +256,7 @@ export function ProblemSection(): React.JSX.Element {
                 className="absolute left-0 right-0 top-[6px] h-px"
                 style={{
                   background:
-                    'linear-gradient(90deg, transparent, rgba(238,240,247,0.14) 12%, rgba(238,240,247,0.14) 88%, transparent)',
+                    'linear-gradient(90deg, transparent, var(--border-strong) 12%, var(--border-strong) 88%, transparent)',
                 }}
               />
               <div
@@ -266,8 +266,7 @@ export function ProblemSection(): React.JSX.Element {
                 style={{
                   background:
                     'linear-gradient(90deg, var(--color-brand), var(--color-brand-live))',
-                  boxShadow:
-                    '0 0 8px rgba(255,122,80,0.45), 0 0 24px rgba(255,122,80,0.25)',
+                  boxShadow: 'var(--shadow-rail), 0 0 24px var(--glow-warm)',
                   transform: staticLayout ? undefined : 'scaleX(0)',
                 }}
               />
@@ -289,7 +288,7 @@ export function ProblemSection(): React.JSX.Element {
                       <span
                         aria-hidden="true"
                         className="absolute inset-[3px] rounded-full bg-brand-live"
-                        style={{ boxShadow: '0 0 10px rgba(255,122,80,0.9)' }}
+                        style={{ boxShadow: 'var(--shadow-dot)' }}
                       />
                       <span
                         aria-hidden="true"
@@ -320,17 +319,15 @@ export function ProblemSection(): React.JSX.Element {
                   !staticLayout && 'opacity-0',
                 )}
                 style={{
-                  background:
-                    'linear-gradient(180deg, rgba(255,122,80,0.12), rgba(255,122,80,0.02))',
-                  border: '1px solid rgba(255,122,80,0.45)',
-                  boxShadow:
-                    '0 0 70px rgba(255,122,80,0.18), inset 0 0 30px rgba(255,122,80,0.05)',
+                  background: 'var(--stamp-bg)',
+                  border: '1px solid var(--accent-border)',
+                  boxShadow: 'var(--shadow-stamp), inset 0 0 30px var(--accent-tint-3)',
                   transform: staticLayout ? undefined : 'rotate(-2.5deg)',
                 }}
               >
                 <span
                   aria-hidden="true"
-                  className="pointer-events-none absolute inset-1.5 rounded-xl border border-dashed border-brand-live/25"
+                  className="pointer-events-none absolute inset-1.5 rounded-xl border border-dashed border-[var(--accent-border)]"
                 />
                 <span className="relative block font-mono text-[clamp(1.35rem,3.4vw,2.2rem)] font-semibold uppercase tracking-[0.3em] text-brand-live">
                   Too late.
@@ -355,7 +352,7 @@ export function ProblemSection(): React.JSX.Element {
             <div data-now-transcript className="max-w-[48ch]">
               <div className="flex items-center gap-3">
                 <span className="font-mono text-[10px] tracking-[0.2em] text-moon-3">01</span>
-                <span aria-hidden="true" className="h-px w-6 bg-white/[0.12]" />
+                <span aria-hidden="true" className="h-px w-6 bg-[var(--border-strong)]" />
                 <SpeakerDot speaker="prospect" pulse />
                 <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--color-prospect)' }}>
                   PROSPECT
@@ -380,7 +377,7 @@ export function ProblemSection(): React.JSX.Element {
 
             {/* the signal — the AI understands */}
             <div data-now-signal className="flex items-center gap-5">
-              <div className="relative h-10 w-px bg-white/[0.08]">
+              <div className="relative h-10 w-px bg-[var(--border-track)]">
                 <span
                   data-now-signal-beam
                   aria-hidden="true"
@@ -388,15 +385,15 @@ export function ProblemSection(): React.JSX.Element {
                   style={{
                     transform: staticLayout ? undefined : 'scaleY(0)',
                     background:
-                      'linear-gradient(180deg, var(--color-brand-live), rgba(255,122,80,0.08))',
-                    boxShadow: '0 0 12px rgba(255,122,80,0.6)',
+                      'linear-gradient(180deg, var(--color-brand-live), var(--accent-tint-3))',
+                    boxShadow: 'var(--shadow-rail)',
                   }}
                 />
                 <span
                   data-now-signal-dot
                   aria-hidden="true"
                   className="absolute -left-[3.5px] top-0 h-2 w-2 rounded-full bg-brand-live"
-                  style={{ boxShadow: '0 0 12px rgba(255,122,80,1)' }}
+                  style={{ boxShadow: 'var(--shadow-dot)' }}
                 />
               </div>
               <span data-now-signal-label className="font-mono text-[10px] uppercase tracking-[0.16em] text-moon-3">
@@ -416,24 +413,21 @@ export function ProblemSection(): React.JSX.Element {
                     className="absolute -top-12 left-1/2 h-44 w-[110%] -translate-x-1/2"
                     style={{
                       background:
-                        'radial-gradient(52% 65% at 50% 8%, rgba(255,122,80,0.24), transparent 72%)',
+                        'radial-gradient(52% 65% at 50% 8%, var(--glow-card), transparent 72%)',
                       filter: 'blur(36px)',
                     }}
                   />
                   <div
                     data-now-pedestal
                     aria-hidden="true"
-                    className="absolute -bottom-8 left-1/2 h-8 w-4/5 -translate-x-1/2 rounded-full bg-[rgba(255,122,80,0.18)] blur-2xl"
+                    className="absolute -bottom-8 left-1/2 h-8 w-4/5 -translate-x-1/2 rounded-full bg-[var(--glow-pedestal)] blur-2xl"
                   />
                   {/* gradient-ring shell — the payoff frame */}
                   <div
                     className="relative rounded-2xl p-px transition-transform duration-500 group-hover:-translate-y-1"
-                    style={{
-                      background:
-                        'linear-gradient(160deg, rgba(255,122,80,0.55), rgba(255,122,80,0.1) 38%, rgba(238,240,247,0.1))',
-                    }}
+                    style={{ background: 'var(--ring-accent)' }}
                   >
-                    <div className="rounded-[calc(1rem-1px)] bg-ink-900/95 shadow-[0_30px_80px_-24px_rgba(0,0,0,0.8)] backdrop-blur-xl transition-shadow duration-500 group-hover:shadow-[0_40px_100px_-24px_rgba(255,122,80,0.28)]">
+                    <div className="rounded-[calc(1rem-1px)] bg-[var(--surface-glass-solid)] shadow-[var(--shadow-shell)] backdrop-blur-xl transition-shadow duration-500 group-hover:shadow-[var(--shadow-shell-hover)]">
                       <IntelCard
                         animateIn={!staticLayout}
                         kind="Pricing question"
@@ -449,12 +443,12 @@ export function ProblemSection(): React.JSX.Element {
                     </div>
                     <div
                       aria-hidden="true"
-                      className="pointer-events-none absolute inset-x-8 top-0 h-8 rounded-full bg-white/[0.07] blur-xl"
+                      className="pointer-events-none absolute inset-x-8 top-0 h-8 rounded-full bg-[var(--reflection)] blur-xl"
                     />
                   </div>
                   <p className="mt-2 flex items-center justify-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-moon-3">
                     <span>02</span>
-                    <span aria-hidden="true" className="h-px w-4 bg-white/[0.12]" />
+                    <span aria-hidden="true" className="h-px w-4 bg-[var(--border-strong)]" />
                     the rail · live
                   </p>
                 </div>
@@ -477,10 +471,10 @@ export function ProblemSection(): React.JSX.Element {
             </div>
 
             {/* 03 — the same minute */}
-            <div data-now-meta className="border-t border-white/[0.06] pt-3">
+            <div data-now-meta className="border-t border-[var(--border-faint)] pt-3">
               <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
                 <span className="font-mono text-[10px] tracking-[0.2em] text-moon-3">03</span>
-                <span aria-hidden="true" className="hidden h-px w-6 bg-white/[0.12] sm:block" />
+                <span aria-hidden="true" className="hidden h-px w-6 bg-[var(--border-strong)] sm:block" />
                 <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-moon-2">
                   the question · 14:32:14
                 </span>
@@ -503,7 +497,8 @@ export function ProblemSection(): React.JSX.Element {
           {/* pull into the next chapter */}
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-ink-950/60 to-transparent"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-10"
+            style={{ background: 'var(--section-fade)' }}
           />
         </div>
       </div>

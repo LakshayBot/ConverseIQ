@@ -44,7 +44,7 @@ export function IntelCard({
   return (
     <div
       className={cx(
-        'intel-card overflow-hidden rounded-xl border border-black/[0.07] bg-white/[0.06] shadow-[0_1px_2px_rgba(0,0,0,0.2),0_10px_28px_rgba(0,0,0,0.25)] backdrop-blur-sm',
+        'intel-card overflow-hidden rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] shadow-[var(--shadow-card)] backdrop-blur-sm',
         SEV_BORDER[severity],
         animateIn && 'intel-card--in',
         className,
@@ -60,7 +60,7 @@ export function IntelCard({
             {kind}
           </span>
           <span
-            className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.1] px-2.5 py-0.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.12em]"
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-soft)] px-2.5 py-0.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.12em]"
             style={{ color: SEV_COLOR[severity] }}
           >
             <span
@@ -83,7 +83,7 @@ export function IntelCard({
         )}
 
         {hasSources && (
-          <div className="mt-3 border-t border-white/[0.08] pt-2.5">
+          <div className="mt-3 border-t border-[var(--border-faint)] pt-2.5">
             <button
               type="button"
               onClick={() => setOpen((o) => !o)}
@@ -98,7 +98,7 @@ export function IntelCard({
                 {sources!.map((s, i) => (
                   <li
                     key={i}
-                    className="border-l-2 border-white/[0.14] pl-2 text-[11px] leading-relaxed text-moon-2"
+                    className="border-l-2 border-[var(--border-soft)] pl-2 text-[11px] leading-relaxed text-moon-2"
                   >
                     {s}
                   </li>

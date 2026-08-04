@@ -45,7 +45,7 @@ export function MarqueeStrip({
   return (
     <div
       className={cx(
-        'nocturne relative overflow-hidden border-y border-white/[0.06] py-5',
+        'nocturne relative overflow-hidden border-y border-[var(--border-faint)] py-5',
         className,
       )}
       style={{

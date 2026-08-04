@@ -12,6 +12,25 @@
 
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 
+    <script>
+      // Theme bootstrap — runs before first paint so the correct theme is on
+      // <html> before CSS or React touch the page. No flash, no reload.
+      (function () {
+        try {
+          var saved = localStorage.getItem('callpilot-theme')
+          var theme =
+            saved === 'nocturne' || saved === 'light'
+              ? saved
+              : window.matchMedia('(prefers-color-scheme: light)').matches
+                ? 'light'
+                : 'nocturne'
+          document.documentElement.dataset.theme = theme
+        } catch (e) {
+          document.documentElement.dataset.theme = 'nocturne'
+        }
+      })()
+    </script>
+
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="CallPilot" />
     <meta property="og:title" content="CallPilot — Live intelligence during sales calls" />

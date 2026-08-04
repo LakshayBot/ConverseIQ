@@ -67,7 +67,7 @@ export function CardAnatomy(): React.JSX.Element {
           <div data-anatomy className="relative mx-auto w-full max-w-[470px]">
             <div
               aria-hidden="true"
-              className="glow left-1/2 top-1/2 h-[80%] w-[80%] -translate-x-1/2 -translate-y-1/2 bg-[rgba(181,69,31,0.22)]"
+              className="glow left-1/2 top-1/2 h-[80%] w-[80%] -translate-x-1/2 -translate-y-1/2 bg-[var(--glow-warm)]"
             />
 
             {/* Severity switcher */}
@@ -86,8 +86,8 @@ export function CardAnatomy(): React.JSX.Element {
                     className={cx(
                       'rounded-full border px-3 py-1 font-mono text-[10px] uppercase tracking-[0.12em] transition-all duration-300',
                       severity === s
-                        ? 'border-brand-live/50 bg-[rgba(255,122,80,0.1)] text-brand-live'
-                        : 'border-white/[0.1] text-moon-3 hover:text-moon',
+                        ? 'border-[var(--accent-border)] bg-[var(--accent-tint-2)] text-brand-live'
+                        : 'border-[var(--border-mid)] text-moon-3 hover:text-moon',
                     )}
                   >
                     {s}
@@ -97,13 +97,13 @@ export function CardAnatomy(): React.JSX.Element {
             </div>
 
             <div
-              className="relative z-[1] overflow-hidden rounded-2xl border border-black/[0.07] bg-white/[0.06] shadow-[0_2px_10px_rgba(0,0,0,0.35),0_30px_70px_-20px_rgba(0,0,0,0.6)] backdrop-blur-sm transition-all duration-500"
+              className="relative z-[1] overflow-hidden rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] shadow-[var(--shadow-shell)] backdrop-blur-sm transition-all duration-500"
               style={{ borderLeft: `3px solid ${sevColor}` }}
             >
               <div className="p-5 sm:p-6">
                 <div
                   data-anatomy-part="n1"
-                  className={cx('flex items-center justify-between gap-2 transition-all duration-300', note === 'n1' && 'rounded-lg bg-[rgba(255,122,80,0.08)] p-1 -m-1')}
+                  className={cx('flex items-center justify-between gap-2 transition-all duration-300', note === 'n1' && 'rounded-lg bg-[var(--accent-tint-3)] p-1 -m-1')}
                 >
                   <span
                     className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-mono text-[10.5px] font-semibold uppercase tracking-[0.09em]"
@@ -113,7 +113,7 @@ export function CardAnatomy(): React.JSX.Element {
                     Product match
                   </span>
                   <span
-                    className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.1] px-2.5 py-0.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.12em]"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-mid)] px-2.5 py-0.5 font-mono text-[9.5px] font-medium uppercase tracking-[0.12em]"
                     style={{ color: sevColor }}
                   >
                     <span className="h-1.5 w-1.5 rounded-full" style={{ background: sevColor }} />
@@ -139,17 +139,17 @@ export function CardAnatomy(): React.JSX.Element {
 
                 <div
                   data-anatomy-part="n5"
-                  className="mt-4 border-t border-white/[0.08] pt-3"
+                  className="mt-4 border-t border-[var(--border-faint)] pt-3"
                 >
                   <div className={cx('flex items-center gap-1.5 font-mono text-[10.5px] transition-colors duration-300', note === 'n5' ? 'text-brand-live' : 'text-moon-2')}>
                     <IconSource size={11} />
                     Sources (2)
                   </div>
                   <ul className="mt-2 space-y-1.5">
-                    <li className="border-l-2 border-white/[0.14] pl-2 font-mono text-[10.5px] leading-relaxed text-moon-2">
+                    <li className="border-l-2 border-[var(--border-soft)] pl-2 font-mono text-[10.5px] leading-relaxed text-moon-2">
                       apex-100-spec.pdf · “500+ endpoints” · page 3
                     </li>
-                    <li className="border-l-2 border-white/[0.14] pl-2 font-mono text-[10.5px] leading-relaxed text-moon-2">
+                    <li className="border-l-2 border-[var(--border-soft)] pl-2 font-mono text-[10.5px] leading-relaxed text-moon-2">
                       rate-card-2026.md · “Pro tier” · §2.1
                     </li>
                   </ul>
@@ -174,16 +174,16 @@ export function CardAnatomy(): React.JSX.Element {
                 className={cx(
                   'group flex items-start gap-5 rounded-xl border p-4 text-left transition-all duration-300',
                   note === a.id
-                    ? 'border-brand-live/40 bg-[rgba(255,122,80,0.05)]'
-                    : 'border-white/[0.07] bg-transparent hover:border-white/[0.16]',
+                    ? 'border-[var(--accent-border)] bg-[var(--accent-tint-3)]'
+                    : 'border-[var(--border-soft)] bg-transparent hover:border-[var(--border-mid)]',
                 )}
               >
                 <span
                   className={cx(
                     'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border font-mono text-[11px] tracking-[0.1em] transition-all duration-300',
                     note === a.id
-                      ? 'border-brand-live/60 bg-brand-live text-ink-950'
-                      : 'border-white/[0.14] text-moon-3 group-hover:text-moon',
+                      ? 'border-[var(--accent-border)] bg-brand-live text-ink-950'
+                      : 'border-[var(--border-soft)] text-moon-3 group-hover:text-moon',
                   )}
                 >
                   {a.num}

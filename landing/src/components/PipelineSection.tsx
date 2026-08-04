@@ -221,13 +221,13 @@ export function PipelineSection(): React.JSX.Element {
                 {splitTokens(DETECT_TEXT, TOKENS)}
               </p>
               <div className="mt-6 flex flex-wrap gap-2">
-                <span className="rounded-full bg-[rgba(255,122,80,0.12)] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-brand-live">
+                <span className="rounded-full bg-[var(--accent-tint)] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-brand-live">
                   trie · SCIM · integration
                 </span>
-                <span className="rounded-full bg-[rgba(255,122,80,0.12)] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-brand-live">
+                <span className="rounded-full bg-[var(--accent-tint)] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-brand-live">
                   trie · SAML · integration
                 </span>
-                <span className="rounded-full bg-[rgba(125,93,246,0.14)] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[#a89bff]">
+                <span className="rounded-full bg-[var(--prospect-tint)] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--prospect-text)]">
                   regex · technical_question
                 </span>
               </div>

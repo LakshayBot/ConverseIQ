@@ -43,7 +43,7 @@ const LINK_COLS: {
 
 export function Footer(): React.JSX.Element {
   return (
-    <footer className="nocturne border-t border-white/[0.06]">
+    <footer className="nocturne border-t border-[var(--border-faint)]">
       <div className="mx-auto w-full max-w-[1240px] px-[clamp(1.25rem,4vw,3rem)] pb-10 pt-16">
         <div className="grid gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
           <div>
@@ -89,7 +89,7 @@ export function Footer(): React.JSX.Element {
           </div>
         </div>
 
-        <div className="mt-16 flex flex-col items-start justify-between gap-4 border-t border-white/[0.06] pt-8 sm:flex-row sm:items-center">
+        <div className="mt-16 flex flex-col items-start justify-between gap-4 border-t border-[var(--border-faint)] pt-8 sm:flex-row sm:items-center">
           <p className="font-mono text-[10.5px] tracking-[0.08em] text-moon-3">
             © 2026 CallPilot · built in the open
           </p>

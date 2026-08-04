@@ -136,7 +136,7 @@ export function paintAccentGradient(root: HTMLElement): () => void {
     for (const char of accentChars) {
       const left = char.getBoundingClientRect().left - first.left
       char.style.backgroundImage =
-        'linear-gradient(115deg, var(--color-brand-live) 10%, #ffb48a 55%, var(--color-brand-soft) 90%)'
+        'linear-gradient(115deg, var(--color-brand-live) 10%, var(--accent-gradient-mid) 55%, var(--color-brand-soft) 90%)'
       char.style.backgroundSize = `${width}px 100%`
       char.style.backgroundPosition = `${-left}px 0`
       char.style.backgroundRepeat = 'no-repeat'

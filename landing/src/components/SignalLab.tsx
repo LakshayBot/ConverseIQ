@@ -86,8 +86,8 @@ export function SignalLab(): React.JSX.Element {
                 className={cx(
                   'group relative overflow-hidden rounded-xl border p-5 text-left transition-all duration-300',
                   isActive
-                    ? 'border-brand-live/50 bg-[rgba(255,122,80,0.06)]'
-                    : 'border-white/[0.08] bg-white/[0.03] hover:border-white/[0.18] hover:bg-white/[0.05]',
+                    ? 'border-[var(--accent-border)] bg-[var(--accent-tint-3)]'
+                    : 'border-[var(--card-border)] bg-[var(--card-bg)] hover:border-[var(--border-mid)]',
                 )}
                 style={{ opacity: reduced ? 1 : undefined }}
               >
@@ -99,8 +99,8 @@ export function SignalLab(): React.JSX.Element {
                     className={cx(
                       'flex h-8 w-8 items-center justify-center rounded-full border transition-transform duration-300',
                       isActive
-                        ? 'rotate-180 border-brand-live/50 text-brand-live'
-                        : 'border-white/[0.1] text-moon-3 group-hover:text-moon',
+                        ? 'rotate-180 border-[var(--accent-border)] text-brand-live'
+                        : 'border-[var(--border-mid)] text-moon-3 group-hover:text-moon',
                     )}
                     aria-hidden="true"
                   >
@@ -109,7 +109,7 @@ export function SignalLab(): React.JSX.Element {
                 </div>
 
                 <div className="mt-5 flex items-center gap-3">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[rgba(255,122,80,0.1)] text-brand-live">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent-tint-2)] text-brand-live">
                     {kindMeta(signal.event).icon}
                   </span>
                   <div>
@@ -144,7 +144,7 @@ export function SignalLab(): React.JSX.Element {
                   <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-moon-3">
                     live snippet · what the system heard
                   </span>
-                  <span className="rounded-full bg-[rgba(255,122,80,0.12)] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-brand-live">
+                  <span className="rounded-full bg-[var(--accent-tint)] px-3 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-brand-live">
                     {demo.trigger}
                   </span>
                 </div>
