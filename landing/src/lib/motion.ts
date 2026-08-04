@@ -86,9 +86,20 @@ export function useHeadingReveal<T extends HTMLElement>(ref: RefObject<T | null>
   useLayoutEffect(() => {
     const root = ref.current
     const inners = root?.querySelectorAll<HTMLElement>('.mask-line-inner')
+    const lines = root?.querySelectorAll<HTMLElement>('.mask-line')
     if (!root || !inners?.length) return
 
+    // The reveal mask must never outlive the animation. Both the inner
+    // (translated) element and the OUTER clip container are released once
+    // the heading has settled — otherwise descenders, serif overhangs and
+    // ascenders stay cropped forever at the line box.
+    const release = (): void => {
+      gsap.set(inners, { overflow: 'visible' })
+      if (lines?.length) gsap.set(lines, { overflow: 'visible' })
+    }
+
     if (prefersReducedMotion()) {
+      release()
       gsap.set(inners, { yPercent: 0 })
       return
     }
@@ -103,7 +114,7 @@ export function useHeadingReveal<T extends HTMLElement>(ref: RefObject<T | null>
       stagger: 0.09,
       ease: EASE.out,
       scrollTrigger: { start: 'top 84%' },
-      onComplete: () => gsap.set(inners, { overflow: 'visible' }),
+      onComplete: release,
     })
 
     return () => {
