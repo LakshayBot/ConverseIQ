@@ -433,8 +433,8 @@
 
 .stage-bigword--now {
   -webkit-text-stroke: 0px;
-  color: rgba(181, 69, 31, 0.55);
-  text-shadow: 0 0 90px rgba(255, 122, 80, 0.28);
+  color: rgba(181, 69, 31, 0.34);
+  text-shadow: 0 0 90px rgba(255, 122, 80, 0.22);
 }
 
 /* =========================================================================

@@ -53,10 +53,19 @@ export function ProblemSection(): React.JSX.Element {
       gsap.set('[data-tl-label]', { clipPath: 'inset(0% 0% 100% 0%)', y: 8 })
       gsap.set('[data-bigword="later"]', { scale: 0.985, y: 12 })
       gsap.set('[data-stamp]', { scale: 1.5, opacity: 0, rotate: -8, filter: 'blur(6px)' })
-      gsap.set('[data-bigword="now"]', { opacity: 0, scale: 0.94 })
-      gsap.set('[data-stage="now"]', { opacity: 0, y: 56, force3D: true })
-      gsap.set('[data-now-transcript]', { opacity: 0, x: -18 })
-      gsap.set('[data-now-card]', { opacity: 0, y: 26, scale: 0.96, force3D: true })
+      gsap.set('[data-bigword="now"]', { opacity: 0, scale: 0.96 })
+      gsap.set('[data-stage="now"]', { opacity: 0, y: 40, force3D: true })
+      gsap.set('[data-now-transcript]', { clipPath: 'inset(0% 0% 100% 0%)', y: 14 })
+      gsap.set('[data-now-signal]', { scaleX: 0, transformOrigin: 'left center' })
+      gsap.set('[data-now-card]', {
+        opacity: 0,
+        y: 44,
+        scale: 0.94,
+        rotate: 2,
+        filter: 'blur(6px)',
+        force3D: true,
+      })
+      gsap.set('[data-now-pedestal]', { opacity: 0 })
       gsap.set('[data-now-meta]', { opacity: 0 })
 
       const tl = gsap.timeline({
@@ -116,9 +125,11 @@ export function ProblemSection(): React.JSX.Element {
         3.3,
       )
       tl.to('[data-bigword="later"]', { opacity: 0, scale: 1.1, duration: 0.5 }, 3.3)
+
+      // The word settles into the environment first — dim, behind everything.
       tl.to(
         '[data-bigword="now"]',
-        { opacity: 1, scale: 1, duration: 0.55, ease: EASE.out },
+        { opacity: 0.9, scale: 1.02, duration: 0.55, ease: EASE.out },
         3.55,
       )
       tl.to(
@@ -126,17 +137,39 @@ export function ProblemSection(): React.JSX.Element {
         { opacity: 1, y: 0, duration: 0.6, ease: EASE.out },
         3.6,
       )
+
+      // 01 — the moment: the quote wipes up from its own mask.
       tl.to(
         '[data-now-transcript]',
-        { opacity: 1, x: 0, duration: 0.5, ease: EASE.out },
+        { clipPath: 'inset(0% 0% 0% 0%)', y: 0, duration: 0.55, ease: EASE.out },
         3.9,
       )
+      // the signal line travels the hairline
+      tl.to(
+        '[data-now-signal]',
+        { scaleX: 1, duration: 0.5, ease: 'power2.inOut' },
+        4.1,
+      )
+
+      // 02 — the rail: the card rises, un-rotates and sharpens onto its
+      // pedestal, whose glow blooms as it lands.
       tl.to(
         '[data-now-card]',
-        { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: 'back.out(1.6)' },
+        {
+          opacity: 1,
+          y: 0,
+          scale: 1,
+          rotate: 0,
+          filter: 'blur(0px)',
+          duration: 0.7,
+          ease: 'back.out(1.7)',
+        },
         4.05,
       )
-      tl.to('[data-now-meta]', { opacity: 1, duration: 0.4 }, 4.3)
+      tl.to('[data-now-pedestal]', { opacity: 1, duration: 0.5 }, 4.15)
+
+      // 03 — the same minute strip closes the reading path.
+      tl.to('[data-now-meta]', { opacity: 1, duration: 0.4 }, 4.35)
     },
     [staticLayout],
   )
@@ -160,7 +193,7 @@ export function ProblemSection(): React.JSX.Element {
       <div
         ref={stageRef}
         className="relative mx-auto mt-16 w-full max-w-[1240px] px-[clamp(1.25rem,4vw,3rem)]"
-        style={{ height: staticLayout ? undefined : 'clamp(430px, 62vh, 560px)' }}
+        style={{ height: staticLayout ? undefined : 'clamp(420px, 58vh, 520px)' }}
       >
         {/* Giant words behind the stage — Fraunces editorial type, sized
             to always fit the container. LATER is a hairline stroke with a
@@ -285,59 +318,112 @@ export function ProblemSection(): React.JSX.Element {
           </div>
         </div>
 
-        {/* ── Act two: the same moment, live ──────────────────────────── */}
+        {/* ── Act two: the same moment, live ────────────────────────────
+            Reading path: 01 the moment → 02 the rail → 03 the same minute.
+            The card overlaps the quote on an invisible grid line, sits on a
+            soft pedestal glow, and the wordmark stays atmosphere behind. */}
         <div data-stage="now" className={staticLayout ? 'relative mt-16' : 'absolute inset-0 z-[2] opacity-0'}>
-          <div className="mx-auto grid max-w-[980px] items-center gap-8 lg:grid-cols-2">
-            <div data-now-transcript>
-              <div className="flex items-start gap-3">
-                <SpeakerDot speaker="prospect" pulse />
-                <div>
-                  <div className="flex items-baseline gap-2">
-                    <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--color-prospect)' }}>
-                      PROSPECT
-                    </span>
-                    <span className="font-mono text-[10px] text-moon-3">14:32:14</span>
+          <div className="mx-auto flex h-full max-w-[1080px] flex-col justify-center gap-8 lg:gap-10">
+            <div className="grid items-end gap-8 lg:grid-cols-12 lg:gap-6">
+              {/* 01 — the moment */}
+              <div data-now-transcript className="lg:col-span-7">
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-[10px] tracking-[0.2em] text-moon-3">01</span>
+                  <span aria-hidden="true" className="h-px w-6 bg-white/[0.12]" />
+                  <SpeakerDot speaker="prospect" pulse />
+                  <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: 'var(--color-prospect)' }}>
+                    PROSPECT
+                  </span>
+                  <span className="font-mono text-[10px] text-moon-3">14:32:14</span>
+                  <span className="ml-1 flex items-center gap-1.5 font-mono text-[9.5px] uppercase tracking-[0.14em] text-brand-live">
+                    <span className="h-1 w-1 animate-pulse rounded-full bg-brand-live" />
+                    live
+                  </span>
+                </div>
+
+                <p className="mt-5 font-display text-[clamp(1.45rem,2.9vw,2.4rem)] leading-[1.26] tracking-[-0.02em] text-moon">
+                  What does the <em className="accent">enterprise license</em> run per year —
+                  and is there a self-hosted option?
+                </p>
+
+                <div className="mt-6 flex max-w-[420px] items-center gap-4">
+                  <div className="relative h-px flex-1 bg-white/[0.08]">
+                    <div
+                      data-now-signal
+                      aria-hidden="true"
+                      className="absolute inset-0 origin-left"
+                      style={{
+                        transform: staticLayout ? undefined : 'scaleX(0)',
+                        background:
+                          'linear-gradient(90deg, var(--color-brand), var(--color-brand-live))',
+                        boxShadow: '0 0 8px rgba(255,122,80,0.5)',
+                      }}
+                    />
                   </div>
-                  <p className="mt-1.5 text-[15px] leading-[1.6] text-moon">
-                    What does the enterprise license run per year — and is there
-                    a self-hosted option?
+                  <span className="whitespace-nowrap font-mono text-[10px] uppercase tracking-[0.16em] text-brand-live">
+                    surfaced · +298 ms
+                  </span>
+                </div>
+
+                <p className="mt-5 max-w-[44ch] text-[13.5px] leading-[1.7] text-moon-3">
+                  The pricing card reaches the rail before the buyer finishes
+                  the sentence — grounded in the rate card you uploaded.
+                </p>
+              </div>
+
+              {/* 02 — the rail */}
+              <div data-now-card className="lg:col-span-5 lg:-ml-8 lg:-mt-10">
+                <div className="relative mx-auto w-full max-w-[400px] lg:mx-0">
+                  <div
+                    aria-hidden="true"
+                    className="glow -right-12 -top-12 h-56 w-56 bg-[rgba(181,69,31,0.2)]"
+                  />
+                  <div
+                    data-now-pedestal
+                    aria-hidden="true"
+                    className="absolute -bottom-7 left-1/2 h-7 w-4/5 -translate-x-1/2 rounded-full bg-[rgba(255,122,80,0.16)] blur-2xl"
+                  />
+                  <div className="relative">
+                    <IntelCard
+                      animateIn={!staticLayout}
+                      kind="Pricing question"
+                      icon={<IconPricing size={11} />}
+                      severity={'high' as Severity}
+                      title="Enterprise license · self-hosted"
+                      body="Quote the annual rate card, then lead with VPC deployment: Docker Compose on their infra, BYOK LLM key, no audio persisted."
+                      sources={[
+                        'rate-card-2026.md · "Enterprise annual · page 2"',
+                        'security-brief.md · "All processing on customer infrastructure"',
+                      ]}
+                    />
+                  </div>
+                  <p className="mt-4 flex items-center justify-center gap-2.5 font-mono text-[10px] uppercase tracking-[0.16em] text-moon-3">
+                    <span>02</span>
+                    <span aria-hidden="true" className="h-px w-4 bg-white/[0.12]" />
+                    the rail · live
                   </p>
                 </div>
               </div>
-              <div className="mt-8 border-l-2 border-brand-live pl-4">
-                <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-brand-live">
-                  surfaced during the call
-                </p>
-                <p className="mt-2 max-w-[44ch] text-[14px] leading-[1.6] text-moon-2">
-                  Not after it. The pricing card is on the rail before the buyer
-                  finishes the sentence — with the rate card you uploaded as its
-                  source.
-                </p>
+            </div>
+
+            {/* 03 — the same minute */}
+            <div data-now-meta className="border-t border-white/[0.06] pt-5">
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                <span className="font-mono text-[10px] tracking-[0.2em] text-moon-3">03</span>
+                <span aria-hidden="true" className="hidden h-px w-6 bg-white/[0.12] sm:block" />
+                <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-moon-2">
+                  the question · 14:32:14
+                </span>
+                <span aria-hidden="true" className="text-brand-live">→</span>
+                <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-moon-2">
+                  +298 ms · the card lands
+                </span>
+                <span aria-hidden="true" className="text-brand-live">→</span>
+                <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-brand-live">
+                  your next sentence
+                </span>
               </div>
             </div>
-
-            <div data-now-card className="mx-auto w-full max-w-[400px]">
-              <IntelCard
-                animateIn={!staticLayout}
-                kind="Pricing question"
-                icon={<IconPricing size={11} />}
-                severity={'high' as Severity}
-                title="Enterprise license · self-hosted"
-                body="Quote the annual rate card, then lead with VPC deployment: Docker Compose on their infra, BYOK LLM key, no audio persisted."
-                sources={[
-                  'rate-card-2026.md · "Enterprise annual · page 2"',
-                  'security-brief.md · "All processing on customer infrastructure"',
-                ]}
-              />
-            </div>
-          </div>
-
-          <div data-now-meta className="mt-12 flex flex-wrap items-center gap-6 eyebrow text-[10.5px]!">
-            <span>recap pipeline</span>
-            <span aria-hidden="true">·</span>
-            <span className="text-brand-live">live rail · ~300 ms</span>
-            <span aria-hidden="true">·</span>
-            <span>same conversation, same minute</span>
           </div>
         </div>
       </div>
