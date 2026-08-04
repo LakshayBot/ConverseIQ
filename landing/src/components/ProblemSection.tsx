@@ -48,9 +48,11 @@ export function ProblemSection(): React.JSX.Element {
       // would otherwise leak through for one frame on initial mount
       // before GSAP took over.
       gsap.set('[data-tl-progress]', { scaleX: 0, transformOrigin: 'left center' })
-      gsap.set('[data-tl-dot]', { scale: 0 })
-      gsap.set('[data-tl-label]', { opacity: 0.22 })
-      gsap.set('[data-stamp]', { scale: 1.8, opacity: 0, rotate: -9 })
+      gsap.set('[data-tl-dot]', { scale: 0, filter: 'blur(3px)' })
+      gsap.set('[data-tl-ring]', { opacity: 0.55, scale: 0.4 })
+      gsap.set('[data-tl-label]', { clipPath: 'inset(0% 0% 100% 0%)', y: 8 })
+      gsap.set('[data-bigword="later"]', { scale: 0.985, y: 12 })
+      gsap.set('[data-stamp]', { scale: 1.5, opacity: 0, rotate: -8, filter: 'blur(6px)' })
       gsap.set('[data-bigword="now"]', { opacity: 0, scale: 0.94 })
       gsap.set('[data-stage="now"]', { opacity: 0, y: 56, force3D: true })
       gsap.set('[data-now-transcript]', { opacity: 0, x: -18 })
@@ -70,27 +72,41 @@ export function ProblemSection(): React.JSX.Element {
 
       // ── Act one: the recap machine ──────────────────────────────────
       tl.to('[data-tl-progress]', { scaleX: 1, duration: 2.3, ease: 'none' }, 0)
+      // The word drifts subtly as the machine runs — depth, not decoration.
+      tl.to(
+        '[data-bigword="later"]',
+        { scale: 1.02, y: -6, duration: 2.3, ease: 'none' },
+        0,
+      )
+      // Each station arrives as a coordinated set: the core pops with a
+      // blur release, a pulse ring breaks outward, and the label wipes up
+      // from its own mask.
       tl.to(
         '[data-tl-dot]',
-        { scale: 1, stagger: 0.42, duration: 0.25, ease: 'back.out(2.4)' },
+        { scale: 1, filter: 'blur(0px)', stagger: 0.42, duration: 0.3, ease: 'back.out(2.2)' },
+        0.15,
+      )
+      tl.to(
+        '[data-tl-ring]',
+        { opacity: 0, scale: 1.7, stagger: 0.42, duration: 0.55, ease: 'power2.out' },
         0.15,
       )
       tl.to(
         '[data-tl-label]',
-        { opacity: 1, stagger: 0.42, duration: 0.2 },
-        0.15,
+        { clipPath: 'inset(0% 0% 0% 0%)', y: 0, stagger: 0.42, duration: 0.4, ease: 'power2.out' },
+        0.2,
       )
 
-      // ── The stamp ───────────────────────────────────────────────────
+      // ── The stamp — a seal that slams in, settles, and pulses ───────
       tl.to(
         '[data-stamp]',
-        { scale: 1, opacity: 1, rotate: 0, duration: 0.45, ease: 'back.out(1.8)' },
+        { scale: 1, opacity: 1, rotate: -2.5, filter: 'blur(0px)', duration: 0.5, ease: 'back.out(1.6)' },
         2.25,
       )
       tl.to(
         '[data-stamp]',
-        { scale: 1.04, duration: 0.35, repeat: 2, yoyo: true, ease: 'sine.inOut' },
-        2.75,
+        { scale: 1.03, duration: 0.35, repeat: 2, yoyo: true, ease: 'sine.inOut' },
+        2.85,
       )
 
       // ── The inversion ───────────────────────────────────────────────
@@ -146,15 +162,17 @@ export function ProblemSection(): React.JSX.Element {
         className="relative mx-auto mt-16 w-full max-w-[1240px] px-[clamp(1.25rem,4vw,3rem)]"
         style={{ height: staticLayout ? undefined : 'clamp(430px, 62vh, 560px)' }}
       >
-        {/* Giant words behind the stage */}
+        {/* Giant words behind the stage — Fraunces editorial type, sized
+            to always fit the container. LATER is a hairline stroke with a
+            faint terracotta ghost; NOW inverts to the solid accent. */}
         <div
           aria-hidden="true"
           data-bigword="later"
           className={cx(
-            'text-outline pointer-events-none absolute inset-0 flex items-center justify-center',
+            'stage-bigword pointer-events-none absolute inset-0 flex items-center justify-center',
             staticLayout && 'hidden',
           )}
-          style={{ fontSize: 'clamp(6rem, 18vw, 16rem)', zIndex: 0 }}
+          style={{ fontSize: 'clamp(3.75rem, 14vw, 12rem)', zIndex: 0 }}
         >
           LATER
         </div>
@@ -162,46 +180,73 @@ export function ProblemSection(): React.JSX.Element {
           aria-hidden="true"
           data-bigword="now"
           className={cx(
-            'pointer-events-none absolute inset-0 flex items-center justify-center',
+            'stage-bigword stage-bigword--now pointer-events-none absolute inset-0 flex items-center justify-center',
             staticLayout && 'hidden',
           )}
-          style={{ fontSize: 'clamp(6rem, 18vw, 16rem)', zIndex: 0, color: 'rgba(181,69,31,0.5)' }}
+          style={{ fontSize: 'clamp(3.75rem, 14vw, 12rem)', zIndex: 0 }}
         >
           NOW
         </div>
 
         {/* ── Act one: the recap timeline ─────────────────────────────── */}
         <div data-stage="later" className={staticLayout ? 'relative mt-14' : 'absolute inset-0 z-[1]'}>
-          <div className="relative mx-auto max-w-[900px] pt-[14vh]">
+          <div className="relative mx-auto max-w-[900px] pt-[10vh]">
+            <p className="eyebrow mb-9 text-center">the after-call pipeline · 14:32 → 09:00</p>
+
             <div className="relative">
+              {/* Track — a soft gradient hairline, glowing where the
+                  progress has already run. */}
               <div
                 aria-hidden="true"
-                className="absolute left-0 right-0 top-[5px] h-px bg-white/[0.1]"
+                className="absolute left-0 right-0 top-[6px] h-px"
+                style={{
+                  background:
+                    'linear-gradient(90deg, transparent, rgba(238,240,247,0.14) 12%, rgba(238,240,247,0.14) 88%, transparent)',
+                }}
               />
               <div
                 aria-hidden="true"
                 data-tl-progress
-                className="absolute left-0 right-0 top-[5px] h-px origin-left"
+                className="absolute left-0 right-0 top-[6px] h-px origin-left"
                 style={{
                   background:
                     'linear-gradient(90deg, var(--color-brand), var(--color-brand-live))',
-                  boxShadow: '0 0 12px rgba(255,122,80,0.5)',
+                  boxShadow:
+                    '0 0 8px rgba(255,122,80,0.45), 0 0 24px rgba(255,122,80,0.25)',
                   transform: staticLayout ? undefined : 'scaleX(0)',
                 }}
               />
+
+              {/* The five stations — ring + glowing core + pulse ring,
+                  labels masked and wiped up as the machine reaches them. */}
               <div className="relative flex justify-between gap-1">
                 {TIMELINE_NODES.map((node) => (
                   <div key={node.label} className="flex flex-col items-center gap-3">
                     <span
                       data-tl-dot
-                      className="block h-[11px] w-[11px] shrink-0 rounded-full border-2 border-brand-live bg-ink-950"
+                      className="relative block h-3 w-3 shrink-0 rounded-full"
                       style={{ transform: staticLayout ? undefined : 'scale(0)' }}
-                    />
-                    <div data-tl-label className="text-center" style={{ opacity: staticLayout ? undefined : 0.22 }}>
-                      <div className="font-mono text-[10px] tracking-[0.06em] text-moon-2 sm:text-[11px] sm:tracking-[0.08em]">
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="absolute inset-0 rounded-full border border-brand-live/70"
+                      />
+                      <span
+                        aria-hidden="true"
+                        className="absolute inset-[3px] rounded-full bg-brand-live"
+                        style={{ boxShadow: '0 0 10px rgba(255,122,80,0.9)' }}
+                      />
+                      <span
+                        aria-hidden="true"
+                        data-tl-ring
+                        className="absolute -inset-2 rounded-full border border-brand-live/30 opacity-0"
+                      />
+                    </span>
+                    <div data-tl-label className="text-center">
+                      <div className="font-mono text-[10px] font-medium uppercase tracking-[0.16em] text-moon-2 sm:text-[11px]">
                         {node.label}
                       </div>
-                      <div className="mt-1 hidden font-mono text-[10px] text-moon-3 sm:block">
+                      <div className="mt-1.5 hidden font-mono text-[9.5px] tracking-[0.08em] text-moon-3 sm:block">
                         {node.meta}
                       </div>
                     </div>
@@ -210,16 +255,31 @@ export function ProblemSection(): React.JSX.Element {
               </div>
             </div>
 
-            <div className="mt-[10vh] flex justify-center">
+            {/* The stamp — a rubber seal: terracotta glass, dashed inner
+                ring, a slight, deliberate rotation, settled by a pulse. */}
+            <div className="mt-[9vh] flex justify-center">
               <span
                 data-stamp
                 className={cx(
-                  'inline-block rounded-xl border-2 border-brand-live/60 px-8 py-4 font-mono text-[clamp(1.6rem,4vw,2.6rem)] font-semibold uppercase tracking-[0.28em] text-brand-live',
+                  'relative inline-block rounded-2xl px-9 py-4 sm:px-11',
                   !staticLayout && 'opacity-0',
                 )}
-                style={{ boxShadow: '0 0 60px rgba(255,122,80,0.25), inset 0 0 30px rgba(255,122,80,0.08)' }}
+                style={{
+                  background:
+                    'linear-gradient(180deg, rgba(255,122,80,0.12), rgba(255,122,80,0.02))',
+                  border: '1px solid rgba(255,122,80,0.45)',
+                  boxShadow:
+                    '0 0 70px rgba(255,122,80,0.18), inset 0 0 30px rgba(255,122,80,0.05)',
+                  transform: staticLayout ? undefined : 'rotate(-2.5deg)',
+                }}
               >
-                Too late.
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-1.5 rounded-xl border border-dashed border-brand-live/25"
+                />
+                <span className="relative block font-mono text-[clamp(1.35rem,3.4vw,2.2rem)] font-semibold uppercase tracking-[0.3em] text-brand-live">
+                  Too late.
+                </span>
               </span>
             </div>
           </div>

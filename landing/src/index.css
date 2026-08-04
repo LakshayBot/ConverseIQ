@@ -415,6 +415,29 @@
 }
 
 /* =========================================================================
+   Later-stage wordmark — the LATER / NOW editorial type behind the
+   pinned narrative. Fraunces, hairline stroke, faint terracotta ghost
+   glow. Sized so the word always fits the container (no clipping).
+   ========================================================================= */
+
+.stage-bigword {
+  font-family: var(--font-display);
+  font-weight: 500;
+  line-height: 0.9;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+  -webkit-text-stroke: 1.5px rgba(238, 240, 247, 0.16);
+  color: transparent;
+  text-shadow: 0 0 90px rgba(255, 122, 80, 0.2);
+}
+
+.stage-bigword--now {
+  -webkit-text-stroke: 0px;
+  color: rgba(181, 69, 31, 0.55);
+  text-shadow: 0 0 90px rgba(255, 122, 80, 0.28);
+}
+
+/* =========================================================================
    Film grain — one inline SVG, layered over everything
    ========================================================================= */
 
