@@ -28,21 +28,35 @@ export function FinalCTA(): React.JSX.Element {
       if (reduced) return
       const split = SplitText.create(h2Ref.current!, { type: 'chars', charsClass: 'char' })
       const clearGradient = paintAccentGradient(h2Ref.current!)
-      const tl = gsap.timeline({
-        scrollTrigger: { trigger: rootRef.current, start: 'top 72%' },
-      })
-      tl.from(split.chars, {
+
+      // Pin every animated element to its from-state SYNCHRONOUSLY before
+      // ScrollTrigger takes over. Without this, the chars / sub / actions /
+      // foot would all be visible at their resting position for one frame
+      // before the timeline started.
+      gsap.set(split.chars, {
         yPercent: 112,
         rotateX: -50,
         transformOrigin: '50% 100%',
+        force3D: true,
+      })
+      gsap.set('[data-cta-sub]', { y: 22, opacity: 0, force3D: true })
+      gsap.set('[data-cta-actions]', { y: 20, opacity: 0, force3D: true })
+      gsap.set('[data-cta-foot]', { opacity: 0 })
+
+      const tl = gsap.timeline({
+        scrollTrigger: { trigger: rootRef.current, start: 'top 72%' },
+      })
+      tl.to(split.chars, {
+        yPercent: 0,
+        rotateX: 0,
         duration: 1.0,
         stagger: 0.02,
         ease: 'power4.out',
         onComplete: () => gsap.set(split.chars, { overflow: 'visible' }),
       })
-      tl.from('[data-cta-sub]', { y: 22, opacity: 0, duration: 0.7, ease: EASE.out }, '-=0.45')
-      tl.from('[data-cta-actions]', { y: 20, opacity: 0, duration: 0.7, ease: EASE.out }, '-=0.45')
-      tl.from('[data-cta-foot]', { opacity: 0, duration: 0.6 }, '-=0.3')
+      tl.to('[data-cta-sub]', { y: 0, opacity: 1, duration: 0.7, ease: EASE.out }, '-=0.45')
+      tl.to('[data-cta-actions]', { y: 0, opacity: 1, duration: 0.7, ease: EASE.out }, '-=0.45')
+      tl.to('[data-cta-foot]', { opacity: 1, duration: 0.6 }, '-=0.3')
       return () => {
         tl.kill()
         clearGradient()
@@ -70,7 +84,6 @@ export function FinalCTA(): React.JSX.Element {
         <h2
           ref={h2Ref}
           className="display-xl mask-chars mt-10 max-w-[12ch]"
-          style={{ opacity: reduced ? 1 : undefined }}
         >
           The call is still <em className="accent">live.</em>
         </h2>

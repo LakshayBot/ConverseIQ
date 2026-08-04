@@ -26,18 +26,15 @@ export function CardAnatomy(): React.JSX.Element {
     rootRef,
     () => {
       if (reduced) return
-      const ctx = gsap.fromTo(
-        '[data-anatomy]',
-        { y: 44, opacity: 0 },
-        {
-          y: 0,
-          opacity: 1,
-          duration: 0.9,
-          stagger: 0.1,
-          ease: 'expo.out',
-          scrollTrigger: { trigger: rootRef.current, start: 'top 68%' },
-        },
-      )
+      gsap.set('[data-anatomy]', { y: 44, opacity: 0, force3D: true })
+      const ctx = gsap.to('[data-anatomy]', {
+        y: 0,
+        opacity: 1,
+        duration: 0.9,
+        stagger: 0.1,
+        ease: 'expo.out',
+        scrollTrigger: { trigger: rootRef.current, start: 'top 68%' },
+      })
       return () => {
         ctx.scrollTrigger?.kill()
         ctx.kill()

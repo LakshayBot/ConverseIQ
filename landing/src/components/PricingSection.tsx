@@ -20,18 +20,15 @@ export function PricingSection(): React.JSX.Element {
     rootRef,
     () => {
       if (reduced) return
-      const ctx = gsap.fromTo(
-        '[data-price-card]',
-        { y: 54, opacity: 0 },
-        {
-          y: 0,
-          opacity: 1,
-          duration: 0.9,
-          stagger: 0.14,
-          ease: 'expo.out',
-          scrollTrigger: { trigger: rootRef.current, start: 'top 68%' },
-        },
-      )
+      gsap.set('[data-price-card]', { y: 54, opacity: 0, force3D: true })
+      const ctx = gsap.to('[data-price-card]', {
+        y: 0,
+        opacity: 1,
+        duration: 0.9,
+        stagger: 0.14,
+        ease: 'expo.out',
+        scrollTrigger: { trigger: rootRef.current, start: 'top 68%' },
+      })
       return () => {
         ctx.scrollTrigger?.kill()
         ctx.kill()

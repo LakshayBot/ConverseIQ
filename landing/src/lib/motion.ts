@@ -5,7 +5,7 @@
 // cleanly on unmount.
 // ============================================================================
 
-import { useEffect, useRef, type DependencyList, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, type DependencyList, type RefObject } from 'react'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { SplitText } from 'gsap/SplitText'
@@ -51,6 +51,11 @@ export const prefersCoarsePointer = (): boolean =>
  * Per-section GSAP context + ScrollTrigger lifecycle.
  * `factory` runs inside a context scoped to `ref`, so bare selectors like
  * ".line" only match within the section. Returns a cleanup fn (optional).
+ *
+ * Runs SYNCHRONOUSLY in useLayoutEffect — the GSAP context, ScrollTriggers
+ * and initial `gsap.set()` calls all complete before the browser paints.
+ * Without this, every section was flashing its pre-animation state for one
+ * frame after mount.
  */
 export function useSectionTimeline<T extends HTMLElement>(
   ref: RefObject<T | null>,
@@ -60,7 +65,7 @@ export function useSectionTimeline<T extends HTMLElement>(
   const factoryRef = useRef(factory)
   factoryRef.current = factory
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const ctx = gsap.context(() => factoryRef.current(), ref)
     return () => {
       ctx.revert()
@@ -73,9 +78,12 @@ export function useSectionTimeline<T extends HTMLElement>(
  * Masked heading reveal — the section h2's hand-authored `.mask-line`
  * rows slide up on enter, clipped by the line mask. Clipping is released
  * once the reveal completes so descenders are never cut.
+ *
+ * Initial state is applied synchronously in useLayoutEffect so the mask
+ * is already at yPercent:112 before the first paint.
  */
 export function useHeadingReveal<T extends HTMLElement>(ref: RefObject<T | null>): void {
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = ref.current
     const inners = root?.querySelectorAll<HTMLElement>('.mask-line-inner')
     if (!root || !inners?.length) return
@@ -85,18 +93,18 @@ export function useHeadingReveal<T extends HTMLElement>(ref: RefObject<T | null>
       return
     }
 
-    const tween = gsap.fromTo(
-      inners,
-      { yPercent: 112 },
-      {
-        yPercent: 0,
-        duration: 1.0,
-        stagger: 0.09,
-        ease: EASE.out,
-        scrollTrigger: { start: 'top 84%' },
-        onComplete: () => gsap.set(inners, { overflow: 'visible' }),
-      },
-    )
+    // Lock the from-state before ScrollTrigger takes over — first paint
+    // shows the heading already clipped at the bottom edge.
+    gsap.set(inners, { yPercent: 112 })
+
+    const tween = gsap.to(inners, {
+      yPercent: 0,
+      duration: 1.0,
+      stagger: 0.09,
+      ease: EASE.out,
+      scrollTrigger: { start: 'top 84%' },
+      onComplete: () => gsap.set(inners, { overflow: 'visible' }),
+    })
 
     return () => {
       tween.scrollTrigger?.kill()
@@ -110,7 +118,7 @@ export function useHeadingReveal<T extends HTMLElement>(ref: RefObject<T | null>
  *
  * `background-clip: text` on the accent <em> stops working the moment
  * SplitText moves its text into child .char boxes — the em is left with
- * no text of its own, so the clip region is empty and the gradient paints
+ * no text of its own, so the clip region is empty, and the gradient paints
  * nothing (glyphs become invisible until a text-selection repaints them).
  * Painting each character individually with a phrase-sized background
  * keeps the gradient flowing continuously across the word, and works in
@@ -121,6 +129,7 @@ export function paintAccentGradient(root: HTMLElement): () => void {
   if (!accentChars.length) return () => {}
 
   const apply = (): void => {
+    if (!accentChars.length) return
     const first = accentChars[0].getBoundingClientRect()
     const last = accentChars[accentChars.length - 1].getBoundingClientRect()
     const width = Math.max(1, last.right - first.left)
@@ -139,8 +148,14 @@ export function paintAccentGradient(root: HTMLElement): () => void {
   }
   apply()
 
-  // Characters reflow on resize — keep the phrase gradient aligned.
+  // Characters reflow on resize and on font swap — keep the phrase gradient
+  // aligned with the new metrics both times. The font listener is fire-and-
+  // forget; if the user unmounts before fonts settle, the apply() call is a
+  // safe no-op (accent chars are already gone from the DOM).
   window.addEventListener('resize', apply, { passive: true })
+  if (typeof document !== 'undefined' && document.fonts?.ready) {
+    document.fonts.ready.then(apply).catch(() => undefined)
+  }
   return () => window.removeEventListener('resize', apply)
 }
 

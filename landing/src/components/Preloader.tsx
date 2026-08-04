@@ -1,9 +1,13 @@
 // ============================================================================
 // Preloader — the boot sequence. "callpilot" types in like a transcript,
 // then the curtain lifts. Dispatches `cp:booted` on exit.
+//
+// Reduced-motion path: hide the curtain synchronously in useLayoutEffect
+// so it never paints, then fire onDone. No interval, no GSAP, no
+// timing surface.
 // ============================================================================
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { gsap } from 'gsap'
 import { EASE, prefersReducedMotion } from '@/lib/motion'
 
@@ -13,13 +17,19 @@ export function Preloader({ onDone }: { onDone: () => void }): React.JSX.Element
   const rootRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLSpanElement>(null)
   const lineRef = useRef<HTMLDivElement>(null)
+  // Use a ref so the long-running effect doesn't tear down + restart when
+  // the parent re-renders with a new `onDone` identity (e.g. App's setState).
+  const onDoneRef = useRef(onDone)
+  onDoneRef.current = onDone
+
+  useLayoutEffect(() => {
+    if (!prefersReducedMotion() || !rootRef.current) return
+    rootRef.current.style.display = 'none'
+    onDoneRef.current()
+  }, [])
 
   useEffect(() => {
-    if (prefersReducedMotion()) {
-      if (rootRef.current) rootRef.current.style.display = 'none'
-      onDone()
-      return
-    }
+    if (prefersReducedMotion()) return
 
     let typed = 0
     const typeTimer = setInterval(() => {
@@ -32,7 +42,7 @@ export function Preloader({ onDone }: { onDone: () => void }): React.JSX.Element
     }, 46)
 
     const boot = (): void => {
-      const tl = gsap.timeline({ onComplete: () => onDone() })
+      const tl = gsap.timeline({ onComplete: () => onDoneRef.current() })
       tl.to(lineRef.current, {
         opacity: 1,
         y: 0,
@@ -49,7 +59,7 @@ export function Preloader({ onDone }: { onDone: () => void }): React.JSX.Element
     }
 
     return () => clearInterval(typeTimer)
-  }, [onDone])
+  }, [])
 
   return (
     <div

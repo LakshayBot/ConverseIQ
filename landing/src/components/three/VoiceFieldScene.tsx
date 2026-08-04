@@ -37,7 +37,10 @@ const VERT = /* glsl */ `
     gl_PointSize = aSize * (140.0 / -mv.z);
 
     vMix = clamp(0.5 + p.y * 0.16, 0.0, 1.0);
-    vFade = smoothstep(-10.5, -4.0, p.y) * smoothstep(10.5, 4.0, p.y);
+    // Bright band reaches the top of the camera frustum (p.y ≈ 7.3) so the
+    // halo never reads as clipped against the TopNav / viewport edge. The
+    // lower edge is unchanged — particles fade out below the hero copy.
+    vFade = smoothstep(-10.5, -4.0, p.y) * smoothstep(10.5, 6.0, p.y);
   }
 `
 

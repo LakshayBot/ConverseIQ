@@ -19,18 +19,15 @@ export function UseCasesSection(): React.JSX.Element {
     rootRef,
     () => {
       if (reduced) return
-      const ctx = gsap.fromTo(
-        '[data-case]',
-        { y: 60, opacity: 0 },
-        {
-          y: 0,
-          opacity: 1,
-          duration: 0.95,
-          stagger: 0.12,
-          ease: 'expo.out',
-          scrollTrigger: { trigger: rootRef.current, start: 'top 70%' },
-        },
-      )
+      gsap.set('[data-case]', { y: 60, opacity: 0, force3D: true })
+      const ctx = gsap.to('[data-case]', {
+        y: 0,
+        opacity: 1,
+        duration: 0.95,
+        stagger: 0.12,
+        ease: 'expo.out',
+        scrollTrigger: { trigger: rootRef.current, start: 'top 70%' },
+      })
       return () => {
         ctx.scrollTrigger?.kill()
         ctx.kill()

@@ -56,6 +56,16 @@ export function PipelineSection(): React.JSX.Element {
       const stage = stageRef.current
       if (!stage) return
 
+      // ── Lock the from-state synchronously. The inline `style` defaults
+      // only handled the static-layout branch — on the animated branch
+      // every panel/label/tick would otherwise flash its resting state
+      // for one frame before GSAP took over.
+      gsap.set('[data-tick]', { scale: 0 })
+      gsap.set('[data-act="02"]', { opacity: 0, y: 26, force3D: true })
+      gsap.set('[data-act="03"]', { opacity: 0, y: 26, force3D: true })
+      gsap.set('[data-panel="detect"]', { opacity: 0, y: 34, filter: 'blur(8px)' })
+      gsap.set('[data-panel="surface"]', { opacity: 0, y: 40, scale: 0.96, force3D: true })
+
       const tl = gsap.timeline({
         scrollTrigger: {
           trigger: stage,
@@ -68,76 +78,53 @@ export function PipelineSection(): React.JSX.Element {
       })
 
       // Act labels crossfade 01 → 02 → 03
-      tl.fromTo(
+      tl.to(
         '[data-act="01"]',
-        { opacity: 1, y: 0 },
         { opacity: 0, y: -26, duration: 0.35, ease: 'power2.in' },
         0.95,
       )
-      tl.fromTo(
+      tl.to(
         '[data-act="02"]',
-        { opacity: 0, y: 26 },
         { opacity: 1, y: 0, duration: 0.35, ease: EASE.out },
         1.15,
       )
-      tl.fromTo(
+      tl.to(
         '[data-act="02"]',
-        { opacity: 1, y: 0 },
         { opacity: 0, y: -26, duration: 0.35, ease: 'power2.in' },
         1.95,
       )
-      tl.fromTo(
+      tl.to(
         '[data-act="03"]',
-        { opacity: 0, y: 26 },
         { opacity: 1, y: 0, duration: 0.35, ease: EASE.out },
         2.15,
       )
 
       // Panels crossfade
-      tl.fromTo(
+      tl.to(
         '[data-panel="capture"]',
-        { opacity: 1, scale: 1 },
         { opacity: 0, scale: 0.985, filter: 'blur(8px)', duration: 0.45, ease: 'power2.in' },
         1.0,
       )
-      tl.fromTo(
+      tl.to(
         '[data-panel="detect"]',
-        { opacity: 0, y: 34, filter: 'blur(8px)' },
         { opacity: 1, y: 0, filter: 'blur(0px)', duration: 0.5, ease: EASE.out },
         1.2,
       )
-      tl.fromTo(
+      tl.to(
         '[data-panel="detect"]',
-        { opacity: 1 },
         { opacity: 0, y: -24, filter: 'blur(8px)', duration: 0.45, ease: 'power2.in' },
         2.0,
       )
-      tl.fromTo(
+      tl.to(
         '[data-panel="surface"]',
-        { opacity: 0, y: 40, scale: 0.96 },
         { opacity: 1, y: 0, scale: 1, duration: 0.55, ease: 'back.out(1.5)' },
         2.2,
       )
 
       // Progress ticks
-      tl.fromTo(
-        '[data-tick="1"]',
-        { scale: 0 },
-        { scale: 1, duration: 0.25, ease: 'back.out(2)' },
-        0.1,
-      )
-      tl.fromTo(
-        '[data-tick="2"]',
-        { scale: 0 },
-        { scale: 1, duration: 0.25, ease: 'back.out(2)' },
-        1.1,
-      )
-      tl.fromTo(
-        '[data-tick="3"]',
-        { scale: 0 },
-        { scale: 1, duration: 0.25, ease: 'back.out(2)' },
-        2.1,
-      )
+      tl.to('[data-tick="1"]', { scale: 1, duration: 0.25, ease: 'back.out(2)' }, 0.1)
+      tl.to('[data-tick="2"]', { scale: 1, duration: 0.25, ease: 'back.out(2)' }, 1.1)
+      tl.to('[data-tick="3"]', { scale: 1, duration: 0.25, ease: 'back.out(2)' }, 2.1)
     },
     [staticLayout],
   )

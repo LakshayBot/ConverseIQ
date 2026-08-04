@@ -6,9 +6,16 @@
 //     intelligence cards. The window sits on a tilted stage that flattens
 //     as you scroll — the demo becomes the product.
 //   · The room: the voice field — a particle sea that breathes with the call.
+//
+// Initial-state discipline: every element that the boot timeline animates
+// starts already at its "from" state the moment it enters the DOM. The
+// setup runs in useLayoutEffect (synchronous, before paint), waits for
+// fonts.ready (so the first paint uses the same metrics as the resting
+// state), and only then releases the timeline. The visitor never sees a
+// pre-animation frame.
 // ============================================================================
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { gsap } from 'gsap'
 import { SplitText } from 'gsap/SplitText'
 import { EASE, paintAccentGradient, prefersReducedMotion } from '@/lib/motion'
@@ -19,35 +26,80 @@ import { Magnetic } from './Magnetic'
 
 const GITHUB_URL = 'https://github.com/LakshayBot/ConverseIQ'
 
+// Boot the timeline only after we have final measurements. The preloader
+// already gives us ~1.2 s of font-loading time, so this almost always
+// resolves immediately.
+const waitForFonts = (): Promise<void> => {
+  if (typeof document === 'undefined' || !document.fonts?.ready) {
+    return Promise.resolve()
+  }
+  return document.fonts.ready.then(() => undefined).catch(() => undefined)
+}
+
 export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
   const rootRef = useRef<HTMLElement>(null)
+  const eyebrowRef = useRef<HTMLDivElement>(null)
   const h1Ref = useRef<HTMLHeadingElement>(null)
   const ledeRef = useRef<HTMLParagraphElement>(null)
   const metaRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
+  const cueRef = useRef<HTMLDivElement>(null)
+  const [fontsReady, setFontsReady] = useState(false)
 
-  // ── Boot choreography — only after the preloader lifts ──────────────
+  // Wait for fonts once, globally for the hero. The promise resolves with
+  // the document fonts being loaded — after this, getBoundingClientRect()
+  // is stable and SplitText's measurement won't shift.
   useEffect(() => {
-    if (!booted || !rootRef.current) return
-
-    let clearGradient: () => void = () => {}
-    const tl = gsap.timeline()
-    tl.from('[data-hero="eyebrow"]', {
-      y: 16,
-      opacity: 0,
-      duration: 0.6,
-      ease: EASE.out,
+    let cancelled = false
+    void waitForFonts().then(() => {
+      if (!cancelled) setFontsReady(true)
     })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
-    if (!prefersReducedMotion()) {
-      const split = SplitText.create(h1Ref.current!, { type: 'chars', charsClass: 'char' })
-      clearGradient = paintAccentGradient(h1Ref.current!)
-      tl.from(
+  // ── Boot choreography — runs SYNCHRONOUSLY before paint ────────────
+  // useLayoutEffect fires after React commits the DOM but BEFORE the
+  // browser paints, so gsap.set() puts every animated element in its
+  // from-state in time for the first frame. The preloader still covers
+  // the hero at this point, so even the from-state is never visible to
+  // the visitor.
+  useLayoutEffect(() => {
+    if (!booted || !fontsReady || !rootRef.current) return
+
+    const reduced = prefersReducedMotion()
+    let split: SplitText | null = null
+    let clearGradient: () => void = () => {}
+
+    // ── Step 1: split the heading into chars, paint the accent gradient,
+    //           and set every animated element to its from-state. All of
+    //           this happens synchronously before the next paint.
+    if (!reduced && h1Ref.current) {
+      split = SplitText.create(h1Ref.current, { type: 'chars', charsClass: 'char' })
+      clearGradient = paintAccentGradient(h1Ref.current)
+      gsap.set(split.chars, { yPercent: 118, rotateX: -50, opacity: 0, force3D: true })
+    } else if (h1Ref.current) {
+      gsap.set(h1Ref.current, { opacity: 1 })
+    }
+
+    if (eyebrowRef.current) gsap.set(eyebrowRef.current, { y: 16, opacity: 0, force3D: true })
+    if (ledeRef.current) gsap.set(ledeRef.current, { y: 22, opacity: 0, force3D: true })
+    if (metaRef.current) gsap.set(metaRef.current, { y: 18, opacity: 0, force3D: true })
+    if (stageRef.current) gsap.set(stageRef.current, { y: 90, opacity: 0, force3D: true })
+    if (cueRef.current) gsap.set(cueRef.current, { opacity: 0 })
+
+    // ── Step 2: build the timeline. It plays immediately — but everything
+    //           starts at its from-state, so there is no jump.
+    const tl = gsap.timeline()
+    tl.to(eyebrowRef.current, { y: 0, opacity: 1, duration: 0.6, ease: EASE.out })
+    if (split) {
+      tl.to(
         split.chars,
         {
-          yPercent: 118,
-          rotateX: -50,
-          transformOrigin: '50% 100%',
+          yPercent: 0,
+          rotateX: 0,
+          opacity: 1,
           duration: 0.95,
           stagger: 0.014,
           ease: 'power4.out',
@@ -56,33 +108,25 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
         },
         '<0.1',
       )
-    } else {
-      gsap.set(h1Ref.current, { opacity: 1 })
     }
-
-    tl.from(ledeRef.current, { y: 22, opacity: 0, duration: 0.8, ease: EASE.out }, '-=0.5')
-    tl.from(metaRef.current, { y: 18, opacity: 0, duration: 0.7, ease: EASE.out }, '-=0.55')
-    tl.from(
+    tl.to(ledeRef.current, { y: 0, opacity: 1, duration: 0.8, ease: EASE.out }, '-=0.5')
+    tl.to(metaRef.current, { y: 0, opacity: 1, duration: 0.7, ease: EASE.out }, '-=0.55')
+    tl.to(
       '[data-hero="stage"]',
-      {
-        y: 90,
-        opacity: 0,
-        duration: 1.15,
-        ease: EASE.out,
-        delay: 0.15,
-      },
+      { y: 0, opacity: 1, duration: 1.15, ease: EASE.out, delay: 0.15 },
       '-=0.6',
     )
-    tl.from('[data-hero="cue"]', { opacity: 0, duration: 0.5 }, '-=0.4')
+    tl.to(cueRef.current, { opacity: 1, duration: 0.5 }, '-=0.4')
 
     return () => {
       tl.kill()
       clearGradient()
+      if (split) split.revert()
     }
-  }, [booted])
+  }, [booted, fontsReady])
 
   // ── Scroll flattening — the stage tilts back and settles as you scroll ──
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!stageRef.current) return
     const stage = stageRef.current
 
@@ -143,7 +187,7 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
 
       <div className="relative z-[2] mx-auto flex w-full max-w-[1240px] flex-1 flex-col justify-end px-[clamp(1.25rem,4vw,3rem)] pb-10 pt-24">
         {/* ── Eyebrow ─────────────────────────────────────────────────── */}
-        <div data-hero="eyebrow" className="eyebrow flex items-center gap-3">
+        <div ref={eyebrowRef} data-hero="eyebrow" className="eyebrow flex items-center gap-3">
           <span aria-hidden="true" className="relative inline-block h-2 w-2 rounded-full bg-brand-live">
             <span className="absolute inset-0 animate-ping rounded-full bg-brand-live opacity-60" />
           </span>
@@ -154,7 +198,6 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
         <h1
           ref={h1Ref}
           className="display mask-chars mt-6 max-w-[15ch]"
-          style={{ opacity: prefersReducedMotion() ? 1 : undefined }}
         >
           The answer, <em className="accent">mid&#8209;question.</em>
         </h1>
@@ -207,7 +250,7 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
         </div>
 
         {/* ── Scroll cue ──────────────────────────────────────────────── */}
-        <div data-hero="cue" className="pointer-events-none mt-9 flex items-center gap-4">
+        <div ref={cueRef} data-hero="cue" className="pointer-events-none mt-9 flex items-center gap-4">
           <div className="cue-line" aria-hidden="true" />
           <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-moon-3">
             the call is already playing

@@ -22,30 +22,26 @@ export function ArchitectureSection(): React.JSX.Element {
     rootRef,
     () => {
       if (reduced) return
-      const ctx = gsap.fromTo(
-        '[data-node]',
-        { y: 50, opacity: 0 },
-        {
-          y: 0,
-          opacity: 1,
-          duration: 0.85,
-          stagger: 0.14,
-          ease: 'expo.out',
-          scrollTrigger: { trigger: rootRef.current, start: 'top 68%' },
-        },
-      )
-      const rows = gsap.fromTo(
-        '[data-stack-row]',
-        { opacity: 0, x: -22 },
-        {
-          opacity: 1,
-          x: 0,
-          duration: 0.6,
-          stagger: 0.05,
-          ease: 'expo.out',
-          scrollTrigger: { trigger: rootRef.current, start: 'top 55%' },
-        },
-      )
+      // Pin from-state synchronously so the first paint of the section
+      // already shows nodes + rows at their hidden positions.
+      gsap.set('[data-node]', { y: 50, opacity: 0, force3D: true })
+      gsap.set('[data-stack-row]', { opacity: 0, x: -22, force3D: true })
+      const ctx = gsap.to('[data-node]', {
+        y: 0,
+        opacity: 1,
+        duration: 0.85,
+        stagger: 0.14,
+        ease: 'expo.out',
+        scrollTrigger: { trigger: rootRef.current, start: 'top 68%' },
+      })
+      const rows = gsap.to('[data-stack-row]', {
+        opacity: 1,
+        x: 0,
+        duration: 0.6,
+        stagger: 0.05,
+        ease: 'expo.out',
+        scrollTrigger: { trigger: rootRef.current, start: 'top 55%' },
+      })
       return () => {
         ctx.scrollTrigger?.kill()
         ctx.kill()

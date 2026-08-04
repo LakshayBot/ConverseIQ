@@ -34,18 +34,15 @@ export function SignalLab(): React.JSX.Element {
     rootRef,
     () => {
       if (reduced) return
-      const ctx = gsap.fromTo(
-        '[data-cell]',
-        { y: 46, opacity: 0 },
-        {
-          y: 0,
-          opacity: 1,
-          duration: 0.85,
-          stagger: 0.08,
-          ease: 'expo.out',
-          scrollTrigger: { trigger: rootRef.current, start: 'top 70%' },
-        },
-      )
+      gsap.set('[data-cell]', { y: 46, opacity: 0, force3D: true })
+      const ctx = gsap.to('[data-cell]', {
+        y: 0,
+        opacity: 1,
+        duration: 0.85,
+        stagger: 0.08,
+        ease: 'expo.out',
+        scrollTrigger: { trigger: rootRef.current, start: 'top 70%' },
+      })
       return () => {
         ctx.scrollTrigger?.kill()
         ctx.kill()

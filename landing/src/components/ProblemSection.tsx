@@ -43,6 +43,20 @@ export function ProblemSection(): React.JSX.Element {
       const stage = stageRef.current
       if (!stage) return
 
+      // ── Pin every animated piece to its from-state synchronously.
+      // The inline `style={staticLayout ? undefined : '...'}` defaults
+      // would otherwise leak through for one frame on initial mount
+      // before GSAP took over.
+      gsap.set('[data-tl-progress]', { scaleX: 0, transformOrigin: 'left center' })
+      gsap.set('[data-tl-dot]', { scale: 0 })
+      gsap.set('[data-tl-label]', { opacity: 0.22 })
+      gsap.set('[data-stamp]', { scale: 1.8, opacity: 0, rotate: -9 })
+      gsap.set('[data-bigword="now"]', { opacity: 0, scale: 0.94 })
+      gsap.set('[data-stage="now"]', { opacity: 0, y: 56, force3D: true })
+      gsap.set('[data-now-transcript]', { opacity: 0, x: -18 })
+      gsap.set('[data-now-card]', { opacity: 0, y: 26, scale: 0.96, force3D: true })
+      gsap.set('[data-now-meta]', { opacity: 0 })
+
       const tl = gsap.timeline({
         scrollTrigger: {
           trigger: stage,
@@ -55,29 +69,21 @@ export function ProblemSection(): React.JSX.Element {
       })
 
       // ── Act one: the recap machine ──────────────────────────────────
-      tl.fromTo(
-        '[data-tl-progress]',
-        { scaleX: 0 },
-        { scaleX: 1, duration: 2.3, ease: 'none' },
-        0,
-      )
-      tl.fromTo(
+      tl.to('[data-tl-progress]', { scaleX: 1, duration: 2.3, ease: 'none' }, 0)
+      tl.to(
         '[data-tl-dot]',
-        { scale: 0 },
         { scale: 1, stagger: 0.42, duration: 0.25, ease: 'back.out(2.4)' },
         0.15,
       )
-      tl.fromTo(
+      tl.to(
         '[data-tl-label]',
-        { opacity: 0.22 },
         { opacity: 1, stagger: 0.42, duration: 0.2 },
         0.15,
       )
 
       // ── The stamp ───────────────────────────────────────────────────
-      tl.fromTo(
+      tl.to(
         '[data-stamp]',
-        { scale: 1.8, opacity: 0, rotate: -9 },
         { scale: 1, opacity: 1, rotate: 0, duration: 0.45, ease: 'back.out(1.8)' },
         2.25,
       )
@@ -94,36 +100,27 @@ export function ProblemSection(): React.JSX.Element {
         3.3,
       )
       tl.to('[data-bigword="later"]', { opacity: 0, scale: 1.1, duration: 0.5 }, 3.3)
-      tl.fromTo(
+      tl.to(
         '[data-bigword="now"]',
-        { opacity: 0, scale: 0.94 },
         { opacity: 1, scale: 1, duration: 0.55, ease: EASE.out },
         3.55,
       )
-      tl.fromTo(
+      tl.to(
         '[data-stage="now"]',
-        { opacity: 0, y: 56 },
         { opacity: 1, y: 0, duration: 0.6, ease: EASE.out },
         3.6,
       )
-      tl.fromTo(
+      tl.to(
         '[data-now-transcript]',
-        { opacity: 0, x: -18 },
         { opacity: 1, x: 0, duration: 0.5, ease: EASE.out },
         3.9,
       )
-      tl.fromTo(
+      tl.to(
         '[data-now-card]',
-        { opacity: 0, y: 26, scale: 0.96 },
         { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: 'back.out(1.6)' },
         4.05,
       )
-      tl.fromTo(
-        '[data-now-meta]',
-        { opacity: 0 },
-        { opacity: 1, duration: 0.4 },
-        4.3,
-      )
+      tl.to('[data-now-meta]', { opacity: 1, duration: 0.4 }, 4.3)
     },
     [staticLayout],
   )

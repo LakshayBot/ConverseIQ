@@ -17,7 +17,7 @@ import { kindMeta } from './kinds'
 const CHAR_MS = 15
 const LINE_HOLD_MS = 300
 const CARD_HOLD_MS = 420
-const LOOP_HOLD_MS = 2600
+const LOOP_HOLD_MS = 1600
 const RESET_MS = 300
 
 interface WindowLine {
@@ -45,20 +45,19 @@ export function LiveCallWindow({ className }: { className?: string }): React.JSX
 
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | undefined
-    let visible = true
-
-    const io = new IntersectionObserver(
-      (entries) => {
-        visible = entries[0]?.isIntersecting ?? false
-      },
-      { threshold: 0.18, rootMargin: '0px 0px -8% 0px' },
-    )
-    if (rootRef.current) io.observe(rootRef.current)
 
     const sleep = (ms: number): Promise<void> =>
       new Promise((resolve) => {
         timer = setTimeout(resolve, ms)
       })
+
+    // The call plays continuously — it is the page's promise that the call
+    // is "already playing". The only pause is when the tab itself is hidden
+    // (background tabs throttle timers anyway). No element-visibility gate:
+    // that froze the loop at one card whenever the window sat below the fold.
+    const waitWhileHidden = async (): Promise<void> => {
+      while (document.hidden && !cancelled) await sleep(250)
+    }
 
     const countUp = async (target: number): Promise<void> => {
       const start = performance.now()
@@ -77,7 +76,7 @@ export function LiveCallWindow({ className }: { className?: string }): React.JSX
       while (!cancelled) {
         for (let i = 0; i < HERO_LINES.length; i++) {
           if (cancelled) return
-          while (!visible && !cancelled) await sleep(140)
+          await waitWhileHidden()
 
           setSpeaking(i)
           const text = HERO_LINES[i].text
@@ -115,7 +114,6 @@ export function LiveCallWindow({ className }: { className?: string }): React.JSX
     return () => {
       cancelled = true
       if (timer) clearTimeout(timer)
-      io.disconnect()
     }
   }, [reduced])
 

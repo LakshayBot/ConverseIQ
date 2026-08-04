@@ -3,13 +3,13 @@
 // tied to scroll position. The only element that tracks progress globally.
 // ============================================================================
 
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { gsap } from 'gsap'
 
 export function ScrollProgress(): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
     const tween = gsap.to(el, {
