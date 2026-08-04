@@ -215,7 +215,7 @@ export function ProblemSection(): React.JSX.Element {
       <div
         ref={stageRef}
         className="relative mx-auto mt-16 w-full max-w-[1240px] px-[clamp(1.25rem,4vw,3rem)]"
-        style={{ height: staticLayout ? undefined : 'clamp(580px, 72vh, 700px)' }}
+        style={{ height: staticLayout ? undefined : 'clamp(684px, 78vh, 720px)' }}
       >
         {/* Giant words behind the stage — Fraunces editorial type, sized
             to always fit the container. LATER is a hairline stroke with a
@@ -235,10 +235,10 @@ export function ProblemSection(): React.JSX.Element {
           aria-hidden="true"
           data-bigword="now"
           className={cx(
-            'stage-bigword stage-bigword--now pointer-events-none absolute right-[9%] top-[16%] z-0',
+            'stage-bigword stage-bigword--now pointer-events-none absolute right-[9%] top-[18%] z-0',
             staticLayout && 'hidden',
           )}
-          style={{ fontSize: 'clamp(7rem, 15vw, 14rem)' }}
+          style={{ fontSize: 'clamp(6.5rem, 14vw, 13rem)' }}
         >
           NOW
         </div>
@@ -347,7 +347,10 @@ export function ProblemSection(): React.JSX.Element {
             The NOW wordmark is pure environment — dim, right, behind
             the card's edge. The bottom fade pulls into the next chapter. */}
         <div data-stage="now" className={staticLayout ? 'relative mt-16' : 'absolute inset-0 z-[2] opacity-0'}>
-          <div className="relative mx-auto flex h-full max-w-[1120px] flex-col justify-between pb-2">
+          {/* lg top padding clears the fixed navbar: the pinned stage sits
+              at the viewport top, so the composition needs its own air
+              above the headline. */}
+          <div className="relative mx-auto flex h-full max-w-[1120px] flex-col justify-between pb-2 lg:pt-[92px]">
             {/* 01 — the question */}
             <div data-now-transcript className="max-w-[48ch]">
               <div className="flex items-center gap-3">
@@ -376,7 +379,7 @@ export function ProblemSection(): React.JSX.Element {
             </div>
 
             {/* the signal — the AI understands */}
-            <div data-now-signal className="flex items-center gap-5 pl-[3px]">
+            <div data-now-signal className="flex items-center gap-5">
               <div className="relative h-10 w-px bg-white/[0.08]">
                 <span
                   data-now-signal-beam
@@ -405,9 +408,17 @@ export function ProblemSection(): React.JSX.Element {
             <div className="grid items-end gap-8 lg:grid-cols-12 lg:gap-10">
               <div data-now-card className="lg:col-span-7">
                 <div className="group relative mx-auto w-full max-w-[430px] lg:mx-0">
+                  {/* A focused, directional top-light on the card — narrow
+                      radial, tight blur, so the glow reads as light from
+                      the composition rather than a wash across the stage. */}
                   <div
                     aria-hidden="true"
-                    className="glow -top-20 left-1/2 h-64 w-[140%] -translate-x-1/2 bg-[rgba(181,69,31,0.2)]"
+                    className="absolute -top-12 left-1/2 h-44 w-[110%] -translate-x-1/2"
+                    style={{
+                      background:
+                        'radial-gradient(52% 65% at 50% 8%, rgba(255,122,80,0.24), transparent 72%)',
+                      filter: 'blur(36px)',
+                    }}
                   />
                   <div
                     data-now-pedestal
