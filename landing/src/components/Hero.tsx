@@ -36,6 +36,7 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
   const ledeRef = useRef<HTMLParagraphElement>(null)
   const metaRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
+  const stageFadeRef = useRef<HTMLDivElement>(null)
   const cueRef = useRef<HTMLDivElement>(null)
   const splitRef = useRef<SplitText | null>(null)
   const clearGradientRef = useRef<() => void>(() => {})
@@ -135,7 +136,7 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
       },
     )
 
-    const fade = gsap.to(stage, {
+    const fade = gsap.to(stageFadeRef.current, {
       opacity: 0.25,
       y: -60,
       ease: 'none',
@@ -234,8 +235,14 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
         </div>
 
         {/* ── The stage ───────────────────────────────────────────────── */}
+        {/* The outer div owns the boot entrance (rise + fade-in) and the
+            scroll flatten (tilt → flat). The inner div owns only the
+            scroll-away fade — kept separate so the two never fight over
+            the same properties. */}
         <div data-hero="stage" ref={stageRef} className="mt-9" style={{ perspective: 1400 }}>
-          <LiveCallWindow />
+          <div ref={stageFadeRef} className="will-change-transform">
+            <LiveCallWindow />
+          </div>
         </div>
 
         {/* ── Scroll cue ──────────────────────────────────────────────── */}

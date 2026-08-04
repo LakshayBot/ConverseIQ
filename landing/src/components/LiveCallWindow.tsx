@@ -28,8 +28,10 @@ interface WindowLine {
 
 export function LiveCallWindow({ className }: { className?: string }): React.JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null)
+  const landedRef = useRef(-1)
   const [typed, setTyped] = useState<number[]>(() => HERO_LINES.map(() => 0))
   const [cardsLanded, setCardsLanded] = useState(-1)
+  const [prevCard, setPrevCard] = useState<number | null>(null)
   const [speaking, setSpeaking] = useState(-1)
   const [latency, setLatency] = useState(0)
   const [resetting, setResetting] = useState(false)
@@ -40,6 +42,7 @@ export function LiveCallWindow({ className }: { className?: string }): React.JSX
     if (reduced) {
       setTyped(HERO_LINES.map((l) => l.text.length))
       setCardsLanded(HERO_CARDS.length - 1)
+      landedRef.current = HERO_CARDS.length - 1
       return
     }
 
@@ -88,7 +91,9 @@ export function LiveCallWindow({ className }: { className?: string }): React.JSX
           await sleep(LINE_HOLD_MS)
 
           if (i < HERO_CARDS.length) {
+            setPrevCard(landedRef.current >= 0 ? landedRef.current : null)
             setCardsLanded(i)
+            landedRef.current = i
             window.dispatchEvent(new CustomEvent('cp:voice-pulse'))
             void countUp(298 + i * 41)
             await sleep(CARD_HOLD_MS)
@@ -103,8 +108,10 @@ export function LiveCallWindow({ className }: { className?: string }): React.JSX
         await sleep(RESET_MS)
         if (cancelled) return
         setResetting(false)
+        setPrevCard(landedRef.current >= 0 ? landedRef.current : null)
         setTyped(HERO_LINES.map(() => 0))
         setCardsLanded(-1)
+        landedRef.current = -1
         setLatency(0)
       }
     }
@@ -185,12 +192,30 @@ export function LiveCallWindow({ className }: { className?: string }): React.JSX
               +{latency} ms
             </span>
           </div>
-          <div className="flex min-h-[340px] flex-col gap-2.5 p-3">
+          {/* The rail shows ONE card — the latest intelligence — so the
+              window's height never grows as cards land. The outgoing card
+              fades out absolutely behind the incoming one. */}
+          <div className="relative flex min-h-[340px] flex-col gap-2.5 p-3">
             {resetting && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-ink-900/60">
                 <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-moon-3">
                   looping…
                 </span>
+              </div>
+            )}
+            {prevCard !== null && prevCard >= 0 && prevCard !== cardsLanded && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-[1] intel-card--out"
+              >
+                <IntelCard
+                  kind={kindMeta(HERO_CARDS[prevCard].kind).label}
+                  icon={kindMeta(HERO_CARDS[prevCard].kind).icon}
+                  severity={HERO_CARDS[prevCard].severity as Severity}
+                  title={HERO_CARDS[prevCard].title}
+                  body={HERO_CARDS[prevCard].body}
+                  sources={HERO_CARDS[prevCard].sources}
+                />
               </div>
             )}
             {cardsLanded < 0 && !resetting && (
@@ -201,19 +226,18 @@ export function LiveCallWindow({ className }: { className?: string }): React.JSX
                 </p>
               </div>
             )}
-            {HERO_CARDS.slice(0, cardsLanded + 1).map((card) => (
-              <div key={card.id} className={cx(resetting && 'intel-card--out')}>
+            {cardsLanded >= 0 && (
+              <div key={cardsLanded} className={cx(!resetting && 'intel-card--in')}>
                 <IntelCard
-                  animateIn={!resetting}
-                  kind={kindMeta(card.kind).label}
-                  icon={kindMeta(card.kind).icon}
-                  severity={card.severity as Severity}
-                  title={card.title}
-                  body={card.body}
-                  sources={card.sources}
+                  kind={kindMeta(HERO_CARDS[cardsLanded].kind).label}
+                  icon={kindMeta(HERO_CARDS[cardsLanded].kind).icon}
+                  severity={HERO_CARDS[cardsLanded].severity as Severity}
+                  title={HERO_CARDS[cardsLanded].title}
+                  body={HERO_CARDS[cardsLanded].body}
+                  sources={HERO_CARDS[cardsLanded].sources}
                 />
               </div>
-            ))}
+            )}
           </div>
         </div>
       </div>
