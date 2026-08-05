@@ -238,6 +238,16 @@
   --stamp-bg: linear-gradient(180deg, rgba(255, 122, 80, 0.12), rgba(255, 122, 80, 0.02));
   --reflection: rgba(255, 255, 255, 0.07);
 
+  /* Later act — "after the call" atmosphere */
+  --later-glow: radial-gradient(closest-side, rgba(255, 122, 80, 0.09), transparent 76%);
+  --later-word-fill: linear-gradient(
+    180deg,
+    rgba(255, 196, 168, 0.15),
+    rgba(255, 122, 80, 0.055) 55%,
+    rgba(255, 122, 80, 0.02)
+  );
+  --later-particle: rgba(255, 168, 128, 0.45);
+
   --noise-opacity: 0.05;
   --focus-ring: var(--color-brand-live);
 }
@@ -343,6 +353,16 @@
   --stamp-bg: linear-gradient(180deg, rgba(147, 72, 60, 0.1), rgba(147, 72, 60, 0.02));
   --reflection: rgba(255, 255, 255, 0.5);
 
+  /* Later act — warm beige/gold for the light register */
+  --later-glow: radial-gradient(closest-side, rgba(214, 148, 96, 0.12), transparent 76%);
+  --later-word-fill: linear-gradient(
+    180deg,
+    rgba(147, 72, 60, 0.24),
+    rgba(147, 72, 60, 0.09) 55%,
+    rgba(147, 72, 60, 0.04)
+  );
+  --later-particle: rgba(147, 72, 60, 0.38);
+
   --noise-opacity: 0.03;
   --focus-ring: #93483c;
 }
@@ -386,6 +406,73 @@ html.theme-transition *::after {
     radial-gradient(58% 42% at 24% 6%, rgba(222, 133, 94, 0.11), transparent 72%),
     radial-gradient(46% 38% at 84% 28%, rgba(125, 93, 246, 0.045), transparent 72%),
     radial-gradient(60% 44% at 50% 92%, rgba(222, 133, 94, 0.07), transparent 74%);
+}
+
+/* =========================================================================
+   Later act — "after the call". A slow editorial pause: the engraved word,
+   its blurred warm aura, and a few dust specks drifting like embers.
+   ========================================================================= */
+
+.later-glow {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: 76vmax;
+  height: 36vmax;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  background: var(--later-glow);
+  filter: blur(72px);
+  pointer-events: none;
+}
+
+.later-word {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(5rem, 13vw, 11rem);
+  line-height: 0.92;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
+  background: var(--later-word-fill);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  user-select: none;
+}
+
+.later-caption {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--color-moon-3);
+}
+
+.later-particles span {
+  position: absolute;
+  border-radius: 9999px;
+  background: var(--later-particle);
+  animation: later-float var(--later-float-dur, 8s) ease-in-out infinite;
+}
+
+@keyframes later-float {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.2;
+  }
+  50% {
+    transform: translateY(-16px);
+    opacity: 0.75;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .later-particles span {
+    animation: none;
+    opacity: 0.35;
+  }
 }
 
 /* =========================================================================

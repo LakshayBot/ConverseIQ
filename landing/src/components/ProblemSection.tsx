@@ -26,6 +26,18 @@ const TIMELINE_NODES = [
   { label: 'Recap', meta: '09:00 · +1d' },
 ]
 
+// A few ember specks drifting through the pause — barely there.
+const LATER_PARTICLES = [
+  { id: 'p1', x: '12%', y: '30%', size: 4, delay: '0s', dur: '7s' },
+  { id: 'p2', x: '86%', y: '24%', size: 3, delay: '1.2s', dur: '9s' },
+  { id: 'p3', x: '78%', y: '58%', size: 5, delay: '0.6s', dur: '8s' },
+  { id: 'p4', x: '22%', y: '66%', size: 3, delay: '2.1s', dur: '10s' },
+  { id: 'p5', x: '38%', y: '16%', size: 3, delay: '0.9s', dur: '6.5s' },
+  { id: 'p6', x: '64%', y: '76%', size: 4, delay: '1.6s', dur: '8.5s' },
+  { id: 'p7', x: '52%', y: '88%', size: 3, delay: '0.3s', dur: '7.5s' },
+  { id: 'p8', x: '8%', y: '50%', size: 4, delay: '2.4s', dur: '9.5s' },
+]
+
 export function ProblemSection(): React.JSX.Element {
   const rootRef = useRef<HTMLElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
@@ -47,12 +59,15 @@ export function ProblemSection(): React.JSX.Element {
       // The inline `style={staticLayout ? undefined : '...'}` defaults
       // would otherwise leak through for one frame on initial mount
       // before GSAP took over.
+      gsap.set('[data-later-caption]', { opacity: 0, y: 14 })
+      gsap.set('[data-later-glow]', { opacity: 0 })
+      gsap.set('[data-later-particles]', { opacity: 0, y: 10 })
+      gsap.set('[data-bigword="later"]', { opacity: 0, scale: 0.98, y: 16 })
       gsap.set('[data-tl-progress]', { scaleX: 0, transformOrigin: 'left center' })
       gsap.set('[data-tl-dot]', { scale: 0, filter: 'blur(3px)' })
       gsap.set('[data-tl-ring]', { opacity: 0.55, scale: 0.4 })
       gsap.set('[data-tl-label]', { clipPath: 'inset(0% 0% 100% 0%)', y: 8 })
-      gsap.set('[data-bigword="later"]', { scale: 0.985, y: 12 })
-      gsap.set('[data-stamp]', { scale: 1.5, opacity: 0, rotate: -8, filter: 'blur(6px)' })
+      gsap.set('[data-stamp]', { scale: 1.35, opacity: 0, rotate: -8, filter: 'blur(6px)' })
       gsap.set('[data-bigword="now"]', { opacity: 0, scale: 0.96 })
       gsap.set('[data-stage="now"]', { opacity: 0, y: 40, force3D: true })
       gsap.set('[data-now-transcript]', { clipPath: 'inset(0% 0% 100% 0%)', y: 14 })
@@ -82,43 +97,46 @@ export function ProblemSection(): React.JSX.Element {
         },
       })
 
-      // ── Act one: the recap machine ──────────────────────────────────
-      tl.to('[data-tl-progress]', { scaleX: 1, duration: 2.3, ease: 'none' }, 0)
-      // The word drifts subtly as the machine runs — depth, not decoration.
+      // ── Act one: after the call — the pause ─────────────────────────
+      // The caption drifts up, the aura breathes in, the embers appear,
+      // and the word settles like an engraving catching the light.
+      tl.to('[data-later-caption]', { opacity: 1, y: 0, duration: 0.6, ease: EASE.out }, 0.1)
+      tl.to('[data-later-glow]', { opacity: 1, duration: 1.5, ease: 'sine.inOut' }, 0.15)
+      tl.to('[data-later-particles]', { opacity: 1, y: 0, duration: 1.2, ease: EASE.out }, 0.3)
       tl.to(
         '[data-bigword="later"]',
-        { scale: 1.02, y: -6, duration: 2.3, ease: 'none' },
-        0,
-      )
-      // Each station arrives as a coordinated set: the core pops with a
-      // blur release, a pulse ring breaks outward, and the label wipes up
-      // from its own mask.
-      tl.to(
-        '[data-tl-dot]',
-        { scale: 1, filter: 'blur(0px)', stagger: 0.42, duration: 0.3, ease: 'back.out(2.2)' },
-        0.15,
-      )
-      tl.to(
-        '[data-tl-ring]',
-        { opacity: 0, scale: 1.7, stagger: 0.42, duration: 0.55, ease: 'power2.out' },
-        0.15,
-      )
-      tl.to(
-        '[data-tl-label]',
-        { clipPath: 'inset(0% 0% 0% 0%)', y: 0, stagger: 0.42, duration: 0.4, ease: 'power2.out' },
+        { opacity: 1, scale: 1.02, y: -6, duration: 1.4, ease: 'power2.out' },
         0.2,
       )
 
-      // ── The stamp — a seal that slams in, settles, and pulses ───────
+      // The processing machine runs — each station arrives in quiet order.
+      tl.to('[data-tl-progress]', { scaleX: 1, duration: 2.1, ease: 'none' }, 0.55)
+      tl.to(
+        '[data-tl-dot]',
+        { scale: 1, filter: 'blur(0px)', stagger: 0.38, duration: 0.45, ease: 'power2.out' },
+        0.7,
+      )
+      tl.to(
+        '[data-tl-ring]',
+        { opacity: 0, scale: 1.7, stagger: 0.38, duration: 0.6, ease: 'power2.out' },
+        0.7,
+      )
+      tl.to(
+        '[data-tl-label]',
+        { clipPath: 'inset(0% 0% 0% 0%)', y: 0, stagger: 0.38, duration: 0.5, ease: 'power2.out' },
+        0.75,
+      )
+
+      // ── The seal — a slow press, no bounce ──────────────────────────
       tl.to(
         '[data-stamp]',
-        { scale: 1, opacity: 1, rotate: -2.5, filter: 'blur(0px)', duration: 0.5, ease: 'back.out(1.6)' },
-        2.25,
+        { scale: 1, opacity: 1, rotate: -2.5, filter: 'blur(0px)', duration: 0.7, ease: 'power3.out' },
+        2.3,
       )
       tl.to(
         '[data-stamp]',
-        { scale: 1.03, duration: 0.35, repeat: 2, yoyo: true, ease: 'sine.inOut' },
-        2.85,
+        { scale: 1.02, duration: 0.5, repeat: 2, yoyo: true, ease: 'sine.inOut' },
+        3.0,
       )
 
       // ── The inversion ───────────────────────────────────────────────
@@ -127,7 +145,12 @@ export function ProblemSection(): React.JSX.Element {
         { opacity: 0, scale: 0.97, filter: 'blur(10px)', duration: 0.5, ease: 'power2.in' },
         3.3,
       )
-      tl.to('[data-bigword="later"]', { opacity: 0, scale: 1.1, duration: 0.5 }, 3.3)
+      tl.to('[data-bigword="later"]', { opacity: 0, scale: 1.08, duration: 0.5 }, 3.3)
+      tl.to(
+        '[data-later-caption], [data-later-glow], [data-later-particles]',
+        { opacity: 0, duration: 0.5 },
+        3.3,
+      )
 
       // The word settles into the environment first — dim, behind everything.
       tl.to(
@@ -217,40 +240,41 @@ export function ProblemSection(): React.JSX.Element {
         className="relative mx-auto mt-16 w-full max-w-[1240px] px-[clamp(1.25rem,4vw,3rem)]"
         style={{ height: staticLayout ? undefined : 'clamp(684px, 78vh, 720px)' }}
       >
-        {/* Giant words behind the stage — Fraunces editorial type, sized
-            to always fit the container. LATER is a hairline stroke with a
-            faint terracotta ghost; NOW inverts to the solid accent. */}
-        <div
-          aria-hidden="true"
-          data-bigword="later"
-          className={cx(
-            'stage-bigword pointer-events-none absolute inset-0 flex items-center justify-center',
-            staticLayout && 'hidden',
-          )}
-          style={{ fontSize: 'clamp(3.75rem, 14vw, 12rem)', zIndex: 0 }}
-        >
-          LATER
-        </div>
-        <div
-          aria-hidden="true"
-          data-bigword="now"
-          className={cx(
-            'stage-bigword stage-bigword--now pointer-events-none absolute right-[9%] top-[18%] z-0',
-            staticLayout && 'hidden',
-          )}
-          style={{ fontSize: 'clamp(6.5rem, 14vw, 13rem)' }}
-        >
-          NOW
-        </div>
-
-        {/* ── Act one: the recap timeline ─────────────────────────────── */}
+        {/* ── Act one: after the call — the pause ────────────────────────
+            A centred editorial moment: the caption, the engraved word,
+            the processing timeline, the stamp. The word is atmosphere —
+            blurred warm light behind it, a few embers drifting — and the
+            timeline carries the story. The eye moves straight down. */}
         <div data-stage="later" className={staticLayout ? 'relative mt-14' : 'absolute inset-0 z-[1]'}>
-          <div className="relative mx-auto max-w-[900px] pt-[10vh]">
-            <p className="eyebrow mb-9 text-center">the after-call pipeline · 14:32 → 09:00</p>
+          {/* Atmosphere */}
+          <div aria-hidden="true" data-later-glow className="later-glow" />
+          <div aria-hidden="true" data-later-particles className="later-particles pointer-events-none absolute inset-0 overflow-hidden">
+            {LATER_PARTICLES.map((p) => (
+              <span
+                key={p.id}
+                style={{
+                  left: p.x,
+                  top: p.y,
+                  width: p.size,
+                  height: p.size,
+                  animationDelay: p.delay,
+                  ['--later-float-dur' as string]: p.dur,
+                }}
+              />
+            ))}
+          </div>
 
-            <div className="relative">
-              {/* Track — a soft gradient hairline, glowing where the
-                  progress has already run. */}
+          <div className="relative mx-auto flex h-full max-w-[760px] flex-col items-center justify-center px-6 pb-4">
+            {/* Caption */}
+            <p data-later-caption className="later-caption">after the call</p>
+
+            {/* The engraved word */}
+            <div data-bigword="later" className="later-word mt-5">
+              LATER
+            </div>
+
+            {/* The processing timeline — the story */}
+            <div className="relative mt-10 w-full">
               <div
                 aria-hidden="true"
                 className="absolute left-0 right-0 top-[6px] h-px"
@@ -270,9 +294,6 @@ export function ProblemSection(): React.JSX.Element {
                   transform: staticLayout ? undefined : 'scaleX(0)',
                 }}
               />
-
-              {/* The five stations — ring + glowing core + pulse ring,
-                  labels masked and wiped up as the machine reaches them. */}
               <div className="relative flex justify-between gap-1">
                 {TIMELINE_NODES.map((node) => (
                   <div key={node.label} className="flex flex-col items-center gap-3">
@@ -309,9 +330,8 @@ export function ProblemSection(): React.JSX.Element {
               </div>
             </div>
 
-            {/* The stamp — a rubber seal: terracotta glass, dashed inner
-                ring, a slight, deliberate rotation, settled by a pulse. */}
-            <div className="mt-[9vh] flex justify-center">
+            {/* The seal — the punchline */}
+            <div className="mt-12 flex justify-center">
               <span
                 data-stamp
                 className={cx(
