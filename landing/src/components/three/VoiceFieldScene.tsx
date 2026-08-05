@@ -20,7 +20,6 @@ import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
 
-const DUST_COUNT = 350
 const FIELD_W = 34
 const FIELD_H = 20
 
@@ -150,7 +149,7 @@ const LIGHT_FRAG = /* glsl */ `
 const TARGET_REST = 0.3
 const TARGET_PULSE = 0.55
 
-export function VoiceFieldScene(): React.JSX.Element {
+export function VoiceFieldScene({ mobile = false }: { mobile?: boolean }): React.JSX.Element {
   const dustRef = useRef<THREE.Points>(null)
   const lightRef = useRef<THREE.Mesh>(null)
   const ampRef = useRef(TARGET_REST)
@@ -163,15 +162,16 @@ export function VoiceFieldScene(): React.JSX.Element {
   // ── Dust geometry: denser below (behind the stage), sparse in the text
   //    zone, spread across nine depth layers.
   const dustGeometry = useMemo(() => {
+    const count = mobile ? 110 : 350
     const geo = new THREE.BufferGeometry()
-    const positions = new Float32Array(DUST_COUNT * 3)
-    const sizes = new Float32Array(DUST_COUNT)
-    const phases = new Float32Array(DUST_COUNT)
-    const varies = new Float32Array(DUST_COUNT)
-    const opacities = new Float32Array(DUST_COUNT)
-    const layers = new Float32Array(DUST_COUNT)
+    const positions = new Float32Array(count * 3)
+    const sizes = new Float32Array(count)
+    const phases = new Float32Array(count)
+    const varies = new Float32Array(count)
+    const opacities = new Float32Array(count)
+    const layers = new Float32Array(count)
 
-    for (let i = 0; i < DUST_COUNT; i++) {
+    for (let i = 0; i < count; i++) {
       const x = (Math.random() - 0.5) * FIELD_W
       // Bias downward: the top third of the field stays quiet.
       const y = (Math.pow(Math.random(), 1.5) - 0.5) * 2 * (FIELD_H * 0.42)
@@ -193,7 +193,7 @@ export function VoiceFieldScene(): React.JSX.Element {
     geo.setAttribute('aOpacity', new THREE.BufferAttribute(opacities, 1))
     geo.setAttribute('aLayer', new THREE.BufferAttribute(layers, 1))
     return geo
-  }, [])
+  }, [mobile])
 
   const dustMaterial = useMemo(
     () =>

@@ -22,34 +22,50 @@ const VoiceFieldScene = lazy(() =>
 )
 
 export function VoiceField({ className }: { className?: string }): React.JSX.Element {
-  const [enabled, setEnabled] = useState(false)
+  // Adaptive quality: phones and tablets get the same ambience at a
+  // fraction of the GPU cost — fewer dust specks, capped pixel ratio.
+  const [quality, setQuality] = useState<'off' | 'mobile' | 'desktop'>('off')
 
   useEffect(() => {
-    if (prefersReducedMotion() || prefersCoarsePointer()) return
-    const mq = window.matchMedia('(min-width: 900px)')
-    const sync = (): void => setEnabled(mq.matches)
+    if (prefersReducedMotion()) return
+    const sync = (): void => {
+      if (prefersCoarsePointer() || window.innerWidth < 900) {
+        setQuality('mobile')
+      } else {
+        setQuality('desktop')
+      }
+    }
     sync()
+    const mq = window.matchMedia('(min-width: 900px)')
     mq.addEventListener('change', sync)
-    return () => mq.removeEventListener('change', sync)
+    window.addEventListener('resize', sync, { passive: true })
+    return () => {
+      mq.removeEventListener('change', sync)
+      window.removeEventListener('resize', sync)
+    }
   }, [])
+
+  if (quality === 'off') {
+    return <div aria-hidden="true" className={className} />
+  }
+
+  const mobile = quality === 'mobile'
 
   return (
     <div
       aria-hidden="true"
       className={cx('pointer-events-none absolute inset-0 overflow-hidden', className)}
     >
-      {enabled && (
-        <Suspense fallback={null}>
-          <Canvas
-            camera={{ position: [0, 0, 14], fov: 55 }}
-            dpr={[1, 1.75]}
-            gl={{ antialias: false, alpha: true, powerPreference: 'high-performance' }}
-            style={{ pointerEvents: 'none' }}
-          >
-            <VoiceFieldScene />
-          </Canvas>
-        </Suspense>
-      )}
+      <Suspense fallback={null}>
+        <Canvas
+          camera={{ position: [0, 0, 14], fov: 55 }}
+          dpr={mobile ? [1, 1.5] : [1, 1.75]}
+          gl={{ antialias: false, alpha: true, powerPreference: mobile ? 'default' : 'high-performance' }}
+          style={{ pointerEvents: 'none' }}
+        >
+          <VoiceFieldScene mobile={mobile} />
+        </Canvas>
+      </Suspense>
     </div>
   )
 }

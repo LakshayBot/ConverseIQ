@@ -47,7 +47,7 @@ export function FAQSection(): React.JSX.Element {
                     data-cursor="hover"
                     onClick={() => setOpen(isOpen ? -1 : i)}
                     aria-expanded={isOpen}
-                    className="flex w-full items-center justify-between gap-6 px-6 py-5 text-left"
+                    className="flex min-h-[60px] w-full items-center justify-between gap-6 px-6 py-4 text-left touch-card"
                   >
                     <span className="flex items-baseline gap-4">
                       <span className="font-mono text-[10.5px] tracking-[0.16em] text-brand">

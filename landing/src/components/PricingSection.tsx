@@ -56,7 +56,7 @@ export function PricingSection(): React.JSX.Element {
           {/* ── Self-hosted — the featured inversion ──────────────────── */}
           <div
             data-price-card
-            className="nocturne relative overflow-hidden rounded-3xl p-8 sm:p-10"
+            className="nocturne relative overflow-hidden rounded-3xl p-8 touch-card sm:p-10"
             style={{
               border: '1px solid var(--accent-border)',
               boxShadow:
@@ -113,7 +113,7 @@ export function PricingSection(): React.JSX.Element {
           {/* ── Managed — optional ────────────────────────────────────── */}
           <div
             data-price-card
-            className="relative flex flex-col rounded-3xl border border-rule bg-white/60 p-8 sm:p-10"
+            className="relative flex flex-col rounded-3xl border border-rule bg-white/60 p-8 touch-card sm:p-10"
           >
             <div className="flex items-center justify-between">
               <span className="font-mono text-[10.5px] uppercase tracking-[0.18em] text-ink-4">

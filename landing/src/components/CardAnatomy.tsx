@@ -172,7 +172,7 @@ export function CardAnatomy(): React.JSX.Element {
                 onClick={() => setNote(note === a.id ? '' : a.id)}
                 aria-pressed={note === a.id}
                 className={cx(
-                  'group flex items-start gap-5 rounded-xl border p-4 text-left transition-all duration-300',
+                  'group flex items-start gap-5 rounded-xl border p-4 text-left transition-all duration-300 touch-card',
                   note === a.id
                     ? 'border-[var(--accent-border)] bg-[var(--accent-tint-3)]'
                     : 'border-[var(--border-soft)] bg-transparent hover:border-[var(--border-mid)]',

@@ -48,7 +48,10 @@ export function TopNav(): React.JSX.Element {
             : 'border-b border-transparent bg-transparent',
         )}
       >
-        <div className="mx-auto flex h-[68px] w-full max-w-[1240px] items-center justify-between px-[clamp(1.25rem,4vw,3rem)]">
+        <div
+          className="mx-auto flex h-[68px] w-full max-w-[1240px] items-center justify-between px-[clamp(1.25rem,4vw,3rem)]"
+          style={{ paddingTop: 'var(--safe-top)' }}
+        >
           <a href="#top" aria-label="CallPilot — back to top" className="no-drag">
             <Brand tone="moon" />
           </a>
@@ -76,7 +79,7 @@ export function TopNav(): React.JSX.Element {
               onClick={() => setOpen((o) => !o)}
               aria-label={open ? 'Close menu' : 'Open menu'}
               aria-expanded={open}
-              className="flex h-10 w-10 flex-col items-center justify-center gap-[5px] rounded-full border border-[var(--border-mid)] lg:hidden"
+              className="flex h-11 w-11 flex-col items-center justify-center gap-[5px] rounded-full border border-[var(--border-mid)] lg:hidden"
             >
               <span
                 className={cx('h-px w-4 bg-moon transition-transform duration-300', open && 'translate-y-[3px] rotate-45')}
@@ -97,7 +100,8 @@ export function TopNav(): React.JSX.Element {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.28 }}
-            className="nocturne fixed inset-0 z-[105] flex flex-col justify-end bg-[var(--sheet-bg)] px-[clamp(1.25rem,4vw,3rem)] pb-12 pt-28 backdrop-blur-xl lg:hidden"
+            className="nocturne fixed inset-0 z-[105] flex flex-col justify-end bg-[var(--sheet-bg)] px-[clamp(1.25rem,4vw,3rem)] pb-8 pt-28 backdrop-blur-xl lg:hidden"
+            style={{ paddingBottom: 'calc(2rem + var(--safe-bottom))' }}
           >
             <nav aria-label="Mobile" className="flex flex-col gap-2">
               {LINKS.map((link, i) => (
@@ -123,6 +127,7 @@ export function TopNav(): React.JSX.Element {
               transition={{ delay: 0.4, duration: 0.4 }}
               className="mt-8"
             >
+              <div aria-hidden="true" className="mx-auto mb-6 h-1 w-9 rounded-full bg-[var(--border-mid)]" />
               <div className="mb-4 flex items-center justify-between">
                 <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-moon-3">
                   appearance

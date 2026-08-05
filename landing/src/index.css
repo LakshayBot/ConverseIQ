@@ -409,6 +409,82 @@ html.theme-transition *::after {
 }
 
 /* =========================================================================
+   MOBILE — safe areas, tactile feedback, rhythm
+   ========================================================================= */
+
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+
+/* Touch devices: no hover — every interactive surface gives tactile
+   feedback through scale, brightness and motion. */
+@media (hover: none) {
+  .btn:active {
+    transform: scale(0.96);
+    filter: brightness(0.94);
+  }
+  .btn--ghost:active {
+    background: var(--accent-tint-3);
+  }
+  .nav-link:active {
+    opacity: 0.55;
+  }
+}
+
+.touch-card {
+  transition:
+    transform 180ms var(--ease-out-quint),
+    box-shadow 240ms var(--ease-out-quint),
+    border-color 240ms var(--ease-out-quint);
+}
+
+@media (hover: none) {
+  .touch-card:active {
+    transform: scale(0.975);
+  }
+}
+
+/* Swipe gallery — snap paging for touch */
+.snap-gallery {
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.snap-gallery::-webkit-scrollbar {
+  display: none;
+}
+
+.snap-gallery > * {
+  scroll-snap-align: center;
+}
+
+/* Mobile section rhythm — less air than desktop, still breathing */
+@media (max-width: 640px) {
+  .section {
+    padding-block: clamp(3.75rem, 9vh, 5.5rem);
+  }
+}
+
+/* Short landscape (phones held sideways): the hero condenses to
+   eyebrow → headline → CTAs so the primary action stays on screen. */
+@media (max-height: 520px) and (max-width: 1023px) {
+  #top .lede,
+  #top [data-hero="cue"] {
+    display: none;
+  }
+  #top > div[style] {
+    padding-top: calc(4rem + var(--safe-top)) !important;
+  }
+  #top [data-hero="stage"] {
+    margin-top: 1.5rem;
+  }
+}
+
+/* =========================================================================
    Later act — "after the call". A slow editorial pause: the engraved word,
    its blurred warm aura, and a few dust specks drifting like embers.
    ========================================================================= */
@@ -512,6 +588,7 @@ html.theme-transition *::after {
   font-weight: 400;
   line-height: 0.98;
   letter-spacing: -0.03em;
+  text-wrap: balance;
 }
 
 .display-xl {
@@ -520,6 +597,7 @@ html.theme-transition *::after {
   font-weight: 400;
   line-height: 0.94;
   letter-spacing: -0.035em;
+  text-wrap: balance;
 }
 
 .h2-display {
@@ -528,6 +606,12 @@ html.theme-transition *::after {
   font-weight: 400;
   line-height: 1.04;
   letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+/* Body copy never leaves a single word stranded on the last line. */
+p {
+  text-wrap: pretty;
 }
 
 /* The narrowest phones: section headings step down once more so the
@@ -535,6 +619,15 @@ html.theme-transition *::after {
 @media (max-width: 359px) {
   .h2-display {
     font-size: 1.55rem;
+  }
+}
+
+/* Swipe-gallery cards: their content column is narrow, so the headline
+   steps down on phones — word pairs keep fitting, no single-word lines. */
+@media (max-width: 430px) {
+  [data-case] .h3-display {
+    font-size: 1.3rem;
+    line-height: 1.15;
   }
 }
 
@@ -548,6 +641,11 @@ html.theme-transition *::after {
   font-weight: 400;
   line-height: 1.08;
   letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.font-display {
+  text-wrap: balance;
 }
 
 .lede {
@@ -558,7 +656,11 @@ html.theme-transition *::after {
   text-wrap: pretty;
 }
 
-.dawn .lede {
+.dawn .font-display {
+  text-wrap: balance;
+}
+
+.lede {
   color: var(--color-ink-3);
 }
 

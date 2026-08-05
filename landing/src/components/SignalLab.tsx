@@ -84,7 +84,7 @@ export function SignalLab(): React.JSX.Element {
                 aria-expanded={isActive}
                 aria-label={`${signal.name} — ${signal.tagline}`}
                 className={cx(
-                  'group relative overflow-hidden rounded-xl border p-5 text-left transition-all duration-300',
+                  'group relative overflow-hidden rounded-xl border p-5 text-left transition-all duration-300 touch-card',
                   isActive
                     ? 'border-[var(--accent-border)] bg-[var(--accent-tint-3)]'
                     : 'border-[var(--card-border)] bg-[var(--card-bg)] hover:border-[var(--border-mid)]',

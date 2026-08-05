@@ -172,7 +172,10 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
         style={{ background: 'var(--hero-top-light)' }}
       />
 
-      <div className="relative z-[2] mx-auto flex w-full max-w-[1240px] flex-1 flex-col justify-end px-[clamp(1.25rem,4vw,3rem)] pb-10 pt-24">
+      <div
+        className="relative z-[2] mx-auto flex w-full max-w-[1240px] flex-1 flex-col justify-end px-[clamp(1.25rem,4vw,3rem)] pb-10 pt-24"
+        style={{ paddingTop: 'calc(6rem + var(--safe-top))' }}
+      >
         {/* ── Eyebrow ─────────────────────────────────────────────────── */}
         <div ref={eyebrowRef} data-hero="eyebrow" className="eyebrow flex items-center gap-3">
           <span aria-hidden="true" className="relative inline-block h-2 w-2 rounded-full bg-brand-live">

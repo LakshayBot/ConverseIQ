@@ -57,6 +57,58 @@ export const prefersCoarsePointer = (): boolean =>
  * Without this, every section was flashing its pre-animation state for one
  * frame after mount.
  */
+/**
+ * useStaggerReveal — the mobile analogue of the pinned timelines.
+ * Elements matching `selector` inside `ref` are invisible at first and
+ * ease into place as they enter the viewport — one at a time, in a gentle
+ * stagger — so long narratives read as a progressive, conversation-like
+ * rhythm instead of a wall of content. No-op for reduced motion and when
+ * `enabled` is false (desktop keeps its scrubbed pins).
+ */
+export function useStaggerReveal<T extends HTMLElement>(
+  ref: React.RefObject<T | null>,
+  selector: string,
+  opts: { enabled?: boolean; y?: number; scale?: number; delay?: number; stagger?: number } = {},
+): void {
+  const { enabled = true, y = 26, scale = 1, delay = 0, stagger = 0.07 } = opts
+
+  useLayoutEffect(() => {
+    if (!enabled || prefersReducedMotion()) return
+    const root = ref.current
+    if (!root) return
+    const els = Array.from(root.querySelectorAll<HTMLElement>(selector))
+    if (els.length === 0) return
+
+    els.forEach((el) => {
+      gsap.set(el, { opacity: 0, y, scale, force3D: true })
+    })
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return
+          const el = entry.target as HTMLElement
+          const i = els.indexOf(el)
+          gsap.to(el, {
+            opacity: 1,
+            y: 0,
+            scale: 1,
+            duration: 0.7,
+            ease: EASE.out,
+            delay: delay + Math.max(i, 0) * stagger,
+            overwrite: 'auto',
+          })
+          io.unobserve(el)
+        })
+      },
+      { threshold: 0.15, rootMargin: '0px 0px -5% 0px' },
+    )
+
+    els.forEach((el) => io.observe(el))
+    return () => io.disconnect()
+  }, [ref, selector, enabled, y, scale, delay, stagger])
+}
+
 export function useSectionTimeline<T extends HTMLElement>(
   ref: RefObject<T | null>,
   factory: () => (() => void) | void,

@@ -53,14 +53,17 @@ export function UseCasesSection(): React.JSX.Element {
           </p>
         </div>
 
-        <div className="mt-16 grid gap-5 md:grid-cols-3">
+        <p className="mt-6 font-mono text-[10px] uppercase tracking-[0.2em] text-ink-4 lg:hidden">
+          swipe to explore →
+        </p>
+        <div className="snap-gallery mt-4 flex gap-4 overflow-x-auto pb-2 lg:mt-12 lg:grid lg:grid-cols-3 lg:gap-5 lg:overflow-visible lg:pb-0 lg:snap-none">
           {USE_CASES_NEW.map((useCase, i) => (
             <article
               key={useCase.id}
               data-case
               className={cx(
-                'group relative flex flex-col rounded-2xl border border-rule bg-white/60 p-7 transition-all duration-500 hover:-translate-y-1.5 hover:border-brand/40 hover:shadow-[0_30px_60px_-24px_rgba(181,69,31,0.25)] sm:p-8',
-                i === 1 && 'md:mt-12',
+                'group relative flex w-[92%] shrink-0 flex-col rounded-2xl border border-rule bg-white/60 p-7 transition-all duration-500 touch-card hover:-translate-y-1.5 hover:border-brand/40 hover:shadow-[0_30px_60px_-24px_rgba(181,69,31,0.25)] sm:w-[54%] sm:p-8 lg:w-auto lg:shrink-0 lg:snap-align-none',
+                i === 1 && 'lg:mt-12',
               )}
             >
               <div className="flex items-baseline justify-between">

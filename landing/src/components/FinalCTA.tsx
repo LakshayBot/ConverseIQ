@@ -78,7 +78,10 @@ export function FinalCTA(): React.JSX.Element {
         }}
       />
 
-      <div className="container relative flex flex-col items-center pb-24 pt-16 text-center">
+      <div
+        className="container relative flex flex-col items-center pb-24 pt-16 text-center"
+        style={{ paddingBottom: 'calc(4rem + var(--safe-bottom))' }}
+      >
         <p className="eyebrow">Ready when the next call is</p>
 
         <h2

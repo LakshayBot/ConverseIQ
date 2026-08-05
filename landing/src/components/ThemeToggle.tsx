@@ -55,8 +55,8 @@ export function ThemeToggle({ className }: { className?: string }): React.JSX.El
       aria-label={isLight ? 'Switch to dark theme' : 'Switch to light theme'}
       aria-pressed={isLight}
       className={cx(
-        'relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border transition-colors duration-300',
-        'border-[var(--border-mid)] text-moon-2 hover:border-[var(--border-strong)] hover:text-moon',
+        'relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border transition-colors duration-300 touch-card',
+        'border-[var(--border-mid)] text-moon-2 hover:border-[var(--border-strong)] hover:text-moon active:text-moon',
         className,
       )}
     >

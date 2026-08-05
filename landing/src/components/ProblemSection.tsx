@@ -11,7 +11,7 @@
 
 import { useRef } from 'react'
 import { gsap } from 'gsap'
-import { EASE, prefersReducedMotion, useSectionTimeline, useHeadingReveal } from '@/lib/motion'
+import { EASE, prefersReducedMotion, useSectionTimeline, useHeadingReveal, useStaggerReveal } from '@/lib/motion'
 import { useIsDesktop } from '@/lib/media'
 import { cx } from '@/lib/cx'
 import { IntelCard, type Severity } from './IntelCard'
@@ -219,6 +219,16 @@ export function ProblemSection(): React.JSX.Element {
     [staticLayout],
   )
 
+  // Mobile / static flow: the two acts read top-to-bottom — the timeline
+  // stations step in as they scroll into view, the stamp presses down on
+  // arrival, and the NOW scene reveals layer by layer, like reading a chat.
+  useStaggerReveal(stageRef, '[data-tl-station], [data-now-transcript], [data-now-signal], [data-now-card], [data-now-decision], [data-now-meta]', {
+    enabled: staticLayout,
+    y: 26,
+    stagger: 0.08,
+  })
+  useStaggerReveal(stageRef, '[data-stamp]', { enabled: staticLayout, y: 14, scale: 0.94, delay: 0.15 })
+
   return (
     <section id="problem" ref={rootRef} className="nocturne section">
       <div className="container">
@@ -296,7 +306,7 @@ export function ProblemSection(): React.JSX.Element {
               />
               <div className="relative flex justify-between gap-1">
                 {TIMELINE_NODES.map((node) => (
-                  <div key={node.label} className="flex flex-col items-center gap-3">
+                  <div key={node.label} data-tl-station className="flex flex-col items-center gap-3">
                     <span
                       data-tl-dot
                       className="relative block h-3 w-3 shrink-0 rounded-full"

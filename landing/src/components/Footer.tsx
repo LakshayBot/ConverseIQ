@@ -43,7 +43,7 @@ const LINK_COLS: {
 
 export function Footer(): React.JSX.Element {
   return (
-    <footer className="nocturne border-t border-[var(--border-faint)]">
+    <footer className="nocturne border-t border-[var(--border-faint)]" style={{ paddingBottom: 'var(--safe-bottom)' }}>
       <div className="mx-auto w-full max-w-[1240px] px-[clamp(1.25rem,4vw,3rem)] pb-10 pt-16">
         <div className="grid gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
           <div>
