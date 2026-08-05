@@ -617,6 +617,10 @@ p {
 /* The narrowest phones: section headings step down once more so the
    authored line masks hold without any single-word lines. */
 @media (max-width: 359px) {
+    .display {
+    font-size: 2rem;
+  }
+
   .h2-display {
     font-size: 1.55rem;
   }
