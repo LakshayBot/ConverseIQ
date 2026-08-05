@@ -283,11 +283,13 @@ export function VoiceFieldScene({ mobile = false }: { mobile?: boolean }): React
     ampRef.current += (targetRef.current - ampRef.current) * Math.min(1, delta * 2.5)
     dustMaterial.uniforms.uAmp.value = ampRef.current
 
-    // Theme blends in smoothly — the swap never snaps the lighting.
+    // Theme blends in quickly — the DOM carries the 0.55s crossfade,
+    // the shader only needs to track it, so the lerp window is short
+    // (≈160ms) and the per-frame JS cost disappears early.
     const theme = dustMaterial.uniforms.uTheme.value
     const nextTheme = themeRef.current
     if (Math.abs(nextTheme - theme) > 0.001) {
-      dustMaterial.uniforms.uTheme.value = theme + (nextTheme - theme) * Math.min(1, delta * 3)
+      dustMaterial.uniforms.uTheme.value = theme + (nextTheme - theme) * Math.min(1, delta * 6)
       lightMaterial.uniforms.uTheme.value = dustMaterial.uniforms.uTheme.value
     }
 

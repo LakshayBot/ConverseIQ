@@ -368,7 +368,10 @@
 }
 
 /* Theme-switch transition — color-carrying properties only. Transforms
-   and opacity stay GSAP-owned; no timeline is ever touched. */
+   and opacity stay GSAP-owned; no timeline is ever touched. Only the
+   readable surfaces animate (background/color/border): shadow and
+   glyph-paint interpolation is per-frame repaint for no visible gain
+   over a 0.55s fade. */
 html.theme-transition,
 html.theme-transition body,
 html.theme-transition .nocturne,
@@ -379,11 +382,20 @@ html.theme-transition *::after {
   transition:
     background-color 0.55s ease,
     color 0.55s ease,
-    border-color 0.55s ease,
-    box-shadow 0.55s ease,
-    text-shadow 0.55s ease,
-    fill 0.55s ease,
-    stroke 0.55s ease !important;
+    border-color 0.55s ease !important;
+}
+
+/* Per-frame repaint is wasted on these — they snap instead:
+   · split glyphs (background-clip gradients swap instantly anyway),
+   · the full-screen grain,
+   · backdrop-filter glass (the blur masks the snap),
+   · background-clip:text accents (their gradients are not transitionable). */
+html.theme-transition .mask-chars .char,
+html.theme-transition .grain,
+html.theme-transition .grain::before,
+html.theme-transition [class*='backdrop-blur'],
+html.theme-transition .accent {
+  transition: none !important;
 }
 
 /* =========================================================================
