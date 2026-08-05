@@ -591,6 +591,16 @@ html.theme-transition *::after {
   text-wrap: balance;
 }
 
+/* Phones and tablets: a steeper optical curve than 7vw so the headline
+   keeps its two-line editorial composition — "The answer arrives" /
+   "mid-question." — from 320px up. It meets the desktop curve at 768px,
+   where both produce 53.8px, so resizing is continuous. */
+@media (max-width: 768px) {
+  .display {
+    font-size: clamp(2rem, 4.86vw + 1.03rem, 7vw);
+  }
+}
+
 .display-xl {
   font-family: var(--font-display);
   font-size: clamp(2.75rem, 11vw, 11rem);
@@ -617,10 +627,6 @@ p {
 /* The narrowest phones: section headings step down once more so the
    authored line masks hold without any single-word lines. */
 @media (max-width: 359px) {
-    .display {
-    font-size: 2rem;
-  }
-
   .h2-display {
     font-size: 1.55rem;
   }
@@ -734,7 +740,8 @@ p {
 .mask-chars .char {
   overflow: hidden;
   display: inline-block;
-  padding: 0.06em 0;
+  padding: 0.07em 0 0.13em;
+  margin-inline: -0.03em;
   will-change: transform;
 }
 

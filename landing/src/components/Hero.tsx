@@ -187,9 +187,10 @@ export function Hero({ booted }: { booted: boolean }): React.JSX.Element {
         {/* ── Headline ────────────────────────────────────────────────── */}
         <h1
           ref={h1Ref}
-          className="display mask-chars mt-6 max-w-[15ch]"
+          className="display mask-chars mt-6"
         >
-          The answer arrives <em className="accent">mid&#8209;question.</em>
+          <span className="block">The answer arrives</span>
+          <em className="accent block">mid&#8209;question.</em>
         </h1>
 
         <p ref={ledeRef} className="lede mt-6 max-w-[58ch]">
