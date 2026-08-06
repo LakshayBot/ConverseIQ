@@ -1,10 +1,16 @@
 // ============================================================================
 // ArchitectureSection — the dawn register. Everything on your hardware,
-// drawn as three nodes with data flowing between them, then the honest
-// stack table and the latency spec counted up from the codebase constants.
+// drawn as three modules connected by a pipeline, then the honest stack
+// table and the latency spec counted up from the codebase constants.
+// The diagram is one flex row: cards own their width, connectors own the
+// space BETWEEN them. Nothing overlaps — the line, node and traveling
+// pulse all live in the gap, and the whole connector rotates 90° on small
+// screens so the pipeline reads vertically. On entry the pipeline
+// assembles left to right: card 1, its connector, card 2, its connector,
+// card 3. Hovering a card lights only itself and its two connectors.
 // ============================================================================
 
-import { useRef } from 'react'
+import { Fragment, useRef } from 'react'
 import { gsap } from 'gsap'
 import { ARCH_NODES, LATENCY, STACK } from '@/data/content'
 import { useSectionTimeline, prefersReducedMotion, useHeadingReveal } from '@/lib/motion'
@@ -22,18 +28,30 @@ export function ArchitectureSection(): React.JSX.Element {
     rootRef,
     () => {
       if (reduced) return
-      // Pin from-state synchronously so the first paint of the section
-      // already shows nodes + rows at their hidden positions.
-      gsap.set('[data-node]', { y: 50, opacity: 0, force3D: true })
+      // From-state applied synchronously: the first paint shows the section
+      // heading alone — no card, no connector, no stack row.
+      gsap.set('[data-arch-card]', { y: 40, opacity: 0, force3D: true })
+      gsap.set('[data-arch-link]', { scaleX: 0, transformOrigin: 'left center' })
+      gsap.set('[data-arch-node]', { scale: 0, opacity: 0 })
+      gsap.set('[data-arch-pulse]', { opacity: 0 })
       gsap.set('[data-stack-row]', { opacity: 0, x: -22, force3D: true })
-      const ctx = gsap.to('[data-node]', {
-        y: 0,
-        opacity: 1,
-        duration: 0.85,
-        stagger: 0.14,
-        ease: 'expo.out',
+
+      // The pipeline assembles itself, left to right: each module arrives,
+      // its connector draws itself, the node lands, the pulse starts
+      // flowing — then the next module.
+      const tl = gsap.timeline({
         scrollTrigger: { trigger: rootRef.current, start: 'top 68%' },
       })
+      tl.to('[data-arch-card="1"]', { y: 0, opacity: 1, duration: 0.7, ease: 'expo.out' })
+      tl.to('[data-arch-link="1"]', { scaleX: 1, duration: 0.5, ease: 'power2.inOut' }, '-=0.28')
+      tl.to('[data-arch-node="1"]', { scale: 1, opacity: 1, duration: 0.35, ease: 'back.out(1.8)' }, '-=0.32')
+      tl.to('[data-arch-pulse="1"]', { opacity: 1, duration: 0.3, ease: 'none' }, '-=0.18')
+      tl.to('[data-arch-card="2"]', { y: 0, opacity: 1, duration: 0.7, ease: 'expo.out' }, '-=0.35')
+      tl.to('[data-arch-link="2"]', { scaleX: 1, duration: 0.5, ease: 'power2.inOut' }, '-=0.28')
+      tl.to('[data-arch-node="2"]', { scale: 1, opacity: 1, duration: 0.35, ease: 'back.out(1.8)' }, '-=0.32')
+      tl.to('[data-arch-pulse="2"]', { opacity: 1, duration: 0.3, ease: 'none' }, '-=0.18')
+      tl.to('[data-arch-card="3"]', { y: 0, opacity: 1, duration: 0.7, ease: 'expo.out' }, '-=0.35')
+
       const rows = gsap.to('[data-stack-row]', {
         opacity: 1,
         x: 0,
@@ -43,8 +61,8 @@ export function ArchitectureSection(): React.JSX.Element {
         scrollTrigger: { trigger: rootRef.current, start: 'top 55%' },
       })
       return () => {
-        ctx.scrollTrigger?.kill()
-        ctx.kill()
+        tl.scrollTrigger?.kill()
+        tl.kill()
         rows.scrollTrigger?.kill()
         rows.kill()
       }
@@ -67,11 +85,17 @@ export function ArchitectureSection(): React.JSX.Element {
           Every component ships in the repo — read it, fork it, air-gap it.
         </p>
 
-        {/* ── Diagram: three nodes, data flowing ──────────────────────── */}
-        <div className="relative mt-16 grid gap-10 lg:grid-cols-3 lg:gap-0">
+        {/* ── The pipeline: three modules, connectors in the space between ──
+            One flex row. Cards grow to share the width; connectors own a
+            fixed slot in the middle of the gap — the line, the node and
+            the pulse never touch a card border. */}
+        <div className="arch-pipeline mt-16">
           {ARCH_NODES.map((node, i) => (
-            <div key={node.id} className="relative flex lg:flex-col">
-              <div data-node className="glass relative z-[1] flex-1 rounded-2xl p-6 sm:p-7">
+            <Fragment key={node.id}>
+              <div
+                data-arch-card={i + 1}
+                className="arch-card glass relative z-[1] flex min-w-0 flex-1 flex-col rounded-2xl p-6 sm:p-7"
+              >
                 <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-4">
                   {node.label}
                 </p>
@@ -86,23 +110,16 @@ export function ArchitectureSection(): React.JSX.Element {
                     </span>
                   ))}
                 </div>
-                <p className="mt-5 font-mono text-[10.5px] leading-relaxed text-ink-4">
+                {/* mt-auto anchors the meta to the bottom, so every card's
+                    header, title, chips and meta share one baseline even
+                    when chips wrap differently. */}
+                <p className="mt-auto pt-5 font-mono text-[10.5px] leading-relaxed text-ink-4">
                   {node.meta}
                 </p>
               </div>
 
-              {i < ARCH_NODES.length - 1 && (
-                <div
-                  aria-hidden="true"
-                  className="flex items-center justify-center py-4 lg:absolute lg:left-full lg:top-1/2 lg:-translate-y-1/2 lg:py-0"
-                  style={{ zIndex: 2 }}
-                >
-                  <div className="flow-line flex h-10 w-10 items-center justify-center rounded-full border border-rule bg-paper">
-                    <IconArrow size={13} className="text-brand" />
-                  </div>
-                </div>
-              )}
-            </div>
+              {i < ARCH_NODES.length - 1 && <ArchConnector index={i} />}
+            </Fragment>
           ))}
         </div>
 
@@ -189,6 +206,27 @@ export function ArchitectureSection(): React.JSX.Element {
 }
 
 const GITHUB_URL = 'https://github.com/LakshayBot/ConverseIQ'
+
+// The connector — it owns the space between two cards. A hairline track
+// with a brand fill that draws itself, a small center node with a
+// directional arrow, and a pulse traveling along the track. On small
+// screens the whole track rotates 90° into a vertical timeline.
+function ArchConnector({ index }: { index: number }): React.JSX.Element {
+  return (
+    <span className="arch-connector" aria-hidden="true">
+      <span className="arch-track">
+        <span className="arch-track-line" />
+        <span data-arch-link={index + 1} className="arch-track-fill" />
+        <span data-arch-pulse={index + 1} className="arch-track-pulse-wrap">
+          <span className="arch-track-pulse" />
+        </span>
+      </span>
+      <span data-arch-node={index + 1} className="arch-node">
+        <IconArrow size={10} />
+      </span>
+    </span>
+  )
+}
 
 function LatencyValue({
   prefix,
