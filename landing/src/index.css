@@ -1280,6 +1280,48 @@ body.cp-cursor-on button {
 }
 
 /* =========================================================================
+   Pipeline — the machine scene. Ring-buffer waveform, trie scan line,
+   scan-token geometry. The waveform is two identical copies in a looping
+   track — one copy width equals one loop step, so the seam is invisible.
+   ========================================================================= */
+
+.pip-wave-track {
+  animation: pip-wave 2.8s linear infinite;
+  will-change: transform;
+}
+
+@keyframes pip-wave {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pip-wave-track {
+    animation: none;
+  }
+}
+
+/* Scan tokens — geometry only. The lit state is scrubbed by GSAP on
+   desktop; the static branch uses the shared `.tok` highlight instead. */
+.pip-scan-token {
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin: -1px;
+}
+
+/* The trie scan line — a brand hairline sweeping the transcript. */
+.pip-scan-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-brand-live), transparent);
+  box-shadow: var(--shadow-rail);
+}
+
+/* =========================================================================
    Scrollbar
    ========================================================================= */
 
