@@ -326,8 +326,20 @@ export default function Home() {
           />
           <span className="mx-1 hidden h-4 w-px bg-[var(--opaline-outline-variant)] sm:block" />
           <StatusPill
-            tone={intelligenceConnected ? 'live' : 'spin'}
-            label={intelligenceConnected ? 'Stream live' : 'Connecting…'}
+            tone={
+              intelligenceConnected
+                ? 'live'
+                : sessionId
+                  ? 'spin'
+                  : 'idle'
+            }
+            label={
+              intelligenceConnected
+                ? 'Stream live'
+                : sessionId
+                  ? 'Connecting…'
+                  : 'Stream idle'
+            }
             title="Intelligence stream"
           />
           <span className="ml-1 hidden items-center gap-1.5 text-caption lg:inline-flex">
