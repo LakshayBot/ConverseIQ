@@ -1,67 +1,45 @@
 'use client';
 
 // IdleMainPage - the workspace shown on the home page when no recording
-// is active. Replaces the previous generic "Welcome to callpilot /
-// Start recording to see live transcription" placeholder which made the
-// app look like an empty starter template.
+// is active.
 //
-// Reference for the visual language: a focused, mission-ready workspace
-// the moment a sales rep opens the app. Not a marketing splash page -
-// left-aligned composition (not centred), dense and quiet, every
-// sub-element earns its place by teaching something about the product.
+// A native-app command surface, not a dashboard: the primary action is a
+// centered centerpiece, and the workspace beneath it is dense, hairline-
+// separated lists sitting directly on the canvas (no floating cards).
+// Layout (top → bottom):
+//   1. Start centerpiece - orb + headline + unmissable CTA
+//   2. Recent meetings - dense rows with real metadata
+//   3. Knowledge bank - document rows with health + chunk metadata
 //
-// Layout (top → bottom in the same column):
-//   1. Status row - system-readiness dots + labels (mic / engine / backend)
-//   2. Headline + body + primary CTA + secondary actions
-//   3. Recent meetings (left) + Knowledge bank (right) - both real data
-//   4. How-it-works strip - three numbered cards explaining the pipeline
-//
-// Tokens (no new hex families - sits inside the existing palette):
-//   --ink-900 #0f172a   primary text
-//   --ink-500 #64748b   secondary
-//   --ink-300 #cbd5e1   tertiary / dividers
-//   --surface #ffffff   card bg
-//   --surface-muted #f8fafc   secondary card bg
-//   brand gradient (blue → indigo → violet) - the primary CTA + active status
-//
-// Signature element: the system-readiness status row at the top. Three
-// small dots + labels (MIC / ENGINE / BACKEND) tell the rep that the
-// whole pipeline is alive before they hit record. Uses the brand
-// gradient as the active color. This is what distinguishes the page
-// from "an empty starter template" - the moment the app opens, the
-// user sees a working mission-control surface.
+// All colors from the Opaline token system (theme-aware light/dark).
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { Mic, Brain, Server, ArrowRight, FileText, History } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { Mic, ArrowRight, FileText, History, Sparkles, FolderOpen } from 'lucide-react';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { useRouter } from 'next/navigation';
-import { authedApiCall } from '@/lib/auth';
 import { meetingDisplayTitle } from '@/lib/meetingTitle';
+import { motion, useReducedMotion } from 'framer-motion';
+import { fadeUp, motionProps } from '@/lib/motion';
 
 interface IdleMainPageProps {
   onStartRecording: () => void;
+  knowledgeDocs: KnowledgeDoc[];
+  knowledgeLoading: boolean;
 }
 
-const BRAND_GRADIENT = 'linear-gradient(135deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%)';
+interface KnowledgeDoc {
+  id: string;
+  fileName: string;
+  processingStatus: string;
+  enrichmentStatus: string | null;
+  chunkCount: number;
+  createdAt: string;
+  mode?: 'fast' | 'structured';
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────────
-
-function formatRelativeTime(iso: string | undefined): string {
-  if (!iso) return '-';
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return '-';
-  const diff = Date.now() - t;
-  const min = Math.floor(diff / 60_000);
-  if (min < 1) return 'just now';
-  if (min < 60) return `${min} min ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr} hr ago`;
-  const d = Math.floor(hr / 24);
-  if (d < 7) return `${d} d ago`;
-  return new Date(t).toLocaleDateString();
-}
 
 function formatMeetingTimestamp(iso: string | undefined): string {
   if (!iso) return '-';
@@ -86,307 +64,255 @@ function formatMeetingTimestamp(iso: string | undefined): string {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Knowledge document shape (mirror of /api/v1/knowledge payload) - kept
-// minimal here so the IdleMainPage doesn't drag in the full KnowledgeUpload
-// type stack.
-// ──────────────────────────────────────────────────────────────────────────────
-interface KnowledgeDoc {
-  id: string;
-  fileName: string;
-  processingStatus: string;
-  enrichmentStatus: string | null;
-  chunkCount: number;
-  createdAt: string;
-  mode?: 'fast' | 'structured';
+function formatDocTimestamp(iso: string | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+/** Maps a doc's processing/enrichment status to a health chip. */
+function docStatus(doc: KnowledgeDoc): { label: string; tone: 'success' | 'info' | 'danger' | 'neutral' } {
+  const p = (doc.processingStatus || '').toLowerCase();
+  const e = (doc.enrichmentStatus || '').toLowerCase();
+  if (p === 'completed' || p === 'ready') {
+    if (e === 'failed') return { label: 'Enrichment failed', tone: 'danger' };
+    return { label: 'Ready', tone: 'success' };
+  }
+  if (p === 'failed' || p === 'error') return { label: 'Failed', tone: 'danger' };
+  return { label: 'Indexing…', tone: 'info' };
 }
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Status row
-// ──────────────────────────────────────────────────────────────────────────────
-
-interface StatusDotProps {
-  icon: React.ReactNode;
-  label: string;
-  state: 'ready' | 'loading' | 'offline';
-}
-
-const StatusDot: React.FC<StatusDotProps> = ({ icon, label, state }) => {
-  const dotColor =
-    state === 'ready'
-      ? 'bg-emerald-500'
-      : state === 'loading'
-        ? 'bg-amber-400 animate-pulse'
-        : 'bg-[var(--grain-ink-300)]';
-  const textColor =
-    state === 'ready'
-      ? 'text-[var(--grain-ink-700)]'
-      : state === 'loading'
-        ? 'text-[var(--grain-ink-500)]'
-        : 'text-[var(--grain-ink-300)]';
-  return (
-    <span className={`inline-flex items-center gap-1.5 font-mono text-[11px] font-medium uppercase tracking-[0.06em] ${textColor}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} aria-hidden />
-      {icon}
-      {label}
-    </span>
-  );
-};
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Main component
 // ──────────────────────────────────────────────────────────────────────────────
 
-export const IdleMainPage: React.FC<IdleMainPageProps> = ({ onStartRecording }) => {
+export const IdleMainPage: React.FC<IdleMainPageProps> = ({
+  onStartRecording,
+  knowledgeDocs,
+  knowledgeLoading,
+}) => {
   const router = useRouter();
   const { meetings } = useSidebar();
+  const reduceMotion = useReducedMotion();
 
-  const recentMeetings = useMemo(() => meetings.slice(0, 4), [meetings]);
-
-  // Knowledge document list - fetched from the .NET endpoint so the
-  // Knowledge Bank card mirrors the Recent Meetings card pattern (same
-  // row layout, same visual weight). Failures are silent: the card
-  // gracefully shows the empty state.
-  const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
-  const [docsLoading, setDocsLoading] = useState(true);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const items = await authedApiCall<KnowledgeDoc[]>('GET', '/api/v1/knowledge');
-        if (!cancelled) setDocs(items);
-      } catch {
-        if (!cancelled) setDocs([]);
-      } finally {
-        if (!cancelled) setDocsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  const recentDocs = useMemo(() => docs.slice(0, 4), [docs]);
+  const recentMeetings = useMemo(() => meetings.slice(0, 5), [meetings]);
+  const recentDocs = useMemo(() => knowledgeDocs.slice(0, 5), [knowledgeDocs]);
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-8 py-10 space-y-10">
-        {/* ── 1. Status row ─────────────────────────────────────────── */}
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 pb-2">
-          <StatusDot icon={<Server className="h-3 w-3" strokeWidth={2} />} label="Backend" state="ready" />
-          <StatusDot icon={<Brain className="h-3 w-3" strokeWidth={2} />} label="Engine" state="ready" />
-          <StatusDot icon={<Mic className="h-3 w-3" strokeWidth={2} />} label="Mic" state="ready" />
-        </div>
+    <div className="flex-1 overflow-y-auto custom-scrollbar">
+      <div className="mx-auto max-w-2xl px-8 pb-10 pt-4">
+        {/* ── 1. Start centerpiece ────────────────────────────────────── */}
+        <motion.section
+          className="flex flex-col items-center pb-10 pt-10 text-center"
+          variants={motionProps(0.08).variants}
+          initial="initial"
+          animate="animate"
+        >
+          <motion.div variants={reduceMotion ? fadeUp : undefined} className="relative mb-7">
+            <span
+              aria-hidden
+              className="orb-ring absolute inset-0 rounded-full"
+              style={{ border: '2px solid var(--opaline-primary)', opacity: 0.4 }}
+            />
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--opaline-primary)] text-primary-foreground shadow-lg">
+              <Mic className="h-6 w-6" strokeWidth={1.75} />
+            </div>
+          </motion.div>
 
-        {/* ── 2. Hero ───────────────────────────────────────────────── */}
-        <div className="space-y-4">
-          <h1 className="font-display text-3xl font-semibold tracking-tight text-[var(--grain-ink-900)] leading-tight">
-            Run a live sales call with
-            <br />
-            <span className="text-[var(--grain-accent)]">
-              CallPilot intelligence.
-            </span>
-          </h1>
-          <p className="text-sm text-[var(--grain-ink-500)] leading-relaxed max-w-2xl">
-            Hit record to capture the conversation. Competitors, objections,
-            pricing questions, and product mentions surface in the right
-            rail the moment they&apos;re spoken - pulled from your knowledge
-            bank and matched against what your prospect is actually asking.
-          </p>
+          <motion.p variants={fadeUp} className="text-overline mb-3">
+            Ready when you are
+          </motion.p>
+          <motion.h2
+            variants={fadeUp}
+            className="font-display text-headline-lg text-[var(--opaline-on-surface)]"
+          >
+            Start a call
+          </motion.h2>
+          <motion.p
+            variants={fadeUp}
+            className="mt-2.5 max-w-sm text-body-sm leading-relaxed text-[var(--opaline-on-surface-variant)]"
+          >
+            Transcription runs locally. Competitors, objections, pricing, and
+            product mentions surface in the intelligence rail as they&apos;re
+            spoken.
+          </motion.p>
 
-          <div className="flex flex-wrap items-center gap-3 pt-1">
+          <motion.div variants={fadeUp} className="mt-7 flex flex-wrap items-center justify-center gap-3">
             <button
               type="button"
               onClick={onStartRecording}
-              className="group inline-flex items-center gap-2 rounded-md bg-[var(--grain-ink-900)] px-5 py-2.5 text-sm font-medium text-white shadow-sm ring-1 ring-black/5 transition-all hover:bg-[var(--grain-ink-700)] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--grain-accent)]"
+              className="group inline-flex h-11 items-center gap-2.5 rounded-lg bg-[var(--opaline-primary)] px-7 text-sm font-semibold text-primary-foreground shadow-sm transition-all duration-fast ease-out hover:bg-[var(--opaline-primary-hover)] hover:shadow-md active:bg-[var(--opaline-primary-pressed)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
+              <Mic className="h-4 w-4" strokeWidth={1.75} />
               <span>Start a call</span>
-              <ArrowRight className="h-3.5 w-3.5 transition-transform duration-150 group-hover:translate-x-0.5" strokeWidth={2.25} />
             </button>
             <button
               type="button"
               onClick={() => router.push('/meeting-details')}
-              className="inline-flex items-center gap-1.5 rounded-md px-4 py-2.5 text-sm font-medium text-[var(--grain-ink-500)] transition-colors hover:bg-[var(--grain-paper-2)] hover:text-[var(--grain-ink-900)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--grain-accent)]"
+              className="inline-flex h-11 items-center gap-2 rounded-lg px-4 text-sm font-medium text-[var(--opaline-on-surface-variant)] transition-colors duration-fast hover:bg-[var(--opaline-surface-container-low)] hover:text-[var(--opaline-on-surface)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
-              <History className="h-3.5 w-3.5" strokeWidth={2} />
-              <span>Browse meetings</span>
+              <History className="h-4 w-4" strokeWidth={1.75} />
+              Browse meetings
             </button>
-            <span className="text-xs text-[var(--grain-ink-500)]">
-              or press <kbd className="font-mono text-[11px] bg-[var(--grain-paper-2)] px-1.5 py-0.5 rounded border border-[var(--grain-ink-200)] text-[var(--grain-ink-700)]">⌘ R</kbd> from anywhere
-            </span>
-          </div>
-        </div>
+          </motion.div>
 
-        {/* ── 3. Recent meetings + Knowledge bank ───────────────────── */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <section className="rounded-2xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-6">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-display text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)]">
-                Recent meetings
-              </h2>
-              <span className="text-[10px] font-medium text-[var(--grain-ink-500)] tabular-nums">
-                {meetings.length}
-              </span>
+          <motion.div variants={fadeUp} className="mt-5 flex items-center gap-2 text-caption">
+            <kbd className="kbd">⌘ R</kbd>
+            <span className="text-[var(--opaline-outline)]">starts from anywhere</span>
+          </motion.div>
+        </motion.section>
+
+        {/* ── 2. Recent meetings ──────────────────────────────────────── */}
+        <section className="border-t border-[var(--opaline-outline-variant)] pt-5">
+          <div className="mb-1.5 flex items-center justify-between">
+            <h2 className="text-overline">Recent meetings</h2>
+            <button
+              type="button"
+              onClick={() => router.push('/meeting-details')}
+              className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--opaline-on-surface-variant)] transition-colors hover:text-[var(--opaline-on-surface)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]"
+            >
+              View all
+              <ArrowRight className="h-3 w-3" strokeWidth={1.75} />
+            </button>
+          </div>
+
+          {recentMeetings.length === 0 ? (
+            <div className="flex flex-col items-start gap-1.5 py-4">
+              <p className="text-body-sm text-[var(--opaline-on-surface-variant)]">
+                No meetings yet.
+              </p>
+              <p className="text-caption">
+                Recordings you make will show up here with their transcripts
+                and intelligence.
+              </p>
             </div>
-            {recentMeetings.length === 0 ? (
-              <div className="py-6 text-center">
-                <p className="text-sm text-[var(--grain-ink-500)]">No meetings yet.</p>
-                <p className="text-xs text-[var(--grain-ink-500)] mt-1">
-                  Recordings you make will show up here.
-                </p>
-              </div>
-            ) : (
-              <ul className="divide-y divide-[var(--grain-ink-200)]">
-                {recentMeetings.map((m) => (
-                  <li
-                    key={m.id}
-                    className="group flex items-center gap-3 py-2.5 cursor-pointer hover:opacity-80"
+          ) : (
+            <ul className="divide-y divide-[var(--opaline-outline-variant)]">
+              {recentMeetings.map((m) => (
+                <li key={m.id}>
+                  <button
+                    type="button"
                     onClick={() => router.push(`/meeting-details?id=${encodeURIComponent(m.id)}`)}
+                    className="group flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors duration-fast hover:bg-[var(--opaline-surface-container-low)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]"
                   >
-                    <span
-                      className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-[var(--grain-paper-2)] text-[var(--grain-ink-500)] group-hover:bg-[var(--grain-accent-soft)] group-hover:text-[var(--grain-accent)] transition-colors"
-                    >
-                      <FileText className="h-3.5 w-3.5" strokeWidth={2} />
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--opaline-surface-container-low)] text-[var(--opaline-on-surface-variant)] transition-colors duration-fast group-hover:bg-[var(--opaline-primary-soft)] group-hover:text-[var(--opaline-primary)]">
+                      <FileText className="h-3.5 w-3.5" strokeWidth={1.75} />
                     </span>
-                    <div className="min-w-0 flex-1">
-                      <div
-                        className="truncate text-sm font-medium text-[var(--grain-ink-900)]"
+                    <span className="min-w-0 flex-1">
+                      <span
+                        className="block truncate text-body-md font-medium text-[var(--opaline-on-surface)]"
                         title={m.title && m.title !== 'Untitled session' ? m.title : undefined}
                       >
                         {meetingDisplayTitle(m)}
-                      </div>
-                      <div className="font-mono text-[10px] text-[var(--grain-ink-500)] tabular-nums">
+                      </span>
+                      <span className="block text-data text-[var(--opaline-outline)]">
                         {formatMeetingTimestamp(m.createdAt)}
-                      </div>
-                    </div>
-                    <ArrowRight
-                      className="h-3.5 w-3.5 text-[var(--grain-ink-300)] group-hover:text-[var(--grain-ink-700)] transition-colors"
-                      strokeWidth={2}
-                    />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <section className="rounded-2xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-6">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-display text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)]">
-                Knowledge bank
-              </h2>
-              <span className="text-[10px] font-medium text-[var(--grain-ink-500)] tabular-nums">
-                {docs.length}
-              </span>
-            </div>
-            {docsLoading ? (
-              <div className="py-6 text-center">
-                <p className="text-sm text-[var(--grain-ink-500)]">Loading…</p>
-              </div>
-            ) : recentDocs.length === 0 ? (
-              <div className="py-6 text-center">
-                <p className="text-sm text-[var(--grain-ink-500)]">No documents yet.</p>
-                <button
-                  type="button"
-                  onClick={() => router.push('/settings')}
-                  className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[var(--opaline-primary)] hover:text-[var(--opaline-on-primary-container)] transition-colors"
-                >
-                  Upload from Settings
-                  <ArrowRight className="h-3 w-3" strokeWidth={2} />
-                </button>
-              </div>
-            ) : (
-              <ul className="divide-y divide-[var(--grain-ink-200)]">
-                {recentDocs.map((d) => (
-                  <li
-                    key={d.id}
-                    className="group flex items-center gap-3 py-2.5 cursor-pointer hover:opacity-80"
-                    onClick={() => router.push('/settings?tab=knowledge')}
-                  >
-                    <span
-                      className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-[var(--grain-paper-2)] text-[var(--grain-ink-500)] group-hover:bg-[var(--opaline-accent-soft)] group-hover:text-[var(--opaline-primary)] transition-colors"
-                    >
-                      <FileText className="h-3.5 w-3.5" strokeWidth={2} />
+                      </span>
                     </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-[var(--grain-ink-900)]">
-                        {d.fileName}
-                      </div>
-                      <div className="font-mono text-[10px] text-[var(--grain-ink-500)] tabular-nums">
-                        {formatMeetingTimestamp(d.createdAt)} · {d.chunkCount} chunks
-                      </div>
-                    </div>
                     <ArrowRight
-                      className="h-3.5 w-3.5 text-[var(--grain-ink-300)] group-hover:text-[var(--grain-ink-700)] transition-colors"
-                      strokeWidth={2}
+                      className="h-3.5 w-3.5 shrink-0 text-[var(--opaline-outline-variant)] transition-all duration-fast group-hover:translate-x-0.5 group-hover:text-[var(--opaline-on-surface-variant)]"
+                      strokeWidth={1.75}
                     />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </div>
-
-        {/* ── 4. How it works strip ─────────────────────────────────── */}
-        <section>
-          <h2 className="font-display text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)] mb-3">
-            How CallPilot works
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Step
-              n="01"
-              title="Capture"
-              body="Mic + system audio are transcribed locally by Parakeet - nothing leaves the machine."
-            />
-            <Step
-              n="02"
-              title="Detect"
-              body="Each turn is checked against your knowledge bank and the event catalogue in real time."
-            />
-            <Step
-              n="03"
-              title="Surface"
-              body="Cards land in the right rail the moment a competitor, objection, or pricing question is spoken."
-            />
-          </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
-        <p className="text-[11px] text-[var(--grain-ink-500)] pt-2">
-          Knowledge bank settings are editable from{' '}
-          <button
-            type="button"
-            onClick={() => router.push('/settings')}
-            className="underline underline-offset-2 hover:text-[var(--grain-ink-700)]"
-          >
-            Settings → CallPilot
-          </button>
-          .
-        </p>
+        {/* ── 3. Knowledge bank ───────────────────────────────────────── */}
+        <section className="border-t border-[var(--opaline-outline-variant)] pt-5">
+          <div className="mb-1.5 flex items-center justify-between">
+            <h2 className="text-overline">Knowledge bank</h2>
+            <button
+              type="button"
+              onClick={() => router.push('/settings')}
+              className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--opaline-on-surface-variant)] transition-colors hover:text-[var(--opaline-on-surface)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]"
+            >
+              Manage
+              <ArrowRight className="h-3 w-3" strokeWidth={1.75} />
+            </button>
+          </div>
+
+          {knowledgeLoading ? (
+            <div className="flex flex-col gap-2 py-3">
+              <div className="animate-shimmer h-9 rounded-lg" />
+              <div className="animate-shimmer h-9 rounded-lg" />
+            </div>
+          ) : recentDocs.length === 0 ? (
+            <div className="flex flex-col items-start gap-1.5 py-4">
+              <p className="text-body-sm text-[var(--opaline-on-surface-variant)]">
+                No documents yet.
+              </p>
+              <p className="text-caption">
+                Upload pricing sheets, product docs, and playbooks — they power
+                product matching and recommendations.
+              </p>
+              <button
+                type="button"
+                onClick={() => router.push('/settings')}
+                className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] px-3 py-1.5 text-[13px] font-medium text-[var(--opaline-on-surface)] transition-colors duration-fast hover:bg-[var(--opaline-surface-container-low)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]"
+              >
+                <FolderOpen className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Upload a document
+              </button>
+            </div>
+          ) : (
+            <ul className="divide-y divide-[var(--opaline-outline-variant)]">
+              {recentDocs.map((d) => {
+                const status = docStatus(d);
+                return (
+                  <li key={d.id}>
+                    <button
+                      type="button"
+                      onClick={() => router.push('/settings')}
+                      className="group flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors duration-fast hover:bg-[var(--opaline-surface-container-low)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]"
+                    >
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--opaline-surface-container-low)] text-[var(--opaline-on-surface-variant)] transition-colors duration-fast group-hover:bg-[var(--opaline-primary-soft)] group-hover:text-[var(--opaline-primary)]">
+                        <FileText className="h-3.5 w-3.5" strokeWidth={1.75} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-body-md font-medium text-[var(--opaline-on-surface)]">
+                          {d.fileName}
+                        </span>
+                        <span className="block text-data text-[var(--opaline-outline)]">
+                          {formatDocTimestamp(d.createdAt)}
+                          {d.chunkCount > 0 ? ` · ${d.chunkCount} chunks` : ''}
+                          {d.mode ? ` · ${d.mode}` : ''}
+                        </span>
+                      </span>
+                      <span
+                        className={`chip ${
+                          status.tone === 'success'
+                            ? 'chip-success'
+                            : status.tone === 'info'
+                              ? 'chip-info'
+                              : status.tone === 'danger'
+                                ? 'chip-danger'
+                                : 'chip-neutral'
+                        }`}
+                      >
+                        {status.label}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
+        {/* Quiet footer hint - only when there is nothing to show yet */}
+        {recentMeetings.length === 0 && recentDocs.length === 0 && (
+          <div className="mt-6 flex items-center justify-center gap-1.5 text-caption">
+            <Sparkles className="h-3.5 w-3.5 text-[var(--opaline-outline)]" strokeWidth={1.75} />
+            <span className="text-[var(--opaline-outline)]">
+              Everything you need is a call away
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
 };
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Step card
-// ──────────────────────────────────────────────────────────────────────────────
-
-interface StepProps {
-  n: string;
-  title: string;
-  body: string;
-}
-
-const Step: React.FC<StepProps> = ({ n, title, body }) => (
-    <div className="rounded-2xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-5">
-      <div className="flex items-baseline gap-2 mb-2">
-        <span className="font-mono text-[10px] text-[var(--grain-ink-500)] tabular-nums">{n}</span>
-        <span className="font-display text-sm font-semibold text-[var(--grain-ink-900)]">{title}</span>
-      </div>
-    <p className="text-xs text-[var(--grain-ink-500)] leading-relaxed">{body}</p>
-  </div>
-);

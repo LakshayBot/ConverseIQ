@@ -804,12 +804,12 @@ export function ModelSettingsModal({
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-semibold">Model Settings</h3>
+        <h3 className="text-headline-md">Model Settings</h3>
       </div>
 
       <div className="space-y-4">
         <div>
-          <Label>Summarization Model</Label>
+          <Label className="field-label">Summarization Model</Label>
           <div className="flex space-x-2 mt-1">
             <Select
               value={modelConfig.provider}
@@ -907,7 +907,7 @@ export function ModelSettingsModal({
                        (modelConfig.provider === 'openai' && isLoadingOpenAI) ||
                        (modelConfig.provider === 'claude' && isLoadingClaude) ||
                        (modelConfig.provider === 'groq' && isLoadingGroq) ? (
-                        <div className="py-6 text-center text-sm text-muted-foreground">
+                        <div className="py-6 text-center text-sm text-[var(--opaline-on-surface-variant)]">
                           <RefreshCw className="mx-auto h-4 w-4 animate-spin mb-2" />
                           Loading models...
                         </div>
@@ -947,22 +947,22 @@ export function ModelSettingsModal({
         {/* Custom OpenAI Configuration Section */}
         {modelConfig.provider === 'custom-openai' && (
           <div className="space-y-4 border-t pt-4">
-            <div>
-              <Label htmlFor="custom-endpoint">Endpoint URL *</Label>
-              <Input
-                id="custom-endpoint"
-                value={customOpenAIEndpoint}
-                onChange={(e) => setCustomOpenAIEndpoint(e.target.value)}
-                placeholder="http://localhost:8000/v1"
-                className="mt-1"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Base URL of the OpenAI-compatible API
-              </p>
-            </div>
+              <div>
+                <Label htmlFor="custom-endpoint" className="field-label">Endpoint URL *</Label>
+                <Input
+                  id="custom-endpoint"
+                  value={customOpenAIEndpoint}
+                  onChange={(e) => setCustomOpenAIEndpoint(e.target.value)}
+                  placeholder="http://localhost:8000/v1"
+                  className="mt-1"
+                />
+                <p className="field-hint mt-1">
+                  Base URL of the OpenAI-compatible API
+                </p>
+              </div>
 
             <div>
-              <Label htmlFor="custom-model">Model Name *</Label>
+              <Label htmlFor="custom-model" className="field-label">Model Name *</Label>
               <Input
                 id="custom-model"
                 value={customOpenAIModel}
@@ -970,13 +970,13 @@ export function ModelSettingsModal({
                 placeholder="gpt-4, llama-3-70b, etc."
                 className="mt-1"
               />
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="field-hint mt-1">
                 Model identifier to use for requests
               </p>
             </div>
 
             <div>
-              <Label htmlFor="custom-api-key">API Key (optional)</Label>
+              <Label htmlFor="custom-api-key" className="field-label">API Key (optional)</Label>
               <Input
                 id="custom-api-key"
                 type="password"
@@ -990,21 +990,21 @@ export function ModelSettingsModal({
             {/* Advanced Options (Collapsible) */}
             <div>
               <div
-                className="flex items-center justify-between cursor-pointer py-2"
+                className="flex items-center justify-between cursor-pointer py-2 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]"
                 onClick={() => setIsCustomOpenAIAdvancedOpen(!isCustomOpenAIAdvancedOpen)}
               >
-                <Label className="cursor-pointer">Advanced Options</Label>
+                <Label className="cursor-pointer field-label">Advanced Options</Label>
                 {isCustomOpenAIAdvancedOpen ? (
-                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                  <ChevronUp className="h-4 w-4 text-[var(--opaline-on-surface-variant)]" />
                 ) : (
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  <ChevronDown className="h-4 w-4 text-[var(--opaline-on-surface-variant)]" />
                 )}
               </div>
 
               {isCustomOpenAIAdvancedOpen && (
-                <div className="space-y-3 pl-2 border-l-2 border-muted mt-2">
+                <div className="space-y-3 pl-2 border-l-2 border-[var(--opaline-outline-variant)] mt-2">
                   <div>
-                    <Label htmlFor="custom-max-tokens">Max Tokens</Label>
+                    <Label htmlFor="custom-max-tokens" className="field-label">Max Tokens</Label>
                     <Input
                       id="custom-max-tokens"
                       type="number"
@@ -1015,7 +1015,7 @@ export function ModelSettingsModal({
                     />
                   </div>
                   <div>
-                    <Label htmlFor="custom-temperature">Temperature (0.0-2.0)</Label>
+                    <Label htmlFor="custom-temperature" className="field-label">Temperature (0.0-2.0)</Label>
                     <Input
                       id="custom-temperature"
                       type="number"
@@ -1029,7 +1029,7 @@ export function ModelSettingsModal({
                     />
                   </div>
                   <div>
-                    <Label htmlFor="custom-top-p">Top P (0.0-1.0)</Label>
+                    <Label htmlFor="custom-top-p" className="field-label">Top P (0.0-1.0)</Label>
                     <Input
                       id="custom-top-p"
                       type="number"
@@ -1072,7 +1072,7 @@ export function ModelSettingsModal({
 
         {requiresApiKey && (
           <div>
-            <Label>API Key</Label>
+            <Label className="field-label">API Key</Label>
             <div className="relative mt-1">
               <Input
                 type={showApiKey ? 'text' : 'password'}
@@ -1085,7 +1085,7 @@ export function ModelSettingsModal({
               {isApiKeyLocked && apiKey?.trim() && (
                 <div
                   onClick={handleInputClick}
-                  className="absolute inset-0 flex items-center justify-center bg-muted/50 rounded-md cursor-not-allowed"
+                  className="absolute inset-0 flex items-center justify-center bg-[var(--opaline-surface-container-low)]/50 rounded-md cursor-not-allowed"
                 />
               )}
               <div className="absolute inset-y-0 right-0 pr-1 flex items-center space-x-1">
@@ -1095,7 +1095,7 @@ export function ModelSettingsModal({
                     variant="ghost"
                     size="icon"
                     onClick={() => setIsApiKeyLocked(!isApiKeyLocked)}
-                    className={isLockButtonVibrating ? 'animate-vibrate text-red-500' : ''}
+                    className={isLockButtonVibrating ? 'animate-vibrate text-danger' : ''}
                     title={isApiKeyLocked ? 'Unlock to edit' : 'Lock to prevent editing'}
                   >
                     {isApiKeyLocked ? <Lock /> : <Unlock />}
@@ -1117,20 +1117,20 @@ export function ModelSettingsModal({
         {modelConfig.provider === 'ollama' && (
           <div>
             <div
-              className="flex items-center justify-between cursor-pointer py-2"
+              className="flex items-center justify-between cursor-pointer py-2 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]"
               onClick={() => setIsEndpointSectionCollapsed(!isEndpointSectionCollapsed)}
             >
-              <Label className="cursor-pointer">Custom Endpoint (optional)</Label>
+              <Label className="cursor-pointer field-label">Custom Endpoint (optional)</Label>
               {isEndpointSectionCollapsed ? (
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                <ChevronDown className="h-4 w-4 text-[var(--opaline-on-surface-variant)]" />
               ) : (
-                <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                <ChevronUp className="h-4 w-4 text-[var(--opaline-on-surface-variant)]" />
               )}
             </div>
 
             {!isEndpointSectionCollapsed && (
               <>
-                <p className="text-sm text-muted-foreground mt-1 mb-2">
+                <p className="field-hint mt-1 mb-2">
                   Leave empty or enter a custom endpoint (e.g., http://x.yy.zz:11434)
                 </p>
                 <div className="flex gap-2 mt-1">
@@ -1149,14 +1149,14 @@ export function ModelSettingsModal({
                       placeholder="http://localhost:11434 (legacy Ollama - CallPilot uses server-side providers)"
                       className={cn(
                         "pr-10",
-                        endpointValidationState === 'invalid' && "border-red-500"
+                        endpointValidationState === 'invalid' && "border-[var(--opaline-danger)]"
                       )}
                     />
                     {endpointValidationState === 'valid' && (
-                      <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-green-500" />
+                      <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-success" />
                     )}
                     {endpointValidationState === 'invalid' && (
-                      <XCircle className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-red-500" />
+                      <XCircle className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-danger" />
                     )}
                   </div>
                   <Button
@@ -1181,8 +1181,8 @@ export function ModelSettingsModal({
                   </Button>
                 </div>
                 {ollamaEndpointChanged && !error && (
-                  <Alert className="mt-3 border-yellow-500 bg-yellow-50">
-                    <AlertDescription className="text-yellow-800">
+                  <Alert className="mt-3 border-[var(--opaline-warning-border)] bg-[var(--opaline-warning-soft)]">
+                    <AlertDescription className="text-warning">
                       Endpoint changed. Please click "Fetch Models" to load models from the new endpoint before saving.
                     </AlertDescription>
                   </Alert>
@@ -1195,11 +1195,11 @@ export function ModelSettingsModal({
         {modelConfig.provider === 'ollama' && (
           <div>
             <div className="flex items-center justify-between mb-4">
-              <h4 className="text-sm font-bold">Available Ollama Models</h4>
+              <h4 className="text-body-md font-semibold">Available Ollama Models</h4>
               {lastFetchedEndpoint && models.length > 0 && (
                 <div className="flex items-center gap-2 text-sm">
-                  <span className="text-muted-foreground">Using:</span>
-                  <code className="px-2 py-1 bg-muted rounded text-xs">
+                  <span className="text-[var(--opaline-on-surface-variant)]">Using:</span>
+                  <code className="px-2 py-1 bg-[var(--opaline-surface-container-low)] rounded text-xs text-[var(--opaline-on-surface)]">
                     {lastFetchedEndpoint || 'http://localhost:11434'}
                   </code>
                 </div>
@@ -1216,7 +1216,7 @@ export function ModelSettingsModal({
               </div>
             )}
             {isLoadingOllama ? (
-              <div className="text-center py-8 text-muted-foreground">
+              <div className="text-center py-8 text-[var(--opaline-on-surface-variant)]">
                 <RefreshCw className="mx-auto h-8 w-8 animate-spin mb-2" />
                 Loading models...
               </div>
@@ -1225,8 +1225,8 @@ export function ModelSettingsModal({
                 {ollamaNotInstalled ? (
                   /* Show Ollama download link when not installed */
                   <div className="space-y-4">
-                    <Alert className="border-orange-500 bg-orange-50">
-                      <AlertDescription className="text-orange-800">
+                    <Alert className="border-[var(--opaline-warning-border)] bg-[var(--opaline-warning-soft)]">
+                      <AlertDescription className="text-warning">
                         Ollama is not installed or not running. Please download and install Ollama to use local models.
                       </AlertDescription>
                     </Alert>
@@ -1234,12 +1234,12 @@ export function ModelSettingsModal({
                       variant="default"
                       size="sm"
                       onClick={() => invoke('open_external_url', { url: 'https://ollama.com/download' })}
-                      className="w-full bg-blue-600 hover:bg-blue-700"
+                      className="w-full bg-primary hover:bg-[var(--opaline-primary-hover)]"
                     >
                       <ExternalLink className="mr-2 h-4 w-4" />
                       Download Ollama
                     </Button>
-                    <div className="text-sm text-muted-foreground text-center">
+                    <div className="text-sm text-[var(--opaline-on-surface-variant)] text-center">
                       After installing Ollama, restart this application and click "Fetch Models" to continue.
                     </div>
                   </div>
@@ -1277,16 +1277,16 @@ export function ModelSettingsModal({
 
                         {/* Show progress for gemma3:1b download */}
                         {isDownloading('gemma3:1b') && getProgress('gemma3:1b') !== undefined && (
-                          <div className="bg-white rounded-md border p-3">
+                          <div className="bg-[var(--opaline-surface-container-lowest)] rounded-md border border-[var(--opaline-outline-variant)] p-3">
                             <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-medium text-blue-600">Downloading gemma3:1b</span>
-                              <span className="text-sm font-semibold text-blue-600">
+                              <span className="text-sm font-medium text-primary">Downloading gemma3:1b</span>
+                              <span className="text-sm font-semibold text-primary">
                                 {Math.round(getProgress('gemma3:1b')!)}%
                               </span>
                             </div>
-                            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div className="w-full h-2 bg-[var(--opaline-surface-container-high)] rounded-full overflow-hidden">
                               <div
-                                className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300"
+                                className="h-full bg-primary rounded-full transition-all duration-300"
                                 style={{ width: `${getProgress('gemma3:1b')}%` }}
                               />
                             </div>
@@ -1315,10 +1315,10 @@ export function ModelSettingsModal({
                         <div
                           key={model.id}
                           className={cn(
-                            'bg-card p-2 m-0 rounded-md border transition-colors',
+                            'bg-[var(--opaline-surface-container-lowest)] p-3 m-0 rounded-lg border transition-colors',
                             modelConfig.model === model.name
-                              ? 'ring-1 ring-blue-500 border-blue-500 background-blue-100'
-                              : 'hover:bg-muted/50',
+                              ? 'ring-1 ring-primary border-primary bg-[var(--opaline-primary-soft)]'
+                              : 'hover:bg-[var(--opaline-surface-container-low)]',
                             !modelIsDownloading && 'cursor-pointer'
                           )}
                           onClick={() => {
@@ -1328,21 +1328,21 @@ export function ModelSettingsModal({
                           }}
                         >
                           <div>
-                            <b className="font-bold">{model.name}&nbsp;</b>
-                            <span className="text-muted-foreground">with a size of </span>
-                            <span className="font-mono font-bold text-sm">{model.size}</span>
+                            <b className="font-bold text-[var(--opaline-on-surface)]">{model.name}&nbsp;</b>
+                            <span className="text-[var(--opaline-on-surface-variant)]">with a size of </span>
+                            <span className="font-mono font-bold text-sm text-[var(--opaline-on-surface)]">{model.size}</span>
                           </div>
 
                           {/* Progress bar for downloading models */}
                           {modelIsDownloading && progress !== undefined && (
-                            <div className="mt-3 pt-3 border-t border-gray-200">
+                            <div className="mt-3 pt-3 border-t border-[var(--opaline-outline-variant)]">
                               <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm font-medium text-blue-600">Downloading...</span>
-                                <span className="text-sm font-semibold text-blue-600">{Math.round(progress)}%</span>
+                                <span className="text-sm font-medium text-primary">Downloading...</span>
+                                <span className="text-sm font-semibold text-primary">{Math.round(progress)}%</span>
                               </div>
-                              <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                              <div className="w-full h-2 bg-[var(--opaline-surface-container-high)] rounded-full overflow-hidden">
                                 <div
-                                  className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300"
+                                  className="h-full bg-primary rounded-full transition-all duration-300"
                                   style={{ width: `${progress}%` }}
                                 />
                               </div>
@@ -1373,7 +1373,7 @@ export function ModelSettingsModal({
       </div>
 
       {/* Auto-generate summaries toggle */}
-      {/* <div className="mt-6 pt-6 border-t border-gray-200">
+      {/* <div className="mt-6 pt-6 border-t border-[var(--opaline-outline-variant)]">
         <div className="flex items-center justify-between">
           <div className="flex-1">
             <Label htmlFor="auto-generate" className="text-base font-medium">
@@ -1394,8 +1394,8 @@ export function ModelSettingsModal({
       <div className="mt-6 flex justify-end">
         <Button
           className={cn(
-            'px-4 text-sm font-medium text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500',
-            isDoneDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+            'px-4 text-sm font-medium text-[var(--opaline-on-primary)] rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ring',
+            isDoneDisabled ? 'bg-[var(--opaline-outline)] cursor-not-allowed' : 'bg-primary hover:bg-[var(--opaline-primary-hover)]'
           )}
           onClick={handleSave}
           disabled={isDoneDisabled}

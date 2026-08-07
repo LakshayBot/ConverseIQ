@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { ArrowLeft, Settings2, Mic, Database as DatabaseIcon, SparkleIcon, FlaskConical, Library, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { ArrowLeft, Settings2, Mic, Database as DatabaseIcon, SparkleIcon, FlaskConical, Library } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
 import { motion } from 'framer-motion';
 import { TranscriptSettings } from '@/components/TranscriptSettings';
@@ -26,10 +26,15 @@ const TABS = [
 
 export default function SettingsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { transcriptModelConfig, setTranscriptModelConfig } = useConfig();
 
-  // Animation state for tabs
-  const [activeTab, setActiveTab] = useState('general');
+  // Animation state for tabs - honor the ?tab= deep link (used by the
+  // home screen "Knowledge bank" and the sidebar Help links).
+  const initialTab = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(
+    TABS.some((t) => t.value === initialTab) ? (initialTab as string) : 'general'
+  );
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [underlineStyle, setUnderlineStyle] = useState({ left: 0, width: 0 });
 
@@ -68,16 +73,19 @@ export default function SettingsPage() {
     <div className="h-screen bg-[var(--opaline-surface)] flex flex-col">
       {/* Fixed Header */}
       <div className="sticky top-0 z-10 bg-[var(--opaline-surface)] border-b border-[var(--opaline-outline-variant)]">
-        <div className="max-w-6xl mx-auto px-8 py-6">
-          <div className="flex items-center gap-4">
+        <div className="max-w-6xl mx-auto px-8 py-5">
+          <div className="flex items-center gap-3">
             <button
               onClick={() => router.back()}
-              className="flex items-center gap-2 text-[var(--opaline-on-surface-variant)] hover:text-[var(--opaline-on-surface)] transition-colors"
+              aria-label="Go back"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--opaline-on-surface-variant)] transition-colors hover:bg-[var(--opaline-surface-container-low)] hover:text-[var(--opaline-on-surface)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]"
             >
-              <ArrowLeft className="w-5 h-5" />
-              <span>Back</span>
+              <ArrowLeft className="h-4 w-4" />
             </button>
-            <h1 className="font-display text-3xl font-bold tracking-tight text-[var(--opaline-on-surface)]">Settings</h1>
+            <div>
+              <h1 className="font-display text-headline-md text-[var(--opaline-on-surface)]">Settings</h1>
+              <p className="text-caption mt-0.5">Tune how CallPilot records, transcribes, and serves your calls.</p>
+            </div>
           </div>
         </div>
       </div>

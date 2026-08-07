@@ -3,16 +3,18 @@ import type { Config } from "tailwindcss";
 /* ──────────────────────────────────────────────────────────────────────────
    Tailwind config - Opaline design system
    ──────────────────────────────────────────────────────────────────────────
-   Bridges the Opaline CSS variables (in globals.css) into Tailwind so
-   components can use them as utility classes:
+   Bridges the Opaline CSS variables (globals.css) into Tailwind utilities:
 
      bg-opaline-surface / bg-opaline-primary
      text-opaline-on-surface / text-opaline-primary
      border-opaline-outline-variant
-     font-display / font-body
+     shadow-xs..xl (Opaline elevation)
+     text-success / bg-success-soft (semantic states)
+     duration-base / ease-out (motion tokens)
+     font-display / font-body / font-mono
 
-   Legacy aliases (primary / secondary / accent / destructive) are kept
-   so existing components continue to work - they now resolve to Opaline.
+   Legacy shadcn aliases (background/foreground/primary/...) are kept and
+   resolve to Opaline via CSS variables.
    ────────────────────────────────────────────────────────────────────────── */
 
 export default {
@@ -59,6 +61,9 @@ export default {
           'surface-variant':           'var(--opaline-surface-variant)',
 
           primary:                     'var(--opaline-primary)',
+          'primary-hover':             'var(--opaline-primary-hover)',
+          'primary-pressed':           'var(--opaline-primary-pressed)',
+          'primary-soft':              'var(--opaline-primary-soft)',
           'on-primary':                'var(--opaline-on-primary)',
           'primary-container':         'var(--opaline-primary-container)',
           'on-primary-container':      'var(--opaline-on-primary-container)',
@@ -93,15 +98,43 @@ export default {
 
           background:                  'var(--opaline-background)',
           'on-background':             'var(--opaline-on-background)',
+
+          overlay:                     'var(--opaline-overlay)',
+        },
+
+        /* Semantic states */
+        success: {
+          DEFAULT: 'var(--opaline-success)',
+          soft:    'var(--opaline-success-soft)',
+          border:  'var(--opaline-success-border)',
+        },
+        warning: {
+          DEFAULT: 'var(--opaline-warning)',
+          soft:    'var(--opaline-warning-soft)',
+          border:  'var(--opaline-warning-border)',
+        },
+        info: {
+          DEFAULT: 'var(--opaline-info)',
+          soft:    'var(--opaline-info-soft)',
+          border:  'var(--opaline-info-border)',
+        },
+        danger: {
+          DEFAULT: 'var(--opaline-danger)',
+          soft:    'var(--opaline-danger-soft)',
+          border:  'var(--opaline-danger-border)',
         },
 
         /* Legacy shadcn aliases - repointed to Opaline */
         background: 'var(--background)',
         foreground: 'var(--foreground)',
         primary:    'var(--primary)',
+        'primary-foreground': 'var(--primary-foreground)',
         secondary:  'var(--secondary)',
+        'secondary-foreground': 'var(--secondary-foreground)',
         accent:     'var(--accent)',
+        'accent-foreground': 'var(--accent-foreground)',
         destructive:'var(--destructive)',
+        'destructive-foreground': 'var(--destructive-foreground)',
         border:     'var(--border)',
         input:      'var(--input)',
         ring:       'var(--ring)',
@@ -119,26 +152,26 @@ export default {
         },
       },
       fontFamily: {
-        /* Typography families - loaded via next/font in layout.tsx:
-           display = Space Grotesk (--font-display), mono = JetBrains Mono
-           (--font-mono), body = Inter (--font-body / --font-inter). */
         display: ['var(--font-display)', 'Space Grotesk', 'system-ui', 'sans-serif'],
         body:    ['var(--font-body)', 'var(--font-inter)', 'Inter', 'system-ui', 'sans-serif'],
         sans:    ['var(--font-inter)', 'Inter', 'system-ui', 'sans-serif'],
         mono:    ['var(--font-mono)', 'JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       fontSize: {
-        /* Opaline typography scale - exposed as Tailwind fontSize keys
-           so app code can use `text-headline-lg` etc. via the
-           utility classes in globals.css. */
-        'display': ['32px', { lineHeight: '1.2', fontWeight: '700' }],
-        'h1':      ['24px', { lineHeight: '1.3', fontWeight: '600' }],
-        'h2':      ['18px', { lineHeight: '1.4', fontWeight: '500' }],
-        'body':    ['16px', { lineHeight: '1.6', fontWeight: '400' }],
-        'small':   ['14px', { lineHeight: '1.5', fontWeight: '400' }],
-        'caption': ['12px', { lineHeight: '1.4', fontWeight: '400' }],
+        'display': ['32px', { lineHeight: '1.2', fontWeight: '700', letterSpacing: '-0.02em' }],
+        'h1':      ['24px', { lineHeight: '1.3', fontWeight: '600', letterSpacing: '-0.01em' }],
+        'h2':      ['18px', { lineHeight: '1.4', fontWeight: '600' }],
+        'h3':      ['16px', { lineHeight: '1.4', fontWeight: '600' }],
+        'body':    ['14px', { lineHeight: '1.5', fontWeight: '400' }],
+        'small':   ['13px', { lineHeight: '1.4', fontWeight: '400' }],
+        'caption': ['12px', { lineHeight: '1.3', fontWeight: '400' }],
       },
       borderRadius: {
+        /* shadcn scale driven by --radius, so primitives scale with theme */
+        lg: 'var(--radius)',
+        md: 'calc(var(--radius) - 2px)',
+        sm: 'calc(var(--radius) - 4px)',
+        xl: 'calc(var(--radius) + 2px)',
         /* Opaline shape scale */
         'opaline-sm':  'var(--opaline-radius-sm)',
         'opaline-md':  'var(--opaline-radius-md)',
@@ -147,12 +180,32 @@ export default {
         'opaline-2xl': 'var(--opaline-radius-2xl)',
       },
       spacing: {
-        /* Opaline spacing scale */
         'opaline-xs': 'var(--opaline-space-xs)',
         'opaline-sm': 'var(--opaline-space-sm)',
         'opaline-md': 'var(--opaline-space-md)',
         'opaline-lg': 'var(--opaline-space-lg)',
         'opaline-xl': 'var(--opaline-space-xl)',
+      },
+      boxShadow: {
+        /* Opaline elevation scale */
+        xs:   'var(--shadow-xs)',
+        sm:   'var(--shadow-sm)',
+        md:   'var(--shadow-md)',
+        lg:   'var(--shadow-lg)',
+        xl:   'var(--shadow-xl)',
+      },
+      transitionDuration: {
+        micro: 'var(--dur-micro)',
+        fast:  'var(--dur-fast)',
+        base:  'var(--dur-base)',
+        slow:  'var(--dur-slow)',
+        slower:'var(--dur-slower)',
+      },
+      transitionTimingFunction: {
+        out:      'var(--ease-out)',
+        'in':     'var(--ease-in)',
+        'in-out': 'var(--ease-in-out)',
+        spring:   'var(--ease-spring)',
       },
     },
   },

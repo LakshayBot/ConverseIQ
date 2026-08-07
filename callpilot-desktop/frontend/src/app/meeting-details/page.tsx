@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Analytics from "@/lib/analytics";
 import { invoke } from "@tauri-apps/api/core";
 import { LoaderIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useConfig } from "@/contexts/ConfigContext";
 import { usePaginatedTranscripts } from "@/hooks/usePaginatedTranscripts";
 
@@ -338,14 +339,11 @@ function MeetingDetailsContent() {
   if (error) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <div className="text-center">
-          <p className="text-red-500 mb-4">{error}</p>
-          <button
-            onClick={() => router.push('/')}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-          >
+        <div className="panel p-8 text-center max-w-sm">
+          <p className="text-body-md text-danger mb-4">{error}</p>
+          <Button onClick={() => router.push('/')} variant="outline">
             Go Back
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -354,7 +352,7 @@ function MeetingDetailsContent() {
   // Show loading spinner while initial data loads
   if ((isLoading || isLoadingTranscripts) || !meetingDetails) {
     return <div className="flex items-center justify-center h-screen">
-      <LoaderIcon className="animate-spin size-6 " />
+      <div className="animate-spin rounded-full h-6 w-6 border-2 border-[var(--opaline-outline-variant)] border-t-[var(--opaline-primary)]" />
     </div>;
   }
 

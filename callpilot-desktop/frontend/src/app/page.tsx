@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { RecordingControls } from '@/components/RecordingControls';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { usePermissionCheck } from '@/hooks/usePermissionCheck';
@@ -24,6 +24,39 @@ import { IdleMainPage } from './_components/IdleMainPage';
 import { indexedDBService } from '@/services/indexedDBService';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
+import { authedApiCall } from '@/lib/auth';
+import { fadeIn, motionProps } from '@/lib/motion';
+
+interface KnowledgeDoc {
+  id: string;
+  fileName: string;
+  processingStatus: string;
+  enrichmentStatus: string | null;
+  chunkCount: number;
+  createdAt: string;
+  mode?: 'fast' | 'structured';
+}
+
+/** Health pill used in the page header. Mirrors the .status-pill system. */
+function StatusPill({
+  tone,
+  label,
+  title,
+}: {
+  tone: 'live' | 'warn' | 'danger' | 'idle' | 'spin';
+  label: string;
+  title?: string;
+}) {
+  return (
+    <span
+      className={`status-pill ${tone === 'live' ? 'status-pill--live' : tone === 'warn' ? 'status-pill--warn' : tone === 'danger' ? 'status-pill--danger' : tone === 'spin' ? 'status-pill--spin' : ''}`}
+      title={title}
+    >
+      <span className="pill-dot" aria-hidden />
+      {label}
+    </span>
+  );
+}
 
 export default function Home() {
   // Local page state (not moved to contexts)
@@ -40,7 +73,7 @@ export default function Home() {
   const { status, isStopping, isProcessing, isSaving } = recordingState;
 
   // Hooks
-  const { hasMicrophone } = usePermissionCheck();
+  const { hasMicrophone, hasSystemAudio } = usePermissionCheck();
   const { setIsMeetingActive, isCollapsed: sidebarCollapsed, refetchMeetings } = useSidebar();
   const { modals, messages, showModal, hideModal } = useModalState(transcriptModelConfig);
   const { isRecordingDisabled, setIsRecordingDisabled } = useRecordingStateSync(isRecording, setIsRecordingState, setIsMeetingActive);
@@ -64,6 +97,27 @@ export default function Home() {
   } = useTranscriptRecovery();
 
   const router = useRouter();
+
+  // Knowledge bank summary - fetched here so the header pill and the idle
+  // panel share one source of truth.
+  const [knowledgeDocs, setKnowledgeDocs] = useState<KnowledgeDoc[]>([]);
+  const [knowledgeLoading, setKnowledgeLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const items = await authedApiCall<KnowledgeDoc[]>('GET', '/api/v1/knowledge');
+        if (!cancelled) setKnowledgeDocs(items);
+      } catch {
+        if (!cancelled) setKnowledgeDocs([]);
+      } finally {
+        if (!cancelled) setKnowledgeLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // CallPilot - intelligence stream keyed by the current meeting id.
   //
@@ -209,13 +263,19 @@ export default function Home() {
   // Computed values using global status
   const isProcessingStop = status === RecordingStatus.PROCESSING_TRANSCRIPTS || isProcessing;
 
+  // Model label for the header pill
+  const modelLabel =
+    transcriptModelConfig.provider === 'localWhisper'
+      ? 'Whisper'
+      : transcriptModelConfig.provider === 'parakeet'
+        ? 'Parakeet'
+        : transcriptModelConfig.provider || 'Model';
+
+  const sessionLive =
+    recordingState.isRecording || status === RecordingStatus.STARTING;
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
-      className="flex flex-col h-screen bg-[var(--grain-paper)]"
-    >
+    <div className="flex flex-col h-screen bg-[var(--grain-paper)]">
       {/* All Modals supported*/}
       <SettingsModals
         modals={modals}
@@ -232,29 +292,94 @@ export default function Home() {
         onDelete={deleteRecoverableMeeting}
         onLoadPreview={loadMeetingTranscripts}
       />
+
+      {/* ── Page header: context + system health + shortcuts ─────────── */}
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-[var(--opaline-outline-variant)] bg-[var(--grain-paper)] px-6 pb-4 pt-5">
+        <div className="flex min-w-0 items-baseline gap-3">
+          <h1 className="font-display text-headline-md text-[var(--opaline-on-surface)]">
+            Live call
+          </h1>
+          <span className="hidden truncate text-caption sm:inline">
+            {sessionLive
+              ? isStopping
+                ? 'Finishing up…'
+                : 'Transcribing in real time'
+              : 'Ready when you are'}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <StatusPill
+            tone={hasMicrophone ? 'live' : 'danger'}
+            label="Mic"
+            title={hasMicrophone ? 'Microphone ready' : 'Microphone permission missing'}
+          />
+          <StatusPill
+            tone={hasSystemAudio ? 'live' : 'warn'}
+            label="System"
+            title={hasSystemAudio ? 'System audio ready' : 'System audio unavailable'}
+          />
+          <StatusPill tone="live" label={modelLabel} title="Speech recognition model" />
+          <StatusPill
+            tone={knowledgeDocs.length > 0 ? 'live' : 'idle'}
+            label={knowledgeLoading ? 'Knowledge…' : `Knowledge · ${knowledgeDocs.length}`}
+            title="Knowledge bank documents"
+          />
+          <span className="mx-1 hidden h-4 w-px bg-[var(--opaline-outline-variant)] sm:block" />
+          <StatusPill
+            tone={intelligenceConnected ? 'live' : 'spin'}
+            label={intelligenceConnected ? 'Stream live' : 'Connecting…'}
+            title="Intelligence stream"
+          />
+          <span className="ml-1 hidden items-center gap-1.5 text-caption lg:inline-flex">
+            <kbd className="kbd">⌘ R</kbd>
+            <span className="text-[var(--opaline-outline)]">starts a call</span>
+          </span>
+        </div>
+      </header>
+
       <div className="flex flex-1 overflow-hidden">
         {/* Transcript column. `relative` anchors the floating mic button so it
            stays centered within THIS column on every viewport - independent of
-           the sidebar width and the right-side intelligence aside. The old
-           `fixed left-0 right-0 + hardcoded marginLeft` approach broke
-           centering whenever the sidebar collapsed or the aside width
-           changed. */}
+           the sidebar width and the right-side intelligence aside. */}
         <div className="relative flex-1 min-w-0">
-          {recordingState.isRecording || status === RecordingStatus.STARTING ? (
-            <TranscriptPanel
-              isProcessingStop={isProcessingStop}
-              isStopping={isStopping}
-              showModal={showModal}
-            />
-          ) : (
-            <IdleMainPage onStartRecording={handleRecordingStart} />
-          )}
+          <AnimatePresence mode="wait" initial={false}>
+            {sessionLive ? (
+              <motion.div
+                key="live"
+                className="h-full"
+                variants={fadeIn}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+              >
+                <TranscriptPanel
+                  isProcessingStop={isProcessingStop}
+                  isStopping={isStopping}
+                  showModal={showModal}
+                />
+              </motion.div>
+            ) : (
+              <motion.div
+                key="idle"
+                className="h-full"
+                variants={fadeIn}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+              >
+                <IdleMainPage
+                  onStartRecording={handleRecordingStart}
+                  knowledgeDocs={knowledgeDocs}
+                  knowledgeLoading={knowledgeLoading}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Recording controls - absolutely positioned inside the transcript
              column so they stay horizontally centered between the sidebar
              and the intelligence aside. `bottom-12` lifts the dock above
-             the transcript scroll edge; `left-0 right-0` plus
-             `justify-center` gives true center regardless of column width.
+             the transcript scroll edge.
 
              Only rendered while a call is starting/active: the idle home
              screen already has the hero "Start a call" CTA, so showing the
@@ -262,7 +387,7 @@ export default function Home() {
           {(isRecording || status === RecordingStatus.STARTING) &&
             status !== RecordingStatus.PROCESSING_TRANSCRIPTS &&
             status !== RecordingStatus.SAVING && (
-              <div className="pointer-events-none absolute bottom-12 left-0 right-0 z-10 flex justify-center">
+              <div className="pointer-events-none absolute bottom-10 left-0 right-0 z-10 flex justify-center">
                 <div className="pointer-events-auto">
                   <RecordingControls
                     isRecording={recordingState.isRecording}
@@ -283,19 +408,24 @@ export default function Home() {
               </div>
             )}
         </div>
-        <aside className="hidden lg:flex w-[360px] flex-col gap-3 border-l border-[var(--grain-ink-200)] bg-[var(--grain-paper)] p-4 overflow-y-auto">
-          <div className="flex items-baseline justify-between">
-            <h2 className="font-display text-sm font-semibold text-[var(--grain-ink-900)]">Intelligence</h2>
-            <span className={`font-mono text-[10px] uppercase tracking-wide ${intelligenceConnected ? 'text-[var(--grain-rep)]' : 'text-[var(--grain-ink-500)]'}`}>
+        <aside className="hidden lg:flex w-[340px] flex-col border-l border-[var(--opaline-outline-variant)] bg-[var(--grain-paper)]">
+          <div className="sticky top-0 z-10 flex items-baseline justify-between border-b border-[var(--opaline-outline-variant)] bg-[var(--grain-paper)] px-5 pt-4 pb-3">
+            <h2 className="text-overline">Intelligence</h2>
+            <span
+              className={`status-pill !px-2 !py-0.5 ${intelligenceConnected ? 'status-pill--live' : ''}`}
+            >
+              <span className="pill-dot" aria-hidden />
               {intelligenceConnected ? 'live' : 'idle'}
             </span>
           </div>
-          <IntelligencePanel
-            cards={intelligenceCards}
-            connected={intelligenceConnected}
-            error={intelligenceError}
-            sessionId={sessionId}
-          />
+          <div className="custom-scrollbar flex-1 overflow-y-auto px-4 pb-8 pt-4">
+            <IntelligencePanel
+              cards={intelligenceCards}
+              connected={intelligenceConnected}
+              error={intelligenceError}
+              sessionId={sessionId}
+            />
+          </div>
         </aside>
 
         {/* Status Overlays - Processing and Saving */}
@@ -305,6 +435,6 @@ export default function Home() {
           sidebarCollapsed={sidebarCollapsed}
         />
       </div>
-    </motion.div>
+    </div>
   );
 }

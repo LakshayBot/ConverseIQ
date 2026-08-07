@@ -2,123 +2,373 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ──────────────────────────────────────────────────────────────────────────
-   Opaline design system - 2026-07-29
-   ──────────────────────────────────────────────────────────────────────────
-   Authoritative source: ~/.claude/projects/.../design.md (Opaline System).
-   Muted terracotta primary (#93483c) on a cool/warm "opaline" surface
-   range. Pairs Manrope (display) + Inter (UI). Tonal layers + glassmorphism
-   over heavy shadows.
+/* ══════════════════════════════════════════════════════════════════════════
+   Opaline design system - desktop application
+   ══════════════════════════════════════════════════════════════════════════
+   One identity, two registers - purpose-built, not inverted:
 
-   Naming follows Material 3 conventions to match the design doc:
-     surface, surface-dim, surface-bright, surface-container-{lowest..highest},
-     on-surface, on-surface-variant, outline, outline-variant,
-     surface-tint, primary, on-primary, primary-container, on-primary-container,
-     inverse-primary, secondary, on-secondary, secondary-container,
-     on-secondary-container, tertiary, on-tertiary, tertiary-container,
-     on-tertiary-container, error, on-error, error-container, on-error-container,
-     primary-fixed, primary-fixed-dim, on-primary-fixed, on-primary-fixed-variant,
-     secondary-fixed, secondary-fixed-dim, on-secondary-fixed,
-     on-secondary-fixed-variant, tertiary-fixed, tertiary-fixed-dim,
-     on-tertiary-fixed, on-tertiary-fixed-variant,
-     background, on-background, surface-variant.
+     · DAWN (light) - warm paper, terracotta ember, ink. Calm reading
+       surfaces for hours of review work.
+     · NOCTURNE (dark) - deep ink, luminous speech, ember accents. The
+       working state of the live call: glowing intelligence reads
+       brightest against ink.
 
-   Legacy aliases (--grain-* and --nav-*) are REPOINTED at Opaline so
-   existing components continue to work - visual shift is the intended
-   effect of the migration.
-   ────────────────────────────────────────────────────────────────────────── */
+   Brand primary: muted terracotta #93483c (matches the marketing site's
+   single saturated hue, kept softer for all-day use).
+   Speaker colors (rep #84c95f / prospect #7d5df6) are the only other
+   saturated hues in the system - reserved for speaker identity.
 
-@keyframes vibrate {
-  0%   { transform: translate(0); }
-  20%  { transform: translate(-2px, 2px); }
-  40%  { transform: translate(-2px, -2px); }
-  60%  { transform: translate(2px, 2px); }
-  80%  { transform: translate(2px, -2px); }
-  100% { transform: translate(0); }
-}
-
-.animate-vibrate { animation: vibrate 0.3s linear; }
-
-@keyframes fade-in {
-  0%   { opacity: 0; transform: translateY(-4px); }
-  100% { opacity: 1; transform: translateY(0); }
-}
-.animate-fade-in { animation: fade-in 0.4s ease-out; }
-
-@keyframes fade-in-up {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.animate-fade-in-up { animation: fade-in-up 0.5s ease-out forwards; }
-
-.delay-75  { animation-delay: 75ms; }
-.delay-100 { animation-delay: 100ms; }
-.delay-150 { animation-delay: 150ms; }
+   Naming follows Material 3 conventions. Every value lives here - no
+   one-off colors anywhere else.
+   ══════════════════════════════════════════════════════════════════════════ */
 
 @layer base {
+  /* ── Motion tokens ──────────────────────────────────────────────────── */
   :root {
-    /* ── shadcn base aliases (legacy shadcn tokens, repointed to Opaline) ── */
-    --background:           #f8f9ff;  /* opaline-background */
-    --foreground:           #0d1c2e;  /* opaline-on-background */
-    --card:                 #eff4ff;  /* opaline-surface-container-low */
-    --card-foreground:      #0d1c2e;  /* opaline-on-surface */
-    --popover:              #e5eeff;  /* opaline-surface-container */
-    --popover-foreground:   #0d1c2e;  /* opaline-on-surface */
-    --primary:              #93483c;  /* opaline-primary */
-    --primary-foreground:   #ffffff;  /* opaline-on-primary */
-    --secondary:            #545f72;  /* opaline-secondary */
-    --secondary-foreground: #ffffff;  /* opaline-on-secondary */
-    --muted:                #dce9ff;  /* opaline-surface-container-high */
-    --muted-foreground:     #544340;  /* opaline-on-surface-variant */
-    --accent:               #dce9ff;  /* opaline-surface-container-high */
-    --accent-foreground:    #0d1c2e;  /* opaline-on-surface */
-    --destructive:          #ba1a1a;  /* opaline-error */
-    --destructive-foreground: #ffffff; /* opaline-on-error */
-    --border:               #dac1bd;  /* opaline-outline-variant */
-    --input:                #e5eeff;  /* opaline-surface-container */
-    --ring:                 #93483c;  /* opaline-primary */
-    --radius:               0.5rem;
+    --dur-micro: 120ms;
+    --dur-fast: 160ms;
+    --dur-base: 220ms;
+    --dur-slow: 320ms;
+    --dur-slower: 420ms;
+
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in: cubic-bezier(0.4, 0, 1, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
+  :root,
   .dark {
-    --background:           #223144;
-    --foreground:           #eaf1ff;
-    --card:                 #1c2533;
-    --card-foreground:      #eaf1ff;
-    --popover:              #1c2533;
-    --popover-foreground:   #eaf1ff;
-    --primary:              #ffb4a7;
-    --primary-foreground:   #64241b;
-    --secondary:            #bcc7dd;
-    --secondary-foreground: #111c2c;
-    --muted:                #1c2533;
-    --muted-foreground:     #bcc7dd;
-    --accent:               #1c2533;
-    --accent-foreground:    #eaf1ff;
-    --destructive:          #ffb4ab;
-    --destructive-foreground: #690005;
-    --border:               #3c475a;
-    --input:                #1c2533;
-    --ring:                 #ffb4a7;
-  }
-}
-
-@layer base {
-  :root {
-    /* Typography family aliases - loaded via next/font in layout.tsx:
-       --font-display (Space Grotesk), --font-mono (JetBrains Mono),
-       --font-body (Inter). Reference these when styling titles /
-       system-data text so the whole app swaps families from one place. */
     --font-body: var(--font-inter);
   }
 
+  /* ── shadcn base aliases (repointed at Opaline) ─────────────────────── */
+  :root {
+    --background: var(--opaline-background);
+    --foreground: var(--opaline-on-background);
+    --card: var(--opaline-surface-container-lowest);
+    --card-foreground: var(--opaline-on-surface);
+    --popover: var(--opaline-surface-container-lowest);
+    --popover-foreground: var(--opaline-on-surface);
+    --primary: var(--opaline-primary);
+    --primary-foreground: var(--opaline-on-primary);
+    --secondary: var(--opaline-secondary);
+    --secondary-foreground: var(--opaline-on-secondary);
+    --muted: var(--opaline-surface-container-low);
+    --muted-foreground: var(--opaline-on-surface-variant);
+    --accent: var(--opaline-surface-container-low);
+    --accent-foreground: var(--opaline-on-surface);
+    --destructive: var(--opaline-error);
+    --destructive-foreground: var(--opaline-on-error);
+    --border: var(--opaline-outline-variant);
+    --input: var(--opaline-outline-variant);
+    --ring: var(--opaline-primary);
+    --radius: 0.625rem;
+
+    /* ── Light: DAWN register ─────────────────────────────────────────── */
+    /* Surfaces - warm paper scale */
+    --opaline-surface: #f7f5f2;
+    --opaline-surface-dim: #e8e4de;
+    --opaline-surface-bright: #fbfaf8;
+    --opaline-surface-container-lowest: #ffffff;
+    --opaline-surface-container-low: #f1efeb;
+    --opaline-surface-container: #e9e6e1;
+    --opaline-surface-container-high: #e0dcd5;
+    --opaline-surface-container-highest: #d6d1c9;
+    --opaline-on-surface: #23201c;
+    --opaline-on-surface-variant: #57534e;
+    --opaline-inverse-surface: #2b2723;
+    --opaline-inverse-on-surface: #f2efeb;
+    --opaline-outline: #837c72;
+    --opaline-outline-variant: #ddd8d0;
+    --opaline-surface-tint: #93483c;
+    --opaline-surface-variant: #eeeae4;
+    --opaline-background: #f7f5f2;
+    --opaline-on-background: #23201c;
+
+    /* Primary - muted terracotta */
+    --opaline-primary: #93483c;
+    --opaline-primary-hover: #7f3a2f;
+    --opaline-primary-pressed: #6e3026;
+    --opaline-on-primary: #ffffff;
+    --opaline-primary-container: #f6d5c7;
+    --opaline-on-primary-container: #5e2418;
+    --opaline-inverse-primary: #f0b09a;
+    --opaline-primary-fixed: #ffdad4;
+    --opaline-primary-fixed-dim: #f2a68f;
+    --opaline-on-primary-fixed: #3c0703;
+    --opaline-on-primary-fixed-variant: #7a3325;
+    --opaline-primary-soft: rgba(147, 72, 60, 0.09);
+
+    /* Ink buttons - near-black neutral CTAs, readable in both themes */
+    --opaline-ink: #201c18;
+    --opaline-ink-hover: #322d27;
+
+    /* Secondary - deep slate */
+    --opaline-secondary: #545f72;
+    --opaline-on-secondary: #ffffff;
+    --opaline-secondary-container: #d9e3f8;
+    --opaline-on-secondary-container: #3c475a;
+    --opaline-secondary-fixed: #dbe5f9;
+    --opaline-secondary-fixed-dim: #bcc7dd;
+    --opaline-on-secondary-fixed: #111c2c;
+    --opaline-on-secondary-fixed-variant: #3c475a;
+
+    /* Tertiary - neutral gray */
+    --opaline-tertiary: #5b5f61;
+    --opaline-on-tertiary: #ffffff;
+    --opaline-tertiary-container: #9fa3a5;
+    --opaline-on-tertiary-container: #35393b;
+    --opaline-tertiary-fixed: #e0e3e5;
+    --opaline-tertiary-fixed-dim: #c3c7c9;
+    --opaline-on-tertiary-fixed: #181c1e;
+    --opaline-on-tertiary-fixed-variant: #434749;
+
+    /* Error */
+    --opaline-error: #b3261e;
+    --opaline-on-error: #ffffff;
+    --opaline-error-container: #ffdad6;
+    --opaline-on-error-container: #93000a;
+
+    /* Status semantics - success / warning / info (danger aliases error) */
+    --opaline-success: #1a7f37;
+    --opaline-success-soft: #e5f3e8;
+    --opaline-success-border: #bcdcc4;
+    --opaline-warning: #9a5b0a;
+    --opaline-warning-soft: #faf0dc;
+    --opaline-warning-border: #e8d3a3;
+    --opaline-info: #1d4ed8;
+    --opaline-info-soft: #e8eefb;
+    --opaline-info-border: #c3d2f2;
+    --opaline-danger: #b3261e;
+    --opaline-danger-soft: #fdecea;
+    --opaline-danger-border: #f0c4c0;
+
+    /* Tonal alphas (chipped against surface-tint) */
+    --opaline-tone-4: rgba(147, 72, 60, 0.06);
+    --opaline-tone-8: rgba(147, 72, 60, 0.12);
+    --opaline-tone-12: rgba(147, 72, 60, 0.18);
+    --opaline-tone-20: rgba(147, 72, 60, 0.30);
+
+    /* Intelligence cards - priority accents */
+    --intel-high: var(--opaline-primary);
+    --intel-medium: #966049;
+    --intel-low: var(--opaline-outline);
+    --intel-type-bg: rgba(147, 72, 60, 0.10);
+
+    /* Glass + overlays */
+    --opaline-glass-bg: rgba(255, 255, 255, 0.72);
+    --opaline-glass-blur: 12px;
+    --opaline-overlay: rgba(26, 23, 19, 0.45);
+
+    /* Elevation shadows */
+    --shadow-xs: 0 1px 2px 0 rgb(35 32 28 / 0.05);
+    --shadow-sm: 0 1px 2px 0 rgb(35 32 28 / 0.06), 0 1px 3px 0 rgb(35 32 28 / 0.08);
+    --shadow-md: 0 2px 4px -1px rgb(35 32 28 / 0.06), 0 4px 8px -1px rgb(35 32 28 / 0.08);
+    --shadow-lg: 0 4px 8px -2px rgb(35 32 28 / 0.08), 0 12px 24px -4px rgb(35 32 28 / 0.12);
+    --shadow-xl: 0 8px 16px -4px rgb(35 32 28 / 0.10), 0 24px 48px -8px rgb(35 32 28 / 0.16);
+
+    /* Scrollbars */
+    --opaline-scrollbar: #c9c2b8;
+    --opaline-scrollbar-hover: #a8a096;
+
+    /* Status glow (pulse rings on status dots) */
+    --opaline-success-glow: rgba(26, 127, 55, 0.30);
+    --opaline-warning-glow: rgba(154, 91, 10, 0.30);
+
+    /* Shape scale */
+    --opaline-radius-sm: 0.375rem;
+    --opaline-radius-md: 0.5rem;
+    --opaline-radius-lg: 0.625rem;
+    --opaline-radius-xl: 0.75rem;
+    --opaline-radius-2xl: 1.25rem;
+    --opaline-radius-full: 9999px;
+
+    /* Spacing scale */
+    --opaline-space-xs: 4px;
+    --opaline-space-sm: 8px;
+    --opaline-space-md: 16px;
+    --opaline-space-lg: 24px;
+    --opaline-space-xl: 48px;
+  }
+
+  .dark {
+    /* ── Dark: NOCTURNE register ──────────────────────────────────────── */
+    /* Surfaces - deep warm ink scale */
+    --opaline-surface: #101216;
+    --opaline-surface-dim: #0a0c0f;
+    --opaline-surface-bright: #2b2e35;
+    --opaline-surface-container-lowest: #0c0e11;
+    --opaline-surface-container-low: #16181d;
+    --opaline-surface-container: #1b1e24;
+    --opaline-surface-container-high: #252930;
+    --opaline-surface-container-highest: #30343d;
+    --opaline-on-surface: #e8e6e3;
+    --opaline-on-surface-variant: #b7b2ab;
+    --opaline-inverse-surface: #e8e6e3;
+    --opaline-inverse-on-surface: #26241f;
+    --opaline-outline: #8e8982;
+    --opaline-outline-variant: #45433f;
+    --opaline-surface-tint: #eaa98f;
+    --opaline-surface-variant: #23262c;
+    --opaline-background: #101216;
+    --opaline-on-background: #e8e6e3;
+
+    /* Primary - luminous ember terracotta */
+    --opaline-primary: #f0b09a;
+    --opaline-primary-hover: #f5bdac;
+    --opaline-primary-pressed: #f8cdbf;
+    --opaline-on-primary: #4c2014;
+    --opaline-primary-container: #6b3221;
+    --opaline-on-primary-container: #ffd9cc;
+    --opaline-inverse-primary: #93483c;
+    --opaline-primary-fixed: #ffdad4;
+    --opaline-primary-fixed-dim: #eaa98f;
+    --opaline-on-primary-fixed: #3c0703;
+    --opaline-on-primary-fixed-variant: #7a3325;
+    --opaline-primary-soft: rgba(240, 176, 154, 0.12);
+
+    /* Ink buttons - luminous in dark, readable in both themes */
+    --opaline-ink: #262b33;
+    --opaline-ink-hover: #313844;
+
+    /* Secondary - dusk slate */
+    --opaline-secondary: #b7c2d8;
+    --opaline-on-secondary: #222c3d;
+    --opaline-secondary-container: #3b4658;
+    --opaline-on-secondary-container: #d6e2f8;
+    --opaline-secondary-fixed: #dbe5f9;
+    --opaline-secondary-fixed-dim: #bcc7dd;
+    --opaline-on-secondary-fixed: #111c2c;
+    --opaline-on-secondary-fixed-variant: #3c475a;
+
+    /* Tertiary */
+    --opaline-tertiary: #c3c7c9;
+    --opaline-on-tertiary: #1c1f21;
+    --opaline-tertiary-container: #434749;
+    --opaline-on-tertiary-container: #e0e3e5;
+    --opaline-tertiary-fixed: #e0e3e5;
+    --opaline-tertiary-fixed-dim: #c3c7c9;
+    --opaline-on-tertiary-fixed: #181c1e;
+    --opaline-on-tertiary-fixed-variant: #434749;
+
+    /* Error */
+    --opaline-error: #ffb4ab;
+    --opaline-on-error: #690005;
+    --opaline-error-container: #93000a;
+    --opaline-on-error-container: #ffdad6;
+
+    /* Status semantics */
+    --opaline-success: #5cb871;
+    --opaline-success-soft: rgba(92, 184, 113, 0.16);
+    --opaline-success-border: rgba(92, 184, 113, 0.35);
+    --opaline-warning: #e0a83e;
+    --opaline-warning-soft: rgba(224, 168, 62, 0.16);
+    --opaline-warning-border: rgba(224, 168, 62, 0.35);
+    --opaline-info: #8ab0ec;
+    --opaline-info-soft: rgba(138, 176, 236, 0.16);
+    --opaline-info-border: rgba(138, 176, 236, 0.35);
+    --opaline-danger: #ff8f87;
+    --opaline-danger-soft: rgba(255, 143, 135, 0.16);
+    --opaline-danger-border: rgba(255, 143, 135, 0.35);
+
+    /* Tonal alphas */
+    --opaline-tone-4: rgba(240, 176, 154, 0.06);
+    --opaline-tone-8: rgba(240, 176, 154, 0.12);
+    --opaline-tone-12: rgba(240, 176, 154, 0.18);
+    --opaline-tone-20: rgba(240, 176, 154, 0.30);
+
+    /* Intelligence cards */
+    --intel-high: var(--opaline-primary);
+    --intel-medium: #c08a74;
+    --intel-low: var(--opaline-outline);
+    --intel-type-bg: rgba(240, 176, 154, 0.12);
+
+    /* Glass + overlays */
+    --opaline-glass-bg: rgba(20, 22, 27, 0.72);
+    --opaline-overlay: rgba(4, 5, 8, 0.6);
+
+    /* Elevation shadows */
+    --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.30);
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.35), 0 1px 3px 0 rgb(0 0 0 / 0.40);
+    --shadow-md: 0 2px 4px -1px rgb(0 0 0 / 0.35), 0 4px 8px -1px rgb(0 0 0 / 0.40);
+    --shadow-lg: 0 4px 8px -2px rgb(0 0 0 / 0.40), 0 12px 24px -4px rgb(0 0 0 / 0.50);
+    --shadow-xl: 0 8px 16px -4px rgb(0 0 0 / 0.45), 0 24px 48px -8px rgb(0 0 0 / 0.60);
+
+    /* Scrollbars */
+    --opaline-scrollbar: #3a3d45;
+    --opaline-scrollbar-hover: #4a4e57;
+
+    /* Status glow (pulse rings on status dots) */
+    --opaline-success-glow: rgba(92, 184, 113, 0.35);
+    --opaline-warning-glow: rgba(224, 168, 62, 0.35);
+  }
+
+  /* ── Legacy aliases - all repointed at Opaline so existing components
+     participate in both themes automatically ──────────────────────────── */
+  :root,
+  .dark {
+    --nav-active-bg: var(--opaline-tone-8);
+    --nav-active-text: var(--opaline-on-surface);
+    --nav-inactive-text: var(--opaline-on-surface-variant);
+    --nav-muted-text: var(--opaline-on-surface-variant);
+    --nav-dim-text: var(--opaline-outline);
+    --body-text: var(--opaline-on-surface);
+    --hairline: var(--opaline-outline-variant);
+    --tab-divider: var(--opaline-outline-variant);
+    --tab-active-border: var(--opaline-primary);
+
+    --grain-paper: var(--opaline-surface);
+    --grain-paper-2: var(--opaline-surface-container-low);
+    --grain-paper-3: var(--opaline-surface-container);
+    --grain-ink-900: var(--opaline-on-surface);
+    --grain-ink-700: var(--opaline-on-surface-variant);
+    --grain-ink-500: var(--opaline-on-surface-variant);
+    --grain-ink-300: var(--opaline-outline);
+    --grain-ink-200: var(--opaline-outline-variant);
+    --grain-ink-100: var(--opaline-surface-container-low);
+    --grain-accent: var(--opaline-primary);
+    --grain-accent-soft: var(--opaline-primary-soft);
+    --grain-rep-soft: var(--opaline-surface-container-high);
+    --grain-prospect-soft: var(--opaline-surface-container-high);
+
+    /* Speaker dots - bespoke identity hues, same in both themes */
+    --grain-rep: #84c95f;
+    --grain-prospect: #7d5df6;
+    --rep-circle: #84c95f;
+    --prospect-circle: #7d5df6;
+  }
+
   * { @apply border-border; }
+
+  html {
+    height: 100%;
+  }
 
   body {
     @apply bg-background text-foreground;
     overflow: hidden;
     height: 100%;
     font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Smooth cross-theme transition - only active while a theme change is
+     in flight (html.theme-switching), so normal interaction stays snappy. */
+  html.theme-switching *,
+  html.theme-switching *::before,
+  html.theme-switching *::after {
+    transition:
+      background-color var(--dur-base) var(--ease-out),
+      border-color var(--dur-base) var(--ease-out),
+      color var(--dur-base) var(--ease-out),
+      fill var(--dur-base) var(--ease-out),
+      stroke var(--dur-base) var(--ease-out) !important;
+  }
+
+  ::selection {
+    background: var(--opaline-primary-soft);
   }
 
   /* Make the window draggable */
@@ -132,19 +382,24 @@
     app-region: no-drag;
   }
 
-  /* Custom scrollbar styles */
-  .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #dac1bd;
+  /* Custom scrollbars - theme-aware via tokens */
+  .custom-scrollbar::-webkit-scrollbar,
+  .transcript-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+  .custom-scrollbar::-webkit-scrollbar-track,
+  .transcript-scroll::-webkit-scrollbar-track { background: transparent; }
+  .custom-scrollbar::-webkit-scrollbar-thumb,
+  .transcript-scroll::-webkit-scrollbar-thumb {
+    background: var(--opaline-scrollbar);
     border-radius: 3px;
   }
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #87726f;
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover,
+  .transcript-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--opaline-scrollbar-hover);
   }
-  .custom-scrollbar {
+  .custom-scrollbar,
+  .transcript-scroll {
     scrollbar-width: thin;
-    scrollbar-color: #dac1bd transparent;
+    scrollbar-color: var(--opaline-scrollbar) transparent;
   }
 
   /* BlockNote overrides - unchanged */
@@ -164,7 +419,7 @@
   width: 0.55ch;
   height: 1em;
   margin-left: 1px;
-  background: #93483c;            /* opaline-primary */
+  background: var(--opaline-primary);
   border-radius: 1px;
   vertical-align: -0.15em;
   animation: live-caret-pulse 1.2s ease-in-out infinite;
@@ -176,221 +431,153 @@
   50%      { opacity: 0.95; transform: scaleY(1.0); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .live-caret { animation: none; opacity: 0.85; }
+/* Kingpin: live-recording indicator (kept for compatibility) */
+@keyframes live-rec-bar {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 0.85; }
 }
 
-/* Slim transcript scrollbar - broadcast style */
-.transcript-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: #dac1bd transparent;
+/* Keyframes referenced by legacy animate-* helpers */
+@keyframes vibrate {
+  0%   { transform: translate(0); }
+  20%  { transform: translate(-2px, 2px); }
+  40%  { transform: translate(-2px, -2px); }
+  60%  { transform: translate(2px, 2px); }
+  80%  { transform: translate(2px, -2px); }
+  100% { transform: translate(0); }
 }
-.transcript-scroll::-webkit-scrollbar { width: 6px; }
-.transcript-scroll::-webkit-scrollbar-thumb {
-  background: #dac1bd;
-  border-radius: 3px;
+
+@keyframes fade-in {
+  0%   { opacity: 0; transform: translateY(-4px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
-.transcript-scroll::-webkit-scrollbar-thumb:hover {
-  background: #87726f;
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
+
+/* Status-dot pulse rings - cheap box-shadow animation, GPU friendly */
+@keyframes dot-pulse {
+  0%   { box-shadow: 0 0 0 0 var(--opaline-success-glow); }
+  70%  { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes dot-pulse-warn {
+  0%   { box-shadow: 0 0 0 0 var(--opaline-warning-glow); }
+  70%  { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* Contextual loading shimmer - skeleton lines */
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--opaline-surface-container-low) 25%,
+    var(--opaline-surface-container-high) 50%,
+    var(--opaline-surface-container-low) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s var(--ease-in-out) infinite;
+}
+
+/* Listening equalizer - three thin bars breathing on transform */
+@keyframes eq-bounce {
+  0%, 100% { transform: scaleY(0.35); }
+  50%      { transform: scaleY(1); }
+}
+.eq-bar {
+  transform-origin: center;
+  animation: eq-bounce 1.1s var(--ease-in-out) infinite;
+}
+
+/* Idle record orb - soft expanding ring inviting the primary action */
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.5; }
+  50%      { transform: scale(1.25); opacity: 0; }
+}
+.orb-ring {
+  animation: orb-breathe 2.8s var(--ease-in-out) infinite;
+}
+
+.animate-vibrate { animation: vibrate 0.3s linear; }
+.animate-fade-in { animation: fade-in 0.4s var(--ease-out); }
+.animate-fade-in-up { animation: fade-in-up 0.5s var(--ease-out) forwards; }
+
+.delay-75  { animation-delay: 75ms; }
+.delay-100 { animation-delay: 100ms; }
+.delay-150 { animation-delay: 150ms; }
 
 /* ──────────────────────────────────────────────────────────────────────────
-   Opaline - full color palette (authoritative)
-   ────────────────────────────────────────────────────────────────────────── */
-:root {
-  /* ── Surfaces ─────────────────────────────────────────────────────────── */
-  --opaline-surface:                    #f8f9ff;
-  --opaline-surface-dim:                #ccdbf4;
-  --opaline-surface-bright:             #f8f9ff;
-  --opaline-surface-container-lowest:   #ffffff;
-  --opaline-surface-container-low:      #eff4ff;
-  --opaline-surface-container:          #e5eeff;
-  --opaline-surface-container-high:     #dce9ff;
-  --opaline-surface-container-highest:  #d4e4fc;
-  --opaline-on-surface:                 #0d1c2e;
-  --opaline-on-surface-variant:         #544340;
-  --opaline-inverse-surface:            #223144;
-  --opaline-inverse-on-surface:         #eaf1ff;
-  --opaline-outline:                    #87726f;
-  --opaline-outline-variant:            #dac1bd;
-  --opaline-surface-tint:               #93483c;
-  --opaline-surface-variant:            #d4e4fc;
-
-  /* ── Primary (muted terracotta) ──────────────────────────────────────── */
-  --opaline-primary:                    #93483c;
-  --opaline-on-primary:                 #ffffff;
-  --opaline-primary-container:          #e58a7b;
-  --opaline-on-primary-container:       #64241b;
-  --opaline-inverse-primary:            #ffb4a7;
-  --opaline-primary-fixed:              #ffdad4;
-  --opaline-primary-fixed-dim:          #ffb4a7;
-  --opaline-on-primary-fixed:           #3c0703;
-  --opaline-on-primary-fixed-variant:   #763227;
-
-  /* ── Secondary (deep slate) ──────────────────────────────────────────── */
-  --opaline-secondary:                  #545f72;
-  --opaline-on-secondary:               #ffffff;
-  --opaline-secondary-container:        #d5e0f7;
-  --opaline-on-secondary-container:     #586377;
-  --opaline-secondary-fixed:            #d8e3fa;
-  --opaline-secondary-fixed-dim:        #bcc7dd;
-  --opaline-on-secondary-fixed:         #111c2c;
-  --opaline-on-secondary-fixed-variant: #3c475a;
-
-  /* ── Tertiary (neutral gray) ─────────────────────────────────────────── */
-  --opaline-tertiary:                   #5b5f61;
-  --opaline-on-tertiary:                #ffffff;
-  --opaline-tertiary-container:         #9fa3a5;
-  --opaline-on-tertiary-container:      #35393b;
-  --opaline-tertiary-fixed:             #e0e3e5;
-  --opaline-tertiary-fixed-dim:         #c3c7c9;
-  --opaline-on-tertiary-fixed:          #181c1e;
-  --opaline-on-tertiary-fixed-variant:  #434749;
-
-  /* ── Error ───────────────────────────────────────────────────────────── */
-  --opaline-error:                      #ba1a1a;
-  --opaline-on-error:                   #ffffff;
-  --opaline-error-container:            #ffdad6;
-  --opaline-on-error-container:         #93000a;
-
-  /* ── Background / on-background aliases ──────────────────────────────── */
-  --opaline-background:                 #f8f9ff;
-  --opaline-on-background:              #0d1c2e;
-
-  /* ── Tonal alphas (chipped against surface-tint) ─────────────────────── */
-  --opaline-tone-4:                     rgba(147, 72, 60, 0.08);
-  /* Intelligence cards — priority accent variants (desaturated maroon)
-     and the 10% maroon tint used for type badges. */
-  --intel-high:                        var(--opaline-primary);
-  --intel-medium:                      #8f6358;
-  --intel-low:                         var(--opaline-outline);
-  --intel-type-bg:                     rgba(147, 72, 60, 0.10);
-  --opaline-tone-8:                     rgba(147, 72, 60, 0.16);
-  --opaline-tone-12:                    rgba(147, 72, 60, 0.24);
-  --opaline-tone-20:                    rgba(147, 72, 60, 0.40);
-
-  /* ── Glassmorphism utilities (Level 2 elevation) ─────────────────────── */
-  --opaline-glass-bg:                   rgba(255, 255, 255, 0.80);
-  --opaline-glass-blur:                 12px;
-
-  /* ── Rounded shape scale (from design.md) ───────────────────────────── */
-  --opaline-radius-sm:   0.25rem;
-  --opaline-radius-md:   0.5rem;
-  --opaline-radius-lg:   0.75rem;
-  --opaline-radius-xl:   1rem;
-  --opaline-radius-2xl:  1.5rem;
-  --opaline-radius-full: 9999px;
-
-  /* ── Spacing scale (from design.md) ─────────────────────────────────── */
-  --opaline-space-xs:    4px;
-  --opaline-space-sm:    8px;
-  --opaline-space-md:    16px;
-  --opaline-space-lg:    24px;
-  --opaline-space-xl:    48px;
-}
-
-/* ──────────────────────────────────────────────────────────────────────────
-   Legacy aliases - Figma / Grain / shadcn tokens repointed at Opaline
+   Opaline typography scale
    ──────────────────────────────────────────────────────────────────────────
-   These names are referenced by existing components. They now resolve
-   to Opaline values. Speaker colors (rep/prospect) are NOT in Opaline
-   so they stay as bespoke hex values.
-   ────────────────────────────────────────────────────────────────────────── */
-:root {
-  /* Figma "16thapartment" sidebar + meeting-detail */
-  --nav-active-bg:     var(--opaline-surface-container-high);
-  --nav-active-text:   var(--opaline-on-surface);
-  --nav-inactive-text: var(--opaline-on-surface-variant);
-  --nav-muted-text:    var(--opaline-on-surface-variant);
-  --nav-dim-text:      var(--opaline-outline);
-  --body-text:         var(--opaline-on-surface);
-  --hairline:          var(--opaline-outline-variant);
-  --tab-divider:       var(--opaline-surface-container);
-  --tab-active-border: var(--opaline-primary);
-
-  /* Grain paper band - repointed */
-  --grain-paper:           var(--opaline-surface);
-  --grain-paper-2:         var(--opaline-surface-container-low);
-  --grain-paper-3:         var(--opaline-surface-container);
-  --grain-ink-900:         var(--opaline-on-surface);
-  --grain-ink-700:         var(--opaline-on-surface-variant);
-  --grain-ink-500:         var(--opaline-on-surface-variant);
-  --grain-ink-300:         var(--opaline-outline-variant);
-  --grain-ink-200:         var(--opaline-outline-variant);
-  --grain-ink-100:         var(--opaline-surface-container-low);
-  --grain-accent:          var(--opaline-primary);
-  --grain-accent-soft:     var(--opaline-primary-container);
-  --grain-rep-soft:        var(--opaline-surface-container-high);
-  --grain-prospect-soft:   var(--opaline-surface-container-high);
-
-  /* Speaker dots - kept as bespoke values (not part of Opaline) */
-  --grain-rep:             #84c95f;
-  --grain-prospect:        #7d5df6;
-  --rep-circle:            #84c95f;
-  --prospect-circle:       #7d5df6;
-}
-
-/* ──────────────────────────────────────────────────────────────────────────
-   Opaline typography scale - utility classes
-   ──────────────────────────────────────────────────────────────────────────
-   Use as className="text-headline-xl" etc. All screen sizes in the design
-   doc except headline-lg-mobile use the same value; mobile uses
-   text-headline-lg-mobile to scale down on small viewports.
+   Display/headline utilities use Space Grotesk (--font-display); body +
+   label utilities keep Inter. Sizes tuned for a dense desktop app.
    ────────────────────────────────────────────────────────────────────────── */
 @layer utilities {
-  /* Display/headline utilities use Space Grotesk (--font-display);
-     body + label utilities below keep Inter (--font-body). Families are
-     loaded via next/font in layout.tsx and can be swapped from there. */
   .text-headline-xl {
     font-family: var(--font-display, 'Space Grotesk', system-ui, sans-serif);
-    font-size: 48px;
+    font-size: 32px;
     font-weight: 700;
-    line-height: 56px;
+    line-height: 40px;
     letter-spacing: -0.02em;
   }
 
   .text-headline-lg {
     font-family: var(--font-display, 'Space Grotesk', system-ui, sans-serif);
-    font-size: 32px;
+    font-size: 24px;
     font-weight: 600;
-    line-height: 40px;
+    line-height: 32px;
     letter-spacing: -0.01em;
   }
 
   .text-headline-lg-mobile {
     font-family: var(--font-display, 'Space Grotesk', system-ui, sans-serif);
-    font-size: 24px;
+    font-size: 20px;
     font-weight: 600;
-    line-height: 32px;
+    line-height: 28px;
     letter-spacing: -0.01em;
   }
 
   .text-headline-md {
     font-family: var(--font-display, 'Space Grotesk', system-ui, sans-serif);
-    font-size: 24px;
+    font-size: 20px;
     font-weight: 600;
-    line-height: 32px;
-  }
-
-  .text-body-lg {
-    font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
-    font-size: 18px;
-    font-weight: 400;
     line-height: 28px;
   }
 
-  .text-body-md {
+  .text-headline-sm {
+    font-family: var(--font-display, 'Space Grotesk', system-ui, sans-serif);
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 24px;
+  }
+
+  .text-body-lg {
     font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
     font-size: 16px;
     font-weight: 400;
     line-height: 24px;
   }
 
-  .text-body-sm {
+  .text-body-md {
     font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
     font-size: 14px;
     font-weight: 400;
     line-height: 20px;
+  }
+
+  .text-body-sm {
+    font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 18px;
   }
 
   .text-label-md {
@@ -398,7 +585,7 @@
     font-size: 14px;
     font-weight: 600;
     line-height: 20px;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.01em;
   }
 
   .text-label-sm {
@@ -406,26 +593,179 @@
     font-size: 12px;
     font-weight: 500;
     line-height: 16px;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.02em;
   }
+
+  /* App-specific size helpers - the de-facto captions/eyebrows, tokenized */
+  .text-caption {
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--opaline-on-surface-variant);
+  }
+
+  .text-overline {
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 16px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--opaline-on-surface-variant);
+  }
+
+  .text-data {
+    font-family: var(--font-mono, 'JetBrains Mono', ui-monospace, monospace);
+    font-size: 12px;
+    line-height: 16px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Semantic text colors */
+  .text-success { color: var(--opaline-success); }
+  .text-warning { color: var(--opaline-warning); }
+  .text-info { color: var(--opaline-info); }
+  .text-danger { color: var(--opaline-danger); }
+  .text-subtle { color: var(--opaline-on-surface-variant); }
+  .text-faint { color: var(--opaline-outline); }
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
-   Glassmorphism helper - Level 2 elevation
+   Glassmorphism helper
    ────────────────────────────────────────────────────────────────────────── */
 @layer utilities {
-  .opaline-glass {
+  .opaline-glass,
+  .glass {
     background: var(--opaline-glass-bg);
     backdrop-filter: blur(var(--opaline-glass-blur));
     -webkit-backdrop-filter: blur(var(--opaline-glass-blur));
   }
 }
 
-/* Kingpin: Grain live-recording indicator (kept for compatibility) */
-@keyframes live-rec-bar {
-  0%, 100% { opacity: 0.25; }
-  50%      { opacity: 0.85; }
+/* ──────────────────────────────────────────────────────────────────────────
+   Component vocabulary - reusable composition classes
+   ────────────────────────────────────────────────────────────────────────── */
+@layer components {
+  /* Surface panels */
+  .panel {
+    @apply rounded-xl border bg-[var(--opaline-surface-container-lowest)] border-[var(--opaline-outline-variant)] shadow-xs;
+  }
+  .panel-hover {
+    @apply transition-all duration-[var(--dur-fast)] ease-[var(--ease-out)];
+  }
+  .panel-hover:hover {
+    background: var(--opaline-surface-container-low);
+    border-color: var(--opaline-surface-container-high);
+  }
+  .panel-inset {
+    @apply rounded-lg border bg-[var(--opaline-surface-container-low)] border-[var(--opaline-outline-variant)];
+  }
+  .panel-raised {
+    @apply rounded-xl border bg-[var(--opaline-surface-container-lowest)] border-[var(--opaline-outline-variant)] shadow-lg;
+  }
+
+  /* Status chips */
+  .chip {
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium leading-4;
+  }
+  .chip-neutral {
+    @apply bg-[var(--opaline-surface-container)] text-[var(--opaline-on-surface-variant)];
+  }
+  .chip-primary {
+    @apply bg-[var(--opaline-primary-soft)] text-[var(--opaline-primary)];
+  }
+  .chip-success {
+    @apply bg-[var(--opaline-success-soft)] text-[var(--opaline-success)];
+  }
+  .chip-warning {
+    @apply bg-[var(--opaline-warning-soft)] text-[var(--opaline-warning)];
+  }
+  .chip-info {
+    @apply bg-[var(--opaline-info-soft)] text-[var(--opaline-info)];
+  }
+  .chip-danger {
+    @apply bg-[var(--opaline-danger-soft)] text-[var(--opaline-danger)];
+  }
+
+  /* Forms */
+  .field-label {
+    @apply text-[13px] font-medium text-[var(--opaline-on-surface)];
+  }
+  .field-hint {
+    @apply text-xs text-[var(--opaline-on-surface-variant)];
+  }
+
+  /* Keyboard hint */
+  .kbd {
+    @apply inline-flex h-5 min-w-[20px] items-center justify-center rounded border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)] px-1 font-mono text-[10px] font-medium text-[var(--opaline-on-surface-variant)];
+  }
+
+  .divider {
+    @apply h-px w-full bg-[var(--opaline-outline-variant)];
+  }
+
+  /* ── Status pills - premium health indicators ──────────────────────
+     Usage: <span class="status-pill status-pill--live"><span class="pill-dot"/>Label</span>
+     Variants: --live (healthy, pulsing dot), --warn (degraded),
+               --danger (down), default = idle. */
+  .status-pill {
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors duration-fast;
+    border-color: var(--opaline-outline-variant);
+    background: var(--opaline-surface-container-lowest);
+    color: var(--opaline-on-surface-variant);
+  }
+  .status-pill .pill-dot {
+    @apply h-1.5 w-1.5 shrink-0 rounded-full;
+    background: var(--opaline-outline);
+  }
+  .status-pill--live {
+    border-color: var(--opaline-success-border);
+    color: var(--opaline-on-surface);
+  }
+  .status-pill--live .pill-dot {
+    background: var(--opaline-success);
+    animation: dot-pulse 2.6s var(--ease-out) infinite;
+  }
+  .status-pill--warn {
+    border-color: var(--opaline-warning-border);
+    color: var(--opaline-warning);
+  }
+  .status-pill--warn .pill-dot {
+    background: var(--opaline-warning);
+    animation: dot-pulse-warn 2.6s var(--ease-out) infinite;
+  }
+  .status-pill--danger {
+    border-color: var(--opaline-danger-border);
+    color: var(--opaline-danger);
+  }
+  .status-pill--danger .pill-dot {
+    background: var(--opaline-danger);
+  }
+  .status-pill--spin .pill-dot {
+    background: transparent;
+    border: 1.5px solid var(--opaline-outline-variant);
+    border-top-color: var(--opaline-primary);
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* Shared focus ring */
+  .focus-ring {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Motion - usability motion only, respecting reduced motion
+   ────────────────────────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .live-caret { animation: none; opacity: 0.85; }
   [style*="live-rec-bar"] { animation: none !important; }
 }

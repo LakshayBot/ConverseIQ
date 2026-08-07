@@ -110,7 +110,7 @@ const PageContent: React.FC<PageContentProps> = ({
   return (
     <div className="flex flex-col h-screen bg-[var(--grain-paper)]">
       {/* Header - breadcrumb + actions row + tab strip, Figma style. */}
-      <header className="bg-white border-b border-[var(--hairline)]">
+      <header className="bg-[var(--opaline-surface-container-lowest)] border-b border-[var(--hairline)]">
         <div className="flex items-center justify-between px-6 py-4">
           {/* Breadcrumb: Meetings (muted) > [title] (dark, medium). */}
           <div className="flex items-center gap-2 min-w-0">
@@ -178,7 +178,7 @@ const PageContent: React.FC<PageContentProps> = ({
              when they're just reading past content. */}
           <div className="custom-scrollbar flex-1 min-w-0 overflow-y-auto">
             <div className="max-w-3xl mx-auto p-6">
-              <div className="bg-[var(--opaline-surface-container-lowest)] border border-[var(--opaline-outline-variant)] rounded-xl p-4">
+              <div className="bg-[var(--opaline-surface-container-lowest)] border border-[var(--opaline-outline-variant)] rounded-xl shadow-xs p-4">
                 <VirtualizedTranscriptView
                   segments={segments ?? []}
                   isRecording={false}
@@ -205,9 +205,9 @@ const PageContent: React.FC<PageContentProps> = ({
              title stays visible while cards scroll beneath it; the content
              area scrolls independently (thin design-system scrollbar). */}
           <aside className="custom-scrollbar hidden xl:flex w-[360px] flex-col border-l border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)] overflow-y-auto">
-            <div className="sticky top-0 z-10 flex items-baseline justify-between border-b border-[var(--opaline-outline-variant)]/60 bg-[var(--opaline-surface-container-low)] px-4 pt-4 pb-3">
-              <h2 className="font-display text-label-md text-[var(--opaline-on-surface)]">Intelligence</h2>
-              <span className="font-mono text-[10px] uppercase tracking-wide text-[var(--opaline-on-surface-variant)]">
+            <div className="sticky top-0 z-10 flex items-baseline justify-between border-b border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)] px-4 pt-4 pb-3">
+              <h2 className="text-overline">Intelligence</h2>
+              <span className="text-data text-[var(--opaline-on-surface-variant)]">
                 {pastCards.length > 0 ? `${pastCards.length} card${pastCards.length === 1 ? '' : 's'}` : 'past'}
               </span>
             </div>

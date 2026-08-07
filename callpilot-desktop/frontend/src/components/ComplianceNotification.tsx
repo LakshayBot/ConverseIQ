@@ -71,18 +71,18 @@ export const ComplianceNotification: React.FC<ComplianceNotificationProps> = ({
         width: `${position.width}px`,
       }}
     >
-      <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3">
+      <div className="bg-[var(--opaline-surface-container-lowest)] border border-[var(--opaline-outline-variant)] rounded-lg shadow-lg p-3">
         {/* Header with close button */}
         <div className="flex items-start justify-between mb-2">
           <div className="flex items-center gap-1">
-            <AlertTriangle className="h-3 w-3 text-amber-500 flex-shrink-0" />
-            <h3 className="text-xs font-semibold text-gray-900">
+            <AlertTriangle className="h-3 w-3 text-warning flex-shrink-0" />
+            <h3 className="text-xs font-semibold text-[var(--opaline-on-surface)]">
               Recording Notice
             </h3>
           </div>
           <button
             onClick={handleClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors p-0.5 rounded hover:bg-gray-100"
+            className="text-[var(--opaline-outline)] hover:text-[var(--opaline-on-surface-variant)] transition-colors p-0.5 rounded hover:bg-[var(--opaline-surface-container-low)]"
           >
             <X className="h-3 w-3" />
           </button>
@@ -90,11 +90,11 @@ export const ComplianceNotification: React.FC<ComplianceNotificationProps> = ({
 
         {/* Content */}
         <div className="mb-2">
-          <p className="text-xs text-gray-600 mb-1">
+          <p className="text-xs text-[var(--opaline-on-surface-variant)] mb-1">
             Inform participants about recording.
           </p>
-          <div className="bg-amber-50 border border-amber-200 rounded p-1">
-            <p className="text-xs text-amber-800 font-medium">
+          <div className="bg-[var(--opaline-warning-soft)] border border-[var(--opaline-warning-border)] rounded p-1">
+            <p className="text-xs text-warning font-medium">
               US compliance required
             </p>
           </div>
@@ -113,7 +113,7 @@ export const ComplianceNotification: React.FC<ComplianceNotificationProps> = ({
           <Button
             size="sm"
             onClick={handleAcknowledge}
-            className="text-xs px-2 py-0.5 h-6 bg-green-600 hover:bg-green-700 flex-1"
+            className="text-xs px-2 py-0.5 h-6 bg-success hover:brightness-95 flex-1"
           >
             <CheckCircle className="h-2 w-2 mr-1" />
             Done

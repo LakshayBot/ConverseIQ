@@ -95,16 +95,16 @@ export function LoginScreen() {
         noValidate
       >
         {/* Divider */}
-        <div className="w-16 h-px bg-gray-300" />
+        <div className="w-16 h-px bg-[var(--opaline-surface-container-high)]" />
 
         {/* Form card */}
-        <div className="w-full max-w-md bg-white rounded-lg border border-gray-200 shadow-sm p-6 space-y-4">
+        <div className="w-full max-w-md bg-[var(--opaline-surface-container-lowest)] rounded-xl border border-[var(--opaline-outline-variant)] shadow-sm p-6 space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="email" className="text-sm font-medium text-gray-700">
+            <Label htmlFor="email" className="text-sm font-medium text-[var(--opaline-on-surface-variant)]">
               Email
             </Label>
             <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--opaline-outline)] pointer-events-none" />
               <Input
                 id="email"
                 type="email"
@@ -120,11 +120,11 @@ export function LoginScreen() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="password" className="text-sm font-medium text-gray-700">
+            <Label htmlFor="password" className="text-sm font-medium text-[var(--opaline-on-surface-variant)]">
               Password
             </Label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--opaline-outline)] pointer-events-none" />
               <Input
                 id="password"
                 type="password"
@@ -141,11 +141,11 @@ export function LoginScreen() {
 
           {!isLogin && (
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword" className="text-sm font-medium text-gray-700">
+              <Label htmlFor="confirmPassword" className="text-sm font-medium text-[var(--opaline-on-surface-variant)]">
                 Confirm password
               </Label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--opaline-outline)] pointer-events-none" />
                 <Input
                   id="confirmPassword"
                   type="password"
@@ -164,7 +164,7 @@ export function LoginScreen() {
           {formError && (
             <div
               role="alert"
-              className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+              className="flex items-start gap-2 rounded-md border border-[var(--opaline-danger-border)] bg-[var(--opaline-danger-soft)] px-3 py-2 text-sm text-danger"
             >
               <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <span>{formError}</span>
@@ -177,7 +177,7 @@ export function LoginScreen() {
           <Button
             type="submit"
             disabled={submitting}
-            className="w-full h-11 bg-gray-900 hover:bg-gray-800 text-white"
+            className="w-full h-11 bg-[var(--opaline-ink)] hover:bg-[var(--opaline-ink-hover)] text-white"
           >
             {submitting ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -199,17 +199,17 @@ export function LoginScreen() {
             type="button"
             onClick={toggleMode}
             disabled={submitting}
-            className="w-full text-sm text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50"
+            className="w-full text-sm text-[var(--opaline-on-surface-variant)] hover:text-[var(--opaline-on-surface)] transition-colors disabled:opacity-50"
           >
             {isLogin
               ? "Don't have an account? Sign up"
               : 'Already have an account? Sign in'}
           </button>
 
-          <div className="flex items-center justify-center gap-1.5 text-xs text-gray-500 pt-2">
+          <div className="flex items-center justify-center gap-1.5 text-xs text-[var(--opaline-outline)] pt-2">
             <SettingsIcon className="w-3 h-3" />
             <span>Server:</span>
-            <code className="bg-gray-100 px-1.5 py-0.5 rounded text-gray-700 max-w-[16rem] truncate">
+            <code className="bg-[var(--opaline-surface-container-low)] px-1.5 py-0.5 rounded text-[var(--opaline-on-surface-variant)] max-w-[16rem] truncate">
               {serverUrl || 'http://localhost:5001'}
             </code>
           </div>

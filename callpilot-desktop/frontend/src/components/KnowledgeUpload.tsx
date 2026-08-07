@@ -22,7 +22,7 @@
 //     in a terminal state are polled. The polling effect is self-cleaning:
 //     when nothing is in flight, it stops.
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
@@ -30,6 +30,8 @@ import {
   Upload as UploadIcon,
   Trash2,
   FileText,
+  FileCode2,
+  Search,
   CheckCircle2,
   AlertCircle,
   X,
@@ -39,6 +41,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 import { authedApiCall } from '@/lib/auth';
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -185,56 +188,51 @@ function isDocTerminal(d: DocumentStatus | KnowledgeDocument): boolean {
   return false;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 // ──────────────────────────────────────────────────────────────────────────────
-// Pill helpers
+// Status chip - one combined chip per document row mapping processing +
+// enrichment state onto the semantic chip classes.
 // ──────────────────────────────────────────────────────────────────────────────
 
-const ProcessingPill: React.FC<{ value: string }> = ({ value }) => {
-  const isError = String(value || '').startsWith(FAILURE_PREFIX);
-  const isDone = value === 'Indexed';
-  const bg = isError
-    ? 'bg-[var(--opaline-error-container)] text-[var(--opaline-on-error-container)]'
-    : isDone
-      ? 'bg-[var(--opaline-primary)] text-[var(--opaline-on-primary)]'
-      : 'bg-[var(--opaline-surface-container-high)] text-[var(--opaline-on-surface-variant)]';
-  return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${bg}`}>
-      {value}
-    </span>
-  );
-};
+const StatusChip: React.FC<{ doc: KnowledgeDocument; live: DocumentStatus | null }> = ({ doc, live }) => {
+  const processingStatus = live?.processingStatus ?? doc.processingStatus;
+  const enrichmentStatus = live?.enrichmentStatus ?? doc.enrichmentStatus;
+  const isProcessingError = String(processingStatus || '').startsWith(FAILURE_PREFIX);
+  const isNoText = processingStatus === 'No extractable text found';
+  const isIndexed = processingStatus === 'Indexed';
+  const isEnrichmentFailed = enrichmentStatus === 'enrichment_failed';
+  const isEnriching =
+    isIndexed && doc.mode === 'structured' && enrichmentStatus != null && !isLlmTerminal(enrichmentStatus);
 
-const EnrichmentPill: React.FC<{ value: string | null; mode?: string }> = ({ value, mode }) => {
-  if (mode === 'fast' || value == null) return null;
-  if (value === 'enriched') {
-    return (
-      <span className="inline-flex items-center rounded-full border border-[var(--opaline-secondary)] px-2 py-0.5 text-[10px] font-semibold text-[var(--opaline-secondary)]">
-        enriched
-      </span>
-    );
-  }
-  if (value === 'enrichment_failed') {
-    return (
-      <span className="inline-flex items-center rounded-full bg-[var(--opaline-error-container)] text-[var(--opaline-on-error-container)] px-2 py-0.5 text-[10px] font-semibold">
-        enrichment failed
-      </span>
-    );
+  let chipClass = 'chip-info';
+  let label = 'Indexing…';
+  let title: string | undefined;
+  if (isProcessingError) {
+    chipClass = 'chip-danger';
+    label = 'Failed';
+    title = processingStatus;
+  } else if (isNoText) {
+    chipClass = 'chip-warning';
+    label = 'No text found';
+  } else if (isEnrichmentFailed) {
+    chipClass = 'chip-danger';
+    label = 'Enrichment failed';
+  } else if (isEnriching) {
+    chipClass = 'chip-info';
+    label = 'Enriching…';
+    title = enrichmentStatus ?? undefined;
+  } else if (isIndexed) {
+    chipClass = 'chip-success';
+    label = 'Ready';
   }
   return (
-    <span className="inline-flex items-center rounded-full bg-[var(--opaline-surface-container-high)] text-[var(--opaline-on-surface-variant)] px-2 py-0.5 text-[10px] font-semibold">
-      {value}
+    <span className={`chip ${chipClass}`} title={title}>
+      {label}
     </span>
   );
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Stage row (one row per ingest stage)
+// Stage row (one chip per ingest stage)
 // ──────────────────────────────────────────────────────────────────────────────
 
 const StageRow: React.FC<{ stage: IngestStage; lastUpdatedAt: string | null }> = ({ stage, lastUpdatedAt }) => {
@@ -249,62 +247,56 @@ const StageRow: React.FC<{ stage: IngestStage; lastUpdatedAt: string | null }> =
 
   const dot = (() => {
     if (stage.status === 'done') {
-      return <CheckCircle2 className="h-4 w-4 text-[var(--opaline-primary)]" />;
+      return <CheckCircle2 className="h-3 w-3" />;
     }
     if (stage.status === 'failed') {
-      return <AlertCircle className="h-4 w-4 text-[var(--opaline-error)]" />;
+      return <AlertCircle className="h-3 w-3" />;
     }
     if (stage.status === 'running') {
       return (
         <span
-          className={`h-2 w-2 rounded-full animate-pulse ${
-            isStuck ? 'bg-[var(--opaline-on-surface-variant)]' : 'bg-[var(--opaline-primary)]'
+          className={`h-1.5 w-1.5 rounded-full animate-pulse ${
+            isStuck ? 'bg-[var(--opaline-on-surface-variant)]' : 'bg-current'
           }`}
         />
       );
     }
     if (stage.status === 'skipped') {
-      return <span className="h-1.5 w-1.5 rounded-full bg-[var(--opaline-outline)]" />;
+      return <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />;
     }
-    return <span className="h-1.5 w-1.5 rounded-full bg-[var(--opaline-outline-variant)]" />;
+    return <span className="h-1.5 w-1.5 rounded-full bg-current opacity-40" />;
   })();
+
+  const chipClass =
+    stage.status === 'done'
+      ? 'chip-success'
+      : stage.status === 'failed'
+        ? 'chip-danger'
+        : stage.status === 'running'
+          ? 'chip-info'
+          : stage.status === 'skipped'
+            ? 'chip-neutral'
+            : 'chip-neutral';
 
   return (
     <li className="text-sm">
       <button
         type="button"
         onClick={() => hasContent && setExpanded((e) => !e)}
-        className={`flex w-full items-start gap-2 text-left ${
-          hasContent ? 'cursor-pointer rounded px-1 py-0.5 hover:bg-[var(--opaline-surface-container-low)]' : ''
-        }`}
+        className={`chip ${chipClass} ${
+          stage.status === 'skipped' ? 'line-through decoration-[var(--opaline-outline)]' : ''
+        } ${hasContent ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
       >
-        <span className="mt-0.5 flex h-4 w-4 items-center justify-center shrink-0">{dot}</span>
-        <span
-          className={
-            stage.status === 'running'
-              ? 'text-[var(--opaline-primary)] font-medium'
-              : stage.status === 'failed'
-                ? 'text-[var(--opaline-error)] font-medium'
-                : stage.status === 'done'
-                  ? 'text-[var(--opaline-on-surface)]'
-                  : stage.status === 'skipped'
-                    ? 'text-[var(--opaline-outline)] line-through'
-                    : 'text-[var(--opaline-on-surface-variant)]'
-          }
-        >
-          {stage.label}
-        </span>
-        {stage.detail && stage.status !== 'running' && (
-          <span className="truncate text-xs text-[var(--opaline-on-surface-variant)]">· {stage.detail}</span>
-        )}
+        {dot}
+        {stage.label}
         {hasContent && (
-          <span className="ml-auto text-xs text-[var(--opaline-on-surface-variant)]">
+          <span className="ml-0.5">
             {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
           </span>
         )}
       </button>
       {expanded && hasContent && (
-        <div className="ml-6 mt-1 rounded bg-[var(--opaline-surface-container-low)] p-2 text-xs space-y-1">
+        <div className="mt-2 rounded-lg border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)] p-2 text-xs space-y-1">
           {stage.detail && (
             <div className="text-[var(--opaline-on-surface-variant)]">
               <span className="font-medium">detail:</span> {stage.detail}
@@ -338,33 +330,31 @@ const StageRow: React.FC<{ stage: IngestStage; lastUpdatedAt: string | null }> =
 
 const EnrichmentProgressBar: React.FC<{ progress: EnrichmentProgress }> = ({ progress }) => {
   const pct = progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
-  const barColor =
-    progress.failed > 0 ? 'bg-[var(--opaline-error)]' : 'bg-[var(--opaline-primary)]';
   return (
-    <div className="mt-3 rounded-md border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)] p-3">
-      <div className="flex items-center justify-between gap-2 text-xs">
-        <span className="text-[var(--opaline-on-surface-variant)]">
+    <div className="mt-2">
+      <div className="flex items-center justify-between gap-2 text-caption">
+        <span>
           LLM enrichment
-          <span className="ml-2 font-mono tabular-nums text-[var(--opaline-on-surface)]">
+          <span className="ml-1.5 font-mono tabular-nums text-[var(--opaline-on-surface)]">
             {progress.completed}/{progress.total}
           </span>
           {progress.failed > 0 && (
-            <span className="ml-2 font-medium text-[var(--opaline-error)]">
+            <span className="ml-1.5 font-medium text-danger">
               ({progress.failed} failed)
             </span>
           )}
           {progress.inFlight > 0 && (
-            <span className="ml-2 animate-pulse text-[var(--opaline-primary)]">
+            <span className="ml-1.5 animate-pulse text-primary">
               {progress.inFlight} in flight
             </span>
           )}
         </span>
-        <span className="font-mono text-[10px] tabular-nums text-[var(--opaline-on-surface-variant)]">
+        <span className="font-mono text-[10px] tabular-nums text-[var(--opaline-outline)]">
           {pct}%
         </span>
       </div>
       <div
-        className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--opaline-surface-container-high)]"
+        className="mt-1 h-1 w-full overflow-hidden rounded-full bg-[var(--opaline-surface-container-high)]"
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={100}
@@ -372,7 +362,7 @@ const EnrichmentProgressBar: React.FC<{ progress: EnrichmentProgress }> = ({ pro
         title={`${pct}% complete`}
       >
         <div
-          className={`h-full transition-all duration-300 ${barColor}`}
+          className="h-full rounded-full bg-primary transition-all duration-300"
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -383,6 +373,12 @@ const EnrichmentProgressBar: React.FC<{ progress: EnrichmentProgress }> = ({ pro
 // ──────────────────────────────────────────────────────────────────────────────
 // Document row
 // ──────────────────────────────────────────────────────────────────────────────
+
+const DocTypeIcon: React.FC<{ contentType?: string }> = ({ contentType }) => {
+  const type = (contentType || '').toLowerCase();
+  if (type.includes('markdown')) return <FileCode2 className="h-4 w-4" />;
+  return <FileText className="h-4 w-4" />;
+};
 
 const DocumentRow: React.FC<{
   doc: KnowledgeDocument;
@@ -414,7 +410,6 @@ const DocumentRow: React.FC<{
   const processingStatus = live?.processingStatus ?? doc.processingStatus;
   const enrichmentStatus = live?.enrichmentStatus ?? doc.enrichmentStatus;
   const chunkCount = live?.chunkCount ?? doc.chunkCount;
-  const entityCount = live?.entityCount ?? 0;
   const showStepper = live && !isDocTerminal({ ...doc, ...live });
   // Show the progress bar whenever the enrichment progress is populated,
   // even post-terminal - partial successes are still worth surfacing.
@@ -427,39 +422,34 @@ const DocumentRow: React.FC<{
       enrichmentStatus !== 'enriched');
 
   return (
-    <div className="rounded-2xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-4">
-      <div className="flex items-center justify-between gap-4">
+    <React.Fragment>
+      <div className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-[var(--opaline-surface-container-low)]">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--opaline-surface-container-low)] text-[var(--opaline-on-surface-variant)]">
+          <DocTypeIcon contentType={doc.contentType} />
+        </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="truncate text-sm font-semibold text-[var(--grain-ink-900)]">{doc.fileName}</p>
-            <ProcessingPill value={processingStatus} />
-            <EnrichmentPill value={enrichmentStatus} mode={doc.mode} />
-          </div>
-          <p className="mt-1 max-w-full truncate font-mono text-xs text-[var(--grain-ink-500)]">
-            <span>{formatBytes(doc.fileSizeBytes)}</span>
-            <span className="mx-1 opacity-60" aria-hidden>·</span>
-            <span>{chunkCount} chunks</span>
-            {entityCount > 0 && (
-              <>
-                <span className="mx-1 opacity-60" aria-hidden>·</span>
-                <span>{entityCount} entities</span>
-              </>
-            )}
-            <span className="mx-1 opacity-60" aria-hidden>·</span>
+          <p className="truncate text-sm font-medium text-[var(--opaline-on-surface)]">{doc.fileName}</p>
+          <p className="mt-0.5 truncate text-data text-[var(--opaline-outline)]">
             <span>{new Date(doc.createdAt).toLocaleDateString()}</span>
+            <span className="mx-1" aria-hidden>·</span>
+            <span>{chunkCount} chunks</span>
             {doc.mode && (
               <>
-                <span className="mx-1 opacity-60" aria-hidden>·</span>
-                <span className="opacity-70">{doc.mode}</span>
+                <span className="mx-1" aria-hidden>·</span>
+                <span>{doc.mode}</span>
               </>
             )}
           </p>
+          {showProgressBar && enrichmentProgress && (
+            <EnrichmentProgressBar progress={enrichmentProgress} />
+          )}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1.5">
+          <StatusChip doc={doc} live={live} />
           <button
             type="button"
             onClick={() => onView(doc.id)}
-            className="rounded-md px-3 py-1 text-xs font-medium text-[var(--grain-ink-500)] transition-colors hover:bg-[var(--grain-paper-2)] hover:text-[var(--grain-ink-900)]"
+            className="rounded-md px-3 py-1 text-xs font-medium text-[var(--opaline-on-surface-variant)] transition-colors hover:bg-[var(--opaline-surface-container-high)] hover:text-[var(--opaline-on-surface)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]"
           >
             View
           </button>
@@ -468,61 +458,56 @@ const DocumentRow: React.FC<{
             onClick={handleDeleteClick}
             aria-label={confirmingDelete ? 'Confirm delete' : 'Delete document'}
             title={confirmingDelete ? 'Click again to confirm' : 'Delete document'}
-            className={`rounded-md p-1.5 transition-colors ${
+            className={`rounded-md p-1.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-danger)] ${
               confirmingDelete
                 ? 'bg-[var(--opaline-error-container)] text-[var(--opaline-on-error-container)]'
-                : 'text-[var(--grain-ink-500)] hover:bg-[var(--opaline-error-container)] hover:text-[var(--opaline-on-error-container)]'
+                : 'text-[var(--opaline-on-surface-variant)] hover:bg-[var(--opaline-error-container)] hover:text-[var(--opaline-on-error-container)]'
             }`}
           >
             {confirmingDelete ? <Check className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
           </button>
         </div>
       </div>
-      {showProgressBar && enrichmentProgress && (
-        <EnrichmentProgressBar progress={enrichmentProgress} />
-      )}
       {showStepper && live && (
-        <div className="mt-3 border-t border-[var(--opaline-outline-variant)] pt-3">
-          <ol className="space-y-1.5">
-            {STAGE_ORDER.map(({ key, label }) => {
-              const fromServer = live.stages.find((s) => s.key === key);
-              const stage: IngestStage = fromServer ?? {
-                key,
-                label,
-                status: 'pending',
-                startedAt: null,
-                finishedAt: null,
-                detail: null,
-                error: null,
-              };
-              return (
-                <StageRow
-                  key={key}
-                  stage={stage}
-                  lastUpdatedAt={live.lastUpdatedAt}
-                />
-              );
-            })}
-            {doc.mode === 'structured' && (
+        <div className="flex flex-wrap items-center gap-1.5 bg-[var(--opaline-surface-container-low)]/40 px-4 py-2.5">
+          {STAGE_ORDER.map(({ key, label }) => {
+            const fromServer = live.stages.find((s) => s.key === key);
+            const stage: IngestStage = fromServer ?? {
+              key,
+              label,
+              status: 'pending',
+              startedAt: null,
+              finishedAt: null,
+              detail: null,
+              error: null,
+            };
+            return (
               <StageRow
-                stage={
-                  live.stages.find((s) => s.key === 'enriching') ?? {
-                    key: 'enriching',
-                    label: 'LLM enrichment',
-                    status: 'pending',
-                    startedAt: null,
-                    finishedAt: null,
-                    detail: null,
-                    error: null,
-                  }
-                }
+                key={key}
+                stage={stage}
                 lastUpdatedAt={live.lastUpdatedAt}
               />
-            )}
-          </ol>
+            );
+          })}
+          {doc.mode === 'structured' && (
+            <StageRow
+              stage={
+                live.stages.find((s) => s.key === 'enriching') ?? {
+                  key: 'enriching',
+                  label: 'LLM enrichment',
+                  status: 'pending',
+                  startedAt: null,
+                  finishedAt: null,
+                  detail: null,
+                  error: null,
+                }
+              }
+              lastUpdatedAt={live.lastUpdatedAt}
+            />
+          )}
         </div>
       )}
-    </div>
+    </React.Fragment>
   );
 };
 
@@ -539,6 +524,7 @@ export const KnowledgeUpload: React.FC = () => {
   const [viewDoc, setViewDoc] = useState<KnowledgeDocumentDetail | null>(null);
   const [viewLoading, setViewLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'chunks' | 'entities'>('chunks');
+  const [search, setSearch] = useState('');
 
   // Load docs on mount
   useEffect(() => {
@@ -744,42 +730,41 @@ export const KnowledgeUpload: React.FC = () => {
     };
   });
 
+  const filteredDocs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return docsForRender;
+    return docsForRender.filter(({ doc }) => doc.fileName.toLowerCase().includes(q));
+  }, [docsForRender, search]);
+
   return (
     <div className="space-y-6">
-      {/* Upload card */}
-      <section className="rounded-2xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h2 className="font-display text-lg font-semibold tracking-tight text-[var(--grain-ink-900)]">
-              Knowledge documents
-            </h2>
-            <p className="mt-1 max-w-xl text-xs leading-relaxed text-[var(--grain-ink-500)]">
-              Upload product docs, battle cards, objection guides - the AI extracts entities
-              from them so live calls surface the right recommendations.
-            </p>
-          </div>
-
-          {/* Upload button - opens the native OS file picker via the Tauri
-              dialog plugin. <input type="file"> doesn't expose .path in the
-              Tauri webview, so we go directly through the plugin. */}
-          <button
-            type="button"
-            onClick={handleUpload}
-            disabled={uploading}
-            className={`group inline-flex items-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium shadow-sm ring-1 ring-black/5 transition-colors ${
-              uploading
-                ? 'cursor-not-allowed bg-[var(--grain-ink-300)] text-white'
-                : 'bg-[var(--grain-ink-900)] text-white hover:bg-[var(--grain-ink-700)]'
-            }`}
-          >
+      {/* Upload dropzone */}
+      <section className="space-y-3">
+        <h2 className="text-overline">Upload</h2>
+        {/* Dropzone - opens the native OS file picker via the Tauri dialog
+            plugin. <input type="file"> doesn't expose .path in the Tauri
+            webview, so we go directly through the plugin. */}
+        <button
+          type="button"
+          onClick={handleUpload}
+          disabled={uploading}
+          className="group flex w-full flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)]/50 px-6 py-8 text-center transition-colors hover:border-[var(--opaline-primary)] hover:bg-[var(--opaline-primary-soft)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--opaline-primary-soft)] text-[var(--opaline-primary)]">
             {uploading ? <LoaderIcon className="h-4 w-4 animate-spin" /> : <UploadIcon className="h-4 w-4" />}
+          </span>
+          <span className="text-label-md text-[var(--opaline-on-surface)]">
             {uploading ? 'Uploading…' : 'Upload document'}
-          </button>
-        </div>
+          </span>
+          <span className="max-w-md text-caption">
+            Upload product docs, battle cards, objection guides - the AI extracts entities
+            from them so live calls surface the right recommendations.
+          </span>
+        </button>
 
         {/* Ingest mode - selectable option cards instead of a segmented bar */}
-        <div className="mt-5">
-          <p className="font-display text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)]">
+        <div className="mt-4">
+          <p className="text-overline">
             Ingest mode
           </p>
           <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -787,9 +772,9 @@ export const KnowledgeUpload: React.FC = () => {
               type="button"
               onClick={() => setMode('fast')}
               aria-pressed={mode === 'fast'}
-              className={`rounded-xl border p-4 text-left transition-colors ${
+              className={`rounded-xl border p-4 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)] ${
                 mode === 'fast'
-                  ? 'border-[var(--opaline-primary)] bg-[var(--opaline-tone-4)]'
+                  ? 'border-[var(--opaline-primary)] bg-[var(--opaline-primary-soft)]'
                   : 'border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] hover:bg-[var(--opaline-surface-container-low)]'
               }`}
             >
@@ -797,15 +782,15 @@ export const KnowledgeUpload: React.FC = () => {
                 <Zap
                   strokeWidth={2}
                   className={`h-4 w-4 ${
-                    mode === 'fast' ? 'text-[var(--opaline-primary)]' : 'text-[var(--grain-ink-500)]'
+                    mode === 'fast' ? 'text-[var(--opaline-primary)]' : 'text-[var(--opaline-on-surface-variant)]'
                   }`}
                 />
-                <span className="text-sm font-semibold text-[var(--grain-ink-900)]">Fast</span>
+                <span className="text-sm font-semibold text-[var(--opaline-on-surface)]">Fast</span>
                 {mode === 'fast' && (
                   <CheckCircle2 className="ml-auto h-4 w-4 text-[var(--opaline-primary)]" />
                 )}
               </div>
-              <p className="mt-1 text-xs leading-relaxed text-[var(--grain-ink-500)]">
+              <p className="mt-1 text-xs leading-relaxed text-[var(--opaline-on-surface-variant)]">
                 In-process extraction. Sub-second, no LLM pass.
               </p>
             </button>
@@ -814,9 +799,9 @@ export const KnowledgeUpload: React.FC = () => {
               type="button"
               onClick={() => setMode('structured')}
               aria-pressed={mode === 'structured'}
-              className={`rounded-xl border p-4 text-left transition-colors ${
+              className={`rounded-xl border p-4 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)] ${
                 mode === 'structured'
-                  ? 'border-[var(--opaline-primary)] bg-[var(--opaline-tone-4)]'
+                  ? 'border-[var(--opaline-primary)] bg-[var(--opaline-primary-soft)]'
                   : 'border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] hover:bg-[var(--opaline-surface-container-low)]'
               }`}
             >
@@ -824,17 +809,17 @@ export const KnowledgeUpload: React.FC = () => {
                 <Sparkles
                   strokeWidth={2}
                   className={`h-4 w-4 ${
-                    mode === 'structured' ? 'text-[var(--opaline-primary)]' : 'text-[var(--grain-ink-500)]'
+                    mode === 'structured' ? 'text-[var(--opaline-primary)]' : 'text-[var(--opaline-on-surface-variant)]'
                   }`}
                 />
-                <span className="text-sm font-semibold text-[var(--grain-ink-900)]">
+                <span className="text-sm font-semibold text-[var(--opaline-on-surface)]">
                   Structured + LLM
                 </span>
                 {mode === 'structured' && (
                   <CheckCircle2 className="ml-auto h-4 w-4 text-[var(--opaline-primary)]" />
                 )}
               </div>
-              <p className="mt-1 text-xs leading-relaxed text-[var(--grain-ink-500)]">
+              <p className="mt-1 text-xs leading-relaxed text-[var(--opaline-on-surface-variant)]">
                 Docling + async LLM enrichment. Slower but richer product cards.
               </p>
             </button>
@@ -849,35 +834,57 @@ export const KnowledgeUpload: React.FC = () => {
       )}
 
       {/* Document list */}
-      {docsForRender.length === 0 ? (
-        <div className="rounded-2xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-12 text-center">
-          <FileText className="mx-auto h-8 w-8 text-[var(--opaline-on-surface-variant)] opacity-60" />
-          <p className="mt-3 text-body-md text-[var(--opaline-on-surface-variant)]">No documents uploaded yet</p>
-          <p className="mt-1 text-body-sm text-[var(--opaline-on-surface-variant)] opacity-80">
-            Upload PDFs, DOCX, or Markdown files to build your knowledge base.
-          </p>
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-overline">
+            Documents
+          </h2>
+          <span className="text-caption tabular-nums text-[var(--opaline-outline)]">
+            {filteredDocs.length}
+          </span>
         </div>
-      ) : (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--grain-ink-500)]">
-              Your documents
-            </h2>
-            <span className="text-[10px] font-medium text-[var(--grain-ink-500)] tabular-nums">
-              {docsForRender.length}
-            </span>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--opaline-outline)]" />
+          <Input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search documents…"
+            className="bg-[var(--opaline-surface-container-lowest)] pl-9 text-[var(--opaline-on-surface)] placeholder:text-[var(--opaline-outline)]"
+          />
+        </div>
+        {docsForRender.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-[var(--opaline-outline-variant)] px-6 py-12 text-center">
+            <FileText className="mx-auto h-8 w-8 text-[var(--opaline-outline)]" />
+            <p className="mt-3 text-body-md text-[var(--opaline-on-surface-variant)]">No documents uploaded yet</p>
+            <p className="mt-1 text-caption">
+              Upload PDFs, DOCX, or Markdown files to build your knowledge base.
+            </p>
           </div>
-          {docsForRender.map(({ doc, live }) => (
-            <DocumentRow
-              key={doc.id}
-              doc={doc}
-              live={live}
-              onDelete={handleDelete}
-              onView={handleView}
-            />
-          ))}
-        </div>
-      )}
+        ) : filteredDocs.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-[var(--opaline-outline-variant)] px-6 py-10 text-center">
+            <Search className="mx-auto h-6 w-6 text-[var(--opaline-outline)]" />
+            <p className="mt-3 text-body-md text-[var(--opaline-on-surface-variant)]">No documents match</p>
+            <p className="mt-1 text-caption">
+              Nothing matches “{search}”. Try a different file name.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] shadow-xs">
+            <div className="divide-y divide-[var(--opaline-outline-variant)]">
+              {filteredDocs.map(({ doc, live }) => (
+                <DocumentRow
+                  key={doc.id}
+                  doc={doc}
+                  live={live}
+                  onDelete={handleDelete}
+                  onView={handleView}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
 
       {/* View modal */}
       {(viewDoc || viewLoading) && (
@@ -928,7 +935,7 @@ const ViewModal: React.FC<{
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="rounded-md p-1.5 text-[var(--opaline-on-surface-variant)] hover:bg-[var(--opaline-surface-container-low)]"
+            className="rounded-md p-1.5 text-[var(--opaline-on-surface-variant)] hover:bg-[var(--opaline-surface-container-low)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]"
           >
             <X className="h-4 w-4" />
           </button>
@@ -964,9 +971,11 @@ const ViewModal: React.FC<{
 
         <div className="max-h-[55vh] overflow-y-auto p-5">
           {loading && (
-            <div className="flex items-center justify-center py-12 text-sm text-[var(--opaline-on-surface-variant)]">
-              <LoaderIcon className="mr-2 h-4 w-4 animate-spin" />
-              Loading…
+            <div className="space-y-2">
+              <div className="animate-shimmer h-9 rounded-lg" />
+              <div className="animate-shimmer h-9 rounded-lg" />
+              <div className="animate-shimmer h-9 rounded-lg" />
+              <div className="animate-shimmer h-9 rounded-lg" />
             </div>
           )}
           {!loading && doc && activeTab === 'chunks' && (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Search, Check } from "lucide-react";
 import { LANGUAGE_OPTIONS } from "@/lib/summary-languages";
 import { useRecentLanguages } from "@/hooks/useRecentLanguages";
 
@@ -81,26 +82,26 @@ export function LanguagePickerPopover({
   return (
     <div
       ref={containerRef}
-      className="w-72 rounded-lg bg-white border border-gray-200 shadow-lg overflow-hidden"
+      className="w-72 rounded-lg bg-[var(--opaline-surface-container-lowest)] border border-[var(--opaline-outline-variant)] shadow-lg overflow-hidden"
       role="dialog"
       aria-label="Pick summary language"
     >
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-100">
-        <span className="text-gray-400 text-sm">🔍</span>
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--opaline-outline-variant)]">
+        <Search className="h-4 w-4 text-[var(--opaline-outline)] shrink-0" />
         <input
           ref={inputRef}
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search language..."
-          className="flex-1 text-sm text-gray-900 bg-transparent border-none outline-none placeholder-gray-400"
+          className="flex-1 text-sm text-[var(--opaline-on-surface)] bg-transparent border-none outline-none placeholder:text-[var(--opaline-outline)]"
         />
       </div>
 
       <div className="max-h-80 overflow-y-auto py-1">
         {showRecents && (
           <>
-            <div className="px-3 pt-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+            <div className="px-3 pt-1 pb-1 text-overline">
               Recently Used
             </div>
             {recentsResolved.map((opt) => (
@@ -109,18 +110,18 @@ export function LanguagePickerPopover({
                 type="button"
                 aria-pressed={value === opt.code}
                 onClick={() => onChange(opt.code)}
-                className={`flex w-full items-center justify-between px-3 py-1.5 text-sm hover:bg-gray-50 text-left ${
-                  value === opt.code ? "text-blue-600 font-medium" : "text-gray-800"
+                className={`flex w-full items-center justify-between px-3 py-1.5 text-sm hover:bg-[var(--opaline-surface-container-low)] text-left focus:outline-none focus-visible:bg-[var(--opaline-surface-container-low)] ${
+                  value === opt.code ? "text-primary font-medium" : "text-[var(--opaline-on-surface)]"
                 }`}
               >
                 <span>
                   {opt.label}{" "}
-                  <span className="text-xs text-gray-400">({opt.code})</span>
+                  <span className="text-xs text-[var(--opaline-outline)]">({opt.code})</span>
                 </span>
-                {value === opt.code && <span className="text-blue-600" aria-hidden="true">✓</span>}
+                {value === opt.code && <Check className="h-4 w-4 text-primary" aria-hidden="true" />}
               </button>
             ))}
-            <div className="my-1 h-px bg-gray-100" />
+            <div className="divider my-1" />
           </>
         )}
 
@@ -129,22 +130,22 @@ export function LanguagePickerPopover({
             type="button"
             aria-pressed={value === null}
             onClick={() => onChange(null)}
-            className={`flex w-full items-center justify-between px-3 py-1.5 text-sm hover:bg-gray-50 text-left ${
-              value === null ? "text-blue-600 font-medium" : "text-gray-800"
+            className={`flex w-full items-center justify-between px-3 py-1.5 text-sm hover:bg-[var(--opaline-surface-container-low)] text-left focus:outline-none focus-visible:bg-[var(--opaline-surface-container-low)] ${
+              value === null ? "text-primary font-medium" : "text-[var(--opaline-on-surface)]"
             }`}
           >
             <span className="flex flex-col">
               <span>Auto</span>
               {autoSubtitle && (
-                <span className="text-xs font-normal text-gray-400">{autoSubtitle}</span>
+                <span className="text-xs font-normal text-[var(--opaline-outline)]">{autoSubtitle}</span>
               )}
             </span>
-            {value === null && <span className="text-blue-600" aria-hidden="true">✓</span>}
+            {value === null && <Check className="h-4 w-4 text-primary" aria-hidden="true" />}
           </button>
         )}
 
         {filteredAll.length > 0 && (
-          <div className="px-3 pt-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+          <div className="px-3 pt-1 pb-1 text-overline">
             {mode === "meeting" ? "Other Languages" : "All Languages"}
           </div>
         )}
@@ -155,20 +156,20 @@ export function LanguagePickerPopover({
             type="button"
             aria-pressed={value === opt.code}
             onClick={() => onChange(opt.code)}
-            className={`flex w-full items-center justify-between px-3 py-1.5 text-sm hover:bg-gray-50 text-left ${
-              value === opt.code ? "text-blue-600 font-medium" : "text-gray-800"
+            className={`flex w-full items-center justify-between px-3 py-1.5 text-sm hover:bg-[var(--opaline-surface-container-low)] text-left focus:outline-none focus-visible:bg-[var(--opaline-surface-container-low)] ${
+              value === opt.code ? "text-primary font-medium" : "text-[var(--opaline-on-surface)]"
             }`}
           >
             <span>
               {opt.label}{" "}
-              <span className="text-xs text-gray-400">({opt.code})</span>
+              <span className="text-xs text-[var(--opaline-outline)]">({opt.code})</span>
             </span>
-            {value === opt.code && <span className="text-blue-600" aria-hidden="true">✓</span>}
+            {value === opt.code && <Check className="h-4 w-4 text-primary" aria-hidden="true" />}
           </button>
         ))}
 
         {hasNoResults && (
-          <div className="px-3 py-2 text-sm text-gray-400">No matches</div>
+          <div className="px-3 py-2 text-sm text-[var(--opaline-outline)]">No matches</div>
         )}
       </div>
     </div>

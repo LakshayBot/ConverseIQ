@@ -27,19 +27,19 @@ const Logo: React.FC<LogoProps> = ({ isCollapsed }) => {
       <DialogTrigger asChild>
         {isCollapsed ? (
           <button
-            className="group flex items-center justify-center mx-auto mb-2 cursor-pointer bg-transparent border-none p-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg"
+            className="group flex items-center justify-center mx-auto mb-2 cursor-pointer bg-transparent border-none p-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg"
             title="CallPilot"
           >
             <BrandMark size="md" />
           </button>
         ) : (
-          <button className="group flex items-center gap-2.5 px-2 py-1.5 mb-2 cursor-pointer bg-transparent border-none rounded-lg hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors">
+          <button className="group flex items-center gap-2.5 px-2 py-1.5 mb-2 cursor-pointer bg-transparent border-none rounded-lg hover:bg-[var(--opaline-surface-container-low)] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors">
             <BrandMark size="md" />
             <span className="flex flex-col leading-tight text-left">
-              <span className="text-[15px] font-semibold text-gray-900 tracking-tight">
+              <span className="text-[15px] font-semibold text-[var(--opaline-on-surface)] tracking-tight">
                 CallPilot
               </span>
-              <span className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">
+              <span className="text-[10px] text-[var(--opaline-outline)] uppercase tracking-wider font-medium">
                 Live intelligence
               </span>
             </span>
@@ -65,7 +65,7 @@ const BrandMark: React.FC<{ size?: 'sm' | 'md' }> = ({ size = 'md' }) => {
   const icon = size === 'md' ? 'h-5 w-5' : 'h-4 w-4';
   return (
     <div
-      className={`relative ${dim} shrink-0 rounded-xl bg-gradient-to-br from-blue-500 via-indigo-500 to-violet-600 shadow-sm ring-1 ring-black/5 flex items-center justify-center overflow-hidden`}
+      className={`relative ${dim} shrink-0 rounded-xl bg-gradient-to-br from-[var(--opaline-primary)] via-[var(--opaline-primary-hover)] to-[var(--opaline-primary-pressed)] shadow-sm ring-1 ring-[var(--opaline-tone-4)] flex items-center justify-center overflow-hidden`}
     >
       {/* Subtle inner highlight so the gradient reads as polished, not flat. */}
       <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/10 to-white/20" />

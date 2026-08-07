@@ -11,6 +11,7 @@ import {
   getModelDisplayName,
   formatFileSize
 } from '../lib/parakeet';
+import { Check, HardDrive, Target, Zap } from 'lucide-react';
 
 interface ParakeetModelManagerProps {
   selectedModel?: string;
@@ -332,8 +333,8 @@ export function ParakeetModelManager({
     return (
       <div className={`space-y-3 ${className}`}>
         <div className="animate-pulse space-y-3">
-          <div className="h-20 bg-gray-100 rounded-lg"></div>
-          <div className="h-20 bg-gray-100 rounded-lg"></div>
+          <div className="h-20 bg-[var(--opaline-surface-container-low)] rounded-lg"></div>
+          <div className="h-20 bg-[var(--opaline-surface-container-low)] rounded-lg"></div>
         </div>
       </div>
     );
@@ -341,9 +342,9 @@ export function ParakeetModelManager({
 
   if (error) {
     return (
-      <div className={`bg-red-50 border border-red-200 rounded-lg p-4 ${className}`}>
-        <p className="text-sm text-red-800">Failed to load models</p>
-        <p className="text-xs text-red-600 mt-1">{error}</p>
+      <div className={`bg-[var(--opaline-danger-soft)] border border-[var(--opaline-danger-border)] rounded-lg p-4 ${className}`}>
+        <p className="text-sm text-danger">Failed to load models</p>
+        <p className="text-xs text-danger mt-1">{error}</p>
       </div>
     );
   }
@@ -403,7 +404,7 @@ export function ParakeetModelManager({
         <motion.div
           initial={{ opacity: 0, y: -5 }}
           animate={{ opacity: 1, y: 0 }}
-          className="text-xs text-gray-500 text-center pt-2"
+          className="text-xs text-[var(--opaline-outline)] text-center pt-2"
         >
           Using {getModelDisplayName(selectedModel)} for transcription
         </motion.div>
@@ -437,7 +438,6 @@ function ModelCard({
   const [isHovered, setIsHovered] = useState(false);
   const displayInfo = getModelDisplayInfo(model.name);
   const displayName = displayInfo?.friendlyName || model.name;
-  const icon = displayInfo?.icon || '📦';
   const tagline = displayInfo?.tagline || model.description || '';
 
   const isAvailable = model.status === 'Available';
@@ -459,10 +459,10 @@ function ModelCard({
       className={`
         relative rounded-lg border-2 transition-all cursor-pointer
         ${isSelected && isAvailable
-          ? 'border-blue-500 bg-blue-50'
+          ? 'border-primary bg-[var(--opaline-info-soft)]'
           : isAvailable
-            ? 'border-gray-200 hover:border-gray-300 bg-white'
-            : 'border-gray-200 bg-gray-50'
+            ? 'border-[var(--opaline-outline-variant)] hover:border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)]'
+            : 'border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)]'
         }
         ${isAvailable ? '' : 'cursor-default'}
       `}
@@ -472,7 +472,7 @@ function ModelCard({
     >
       {/* Recommended Badge */}
       {isRecommended && (
-        <div className="absolute -top-2 -right-2 bg-blue-600 text-white text-xs px-2 py-0.5 rounded-full font-medium">
+        <div className="absolute -top-2 -right-2 bg-primary text-[var(--opaline-on-primary)] text-xs px-2 py-0.5 rounded-full font-medium">
           Recommended
         </div>
       )}
@@ -482,31 +482,39 @@ function ModelCard({
           <div className="flex-1">
             {/* Model Name */}
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-2xl">{icon}</span>
-              <h3 className="font-semibold text-gray-900">{displayName}</h3>
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--opaline-primary-soft)] text-[var(--opaline-primary)]">
+                {displayInfo?.tier === 'fastest' ? (
+                  <Zap className="h-4 w-4" />
+                ) : displayInfo?.tier === 'precise' ? (
+                  <Target className="h-4 w-4" />
+                ) : (
+                  <HardDrive className="h-4 w-4" />
+                )}
+              </span>
+              <h3 className="font-semibold text-[var(--opaline-on-surface)]">{displayName}</h3>
               {isSelected && isAvailable && (
                 <motion.span
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
-                  className="bg-blue-600 text-white px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1"
+                  className="bg-primary text-[var(--opaline-on-primary)] px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1"
                 >
-                  ✓
+                  <Check className="h-3 w-3" />
                 </motion.span>
               )}
             </div>
 
             {/* Tagline */}
-            <p className="text-sm text-gray-600 ml-9">{tagline}</p>
+            <p className="text-sm text-[var(--opaline-on-surface-variant)] ml-10">{tagline}</p>
           </div>
 
           {/* Status/Action */}
           <div className="ml-4 flex items-center gap-2">
             {isAvailable && (
               <>
-                <div className="flex items-center gap-1.5 text-green-600">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <span className="text-xs font-medium">Ready</span>
-                </div>
+                <span className="chip chip-success">
+                  <span className="h-1.5 w-1.5 rounded-full bg-success"></span>
+                  Ready
+                </span>
                 <AnimatePresence>
                   {isHovered && (
                     <motion.button
@@ -518,7 +526,7 @@ function ModelCard({
                         e.stopPropagation();
                         onDelete();
                       }}
-                      className="text-gray-400 hover:text-red-600 transition-colors p-1"
+                      className="text-[var(--opaline-outline)] hover:text-danger transition-colors p-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-danger)]"
                       title="Delete model to free up space"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -536,7 +544,7 @@ function ModelCard({
                   e.stopPropagation();
                   onDownload();
                 }}
-                className="bg-blue-600 text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
+                className="bg-primary text-[var(--opaline-on-primary)] px-3 py-1.5 rounded-md text-sm font-medium hover:bg-[var(--opaline-primary-hover)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 Download
               </button>
@@ -548,7 +556,7 @@ function ModelCard({
                   e.stopPropagation();
                   onDownload();
                 }}
-                className="bg-red-600 text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-red-700 transition-colors"
+                className="bg-danger text-[var(--opaline-on-primary)] px-3 py-1.5 rounded-md text-sm font-medium hover:bg-[var(--opaline-danger-border)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-danger)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 Retry
               </button>
@@ -561,7 +569,7 @@ function ModelCard({
                     e.stopPropagation();
                     onDelete();
                   }}
-                  className="bg-orange-600 text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-orange-700 transition-colors"
+                  className="bg-[var(--opaline-warning-soft)] text-warning px-3 py-1.5 rounded-md text-sm font-medium hover:bg-[var(--opaline-warning-border)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-warning)]"
                 >
                   Delete
                 </button>
@@ -570,7 +578,7 @@ function ModelCard({
                     e.stopPropagation();
                     onDownload();
                   }}
-                  className="bg-blue-600 text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
+                  className="bg-primary text-[var(--opaline-on-primary)] px-3 py-1.5 rounded-md text-sm font-medium hover:bg-[var(--opaline-primary-hover)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
                   Re-download
                 </button>
@@ -585,33 +593,33 @@ function ModelCard({
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="mt-3 pt-3 border-t border-gray-200"
+            className="mt-3 pt-3 border-t border-[var(--opaline-outline-variant)]"
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-blue-600">Downloading...</span>
-                <span className="text-sm font-semibold text-blue-600">{Math.round(downloadProgress)}%</span>
+                <span className="text-sm font-medium text-primary">Downloading...</span>
+                <span className="text-sm font-semibold text-primary">{Math.round(downloadProgress)}%</span>
               </div>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   onCancel();
                 }}
-                className="text-xs text-gray-600 hover:text-red-600 font-medium transition-colors px-2 py-1 rounded hover:bg-red-50"
+                className="text-xs text-[var(--opaline-on-surface-variant)] hover:text-danger font-medium transition-colors px-2 py-1 rounded hover:bg-[var(--opaline-danger-soft)]"
                 title="Cancel download"
               >
                 Cancel
               </button>
             </div>
-            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div className="w-full h-2 bg-[var(--opaline-surface-container-high)] rounded-full overflow-hidden">
               <motion.div
-                className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full"
+                className="h-full bg-primary rounded-full"
                 initial={{ width: 0 }}
                 animate={{ width: `${downloadProgress}%` }}
                 transition={{ duration: 0.3, ease: 'easeOut' }}
               />
             </div>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-[var(--opaline-outline)] mt-1">
               {model.size_mb ? (
                 <>
                   {formatFileSize(model.size_mb * downloadProgress / 100)} / {formatFileSize(model.size_mb)}

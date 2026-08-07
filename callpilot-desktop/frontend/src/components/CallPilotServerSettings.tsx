@@ -95,23 +95,23 @@ export const CallPilotServerSettings: React.FC = () => {
     <div className="max-w-2xl space-y-8">
       {/* CallPilot Server */}
       <section>
-        <h2 className="text-lg font-semibold text-gray-900">CallPilot Server</h2>
-        <p className="text-sm text-gray-500 mt-1">
+        <h2 className="text-headline-md text-[var(--opaline-on-surface)]">CallPilot Server</h2>
+        <p className="text-body-sm text-[var(--opaline-outline)] mt-1">
           Point the desktop agent at your CallPilot .NET Gateway. The
           intelligence stream and meeting sync use this endpoint.
         </p>
 
         <div className="mt-4 space-y-4">
           <div>
-            <label className="text-sm font-medium text-gray-700">CallPilot API URL</label>
+            <label className="field-label">CallPilot API URL</label>
             <input
               type="url"
               value={apiUrl}
               onChange={(e) => setApiUrl(e.target.value)}
               placeholder={DEFAULT_CALLPILOT_API_URL}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="mt-1 block w-full rounded-md border border-[var(--opaline-outline-variant)] px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
             />
-            <p className="mt-1 text-xs text-gray-500">Used for /api/v1/auth/*, /api/v1/meetings/*, /api/v1/knowledge/*</p>
+            <p className="mt-1 field-hint text-[var(--opaline-outline)]">Used for /api/v1/auth/*, /api/v1/meetings/*, /api/v1/knowledge/*</p>
           </div>
 
           <div className="flex items-center gap-3">
@@ -119,14 +119,14 @@ export const CallPilotServerSettings: React.FC = () => {
               type="button"
               onClick={onTest}
               disabled={testing}
-              className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-md border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] px-3 py-1.5 text-sm font-medium text-[var(--opaline-on-surface-variant)] hover:bg-[var(--opaline-surface-container-low)] disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]"
             >
               {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               Test Connection
             </button>
             {testResult && (
-              <span className={`inline-flex items-center gap-1 text-sm ${testResult.ok ? 'text-emerald-600' : 'text-red-600'}`}>
-                {testResult.ok ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+              <span className={`chip ${testResult.ok ? 'chip-success' : 'chip-danger'}`}>
+                {testResult.ok ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
                 {testResult.message}
               </span>
             )}
@@ -136,7 +136,7 @@ export const CallPilotServerSettings: React.FC = () => {
 
       {/* Session */}
       <section>
-        <h2 className="text-lg font-semibold text-gray-900">Session</h2>
+        <h2 className="text-headline-md text-[var(--opaline-on-surface)]">Session</h2>
         <div className="mt-4 space-y-4">
           <SettingRow
             label="Auto-start on launch"
@@ -161,11 +161,11 @@ export const CallPilotServerSettings: React.FC = () => {
 
       {/* Account */}
       <section>
-        <h2 className="text-lg font-semibold text-gray-900">Account</h2>
-        <div className="mt-4 flex items-center justify-between gap-4 rounded-md border border-gray-200 bg-white px-4 py-3">
+        <h2 className="text-headline-md text-[var(--opaline-on-surface)]">Account</h2>
+        <div className="mt-4 flex items-center justify-between gap-4 panel px-4 py-3">
           <div className="min-w-0">
-            <div className="text-sm font-medium text-gray-800">Signed in as</div>
-            <div className="text-xs text-gray-500 truncate">
+            <div className="text-sm font-medium text-[var(--opaline-on-surface)]">Signed in as</div>
+            <div className="text-xs text-[var(--opaline-outline)] truncate">
               {session?.email ?? 'Not signed in'}
             </div>
           </div>
@@ -173,7 +173,7 @@ export const CallPilotServerSettings: React.FC = () => {
             type="button"
             onClick={onSignOut}
             disabled={!session || signingOut}
-            className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-2 rounded-md border border-[var(--opaline-danger-border)] bg-[var(--opaline-surface-container-lowest)] px-3 py-1.5 text-sm font-medium text-danger hover:bg-[var(--opaline-danger-soft)] disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-danger)]"
           >
             {signingOut ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -189,14 +189,14 @@ export const CallPilotServerSettings: React.FC = () => {
         <button
           type="button"
           onClick={onSave}
-          className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-[var(--opaline-on-primary)] hover:bg-[var(--opaline-primary-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           <Save className="w-4 h-4" />
           Save
         </button>
         {saveState === 'saved' && (
-          <span className="inline-flex items-center gap-1 text-sm text-emerald-600">
-            <CheckCircle2 className="w-4 h-4" />
+          <span className="chip chip-success">
+            <CheckCircle2 className="w-3.5 h-3.5" />
             Saved
           </span>
         )}
@@ -208,8 +208,8 @@ export const CallPilotServerSettings: React.FC = () => {
 const SettingRow: React.FC<{ label: string; description: string; children: React.ReactNode }> = ({ label, description, children }) => (
   <div className="flex items-start justify-between gap-4">
     <div>
-      <div className="text-sm font-medium text-gray-800">{label}</div>
-      <div className="text-xs text-gray-500">{description}</div>
+      <div className="text-sm font-medium text-[var(--opaline-on-surface)]">{label}</div>
+      <div className="text-xs text-[var(--opaline-outline)]">{description}</div>
     </div>
     <div className="flex-shrink-0">{children}</div>
   </div>

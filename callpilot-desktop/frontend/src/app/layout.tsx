@@ -1,7 +1,8 @@
 'use client'
 
 import './globals.css'
-import { Source_Sans_3, Inter, Space_Grotesk, JetBrains_Mono } from 'next/font/google'
+import { Inter, Space_Grotesk, JetBrains_Mono } from 'next/font/google'
+import Script from 'next/script'
 import Sidebar from '@/components/Sidebar'
 import { SidebarProvider } from '@/components/Sidebar/SidebarProvider'
 import MainContent from '@/components/MainContent'
@@ -27,13 +28,7 @@ import { RecordingPostProcessingProvider } from '@/contexts/RecordingPostProcess
 import { ImportAudioDialog, ImportDropOverlay } from '@/components/ImportAudio'
 import { ImportDialogProvider } from '@/contexts/ImportDialogContext'
 import { isAudioExtension, getAudioFormatsDisplayList } from '@/constants/audioFormats'
-
-
-const sourceSans3 = Source_Sans_3({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-source-sans-3',
-})
+import { initTheme, applyTheme, getThemePreference, THEME_BOOTSTRAP_SCRIPT } from '@/lib/theme'
 
 // Space Grotesk - display/headline family (--font-display). Used for page
 // headlines, section titles, and large callout text. Sizes/weights come
@@ -157,6 +152,40 @@ export default function RootLayout({
         setOnboardingCompleted(false)
       })
   }, [])
+
+  useEffect(() => {
+    // Theme: follow preference + OS; sync with the Tauri window theme.
+    const cleanup = initTheme();
+
+    let unlistenTheme: (() => void) | undefined;
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      import('@tauri-apps/api/window')
+        .then(async ({ getCurrentWindow }) => {
+          const win = getCurrentWindow();
+          try {
+            const t = await win.theme();
+            if (t) applyTheme(t);
+          } catch {
+            /* browser preview - matchMedia already applied */
+          }
+          try {
+            unlistenTheme = await win.onThemeChanged((e) => {
+              if (getThemePreference() === 'system') {
+                applyTheme(e.payload as 'light' | 'dark');
+              }
+            });
+          } catch {
+            /* ignore */
+          }
+        })
+        .catch(() => {});
+    }
+
+    return () => {
+      cleanup();
+      unlistenTheme?.();
+    };
+  }, []);
 
   // Disable context menu in production
   useEffect(() => {
@@ -295,8 +324,15 @@ export default function RootLayout({
   }
 
   return (
-    <html lang="en">
-      <body className={`${inter.variable} ${sourceSans3.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <Script
+          id="theme-bootstrap"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }}
+        />
+      </head>
+      <body className={`${inter.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
         <AuthProvider>
           <AnalyticsProvider>
             <RecordingStateProvider>

@@ -18,17 +18,17 @@ function StatusOverlay({ show, message, sidebarCollapsed }: StatusOverlayProps) 
   if (!show) return null;
 
   return (
-    <div className="fixed bottom-4 left-0 right-0 z-10">
+    <div className="fixed bottom-6 left-0 right-0 z-10 animate-fade-in-up">
       <div
-        className="flex justify-center pl-8 transition-[margin] duration-300"
+        className="flex justify-center pl-8"
         style={{
           marginLeft: sidebarCollapsed ? '4rem' : '16rem'
         }}
       >
         <div className="w-2/3 max-w-[750px] flex justify-center">
-          <div className="bg-white rounded-lg shadow-lg px-4 py-2 flex items-center space-x-2">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
-            <span className="text-sm text-gray-700">{message}</span>
+          <div className="flex items-center gap-2.5 rounded-full border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] px-4 py-2 shadow-lg">
+            <div className="animate-spin rounded-full h-4 w-4 border-2 border-[var(--opaline-outline-variant)] border-t-[var(--opaline-primary)]" />
+            <span className="text-sm text-[var(--opaline-on-surface-variant)]">{message}</span>
           </div>
         </div>
       </div>

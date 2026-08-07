@@ -1,6 +1,7 @@
 import React from 'react';
 import { ModelStatus } from '../lib/whisper';
 import { Button } from './ui/button';
+import { Package, HardDrive, Check } from 'lucide-react';
 
 interface ModelDownloadProgressProps {
   status: ModelStatus;
@@ -17,24 +18,24 @@ export function ModelDownloadProgress({ status, modelName, onCancel }: ModelDown
   const isCompleted = progress >= 100;
 
   return (
-    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+    <div className="bg-[var(--opaline-info-soft)] border border-[var(--opaline-info-border)] rounded-lg p-4">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center space-x-2">
-          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-          <span className="text-sm font-medium text-blue-900">
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+          <span className="text-sm font-medium text-[var(--opaline-on-surface)]">
             {isCompleted ? 'Finalizing...' : `Downloading ${modelName}`}
           </span>
         </div>
       </div>
       
       <div className="relative">
-        <div className="w-full bg-blue-200 rounded-full h-2">
+        <div className="w-full bg-[var(--opaline-surface-container)] rounded-full h-2">
           <div 
-            className="bg-blue-600 h-2 rounded-full transition-all duration-300 ease-out"
+            className="bg-primary h-2 rounded-full transition-all duration-300 ease-out"
             style={{ width: `${Math.min(progress, 100)}%` }}
           />
         </div>
-        <div className="flex justify-between text-xs text-blue-700 mt-1">
+        <div className="flex justify-between text-xs text-[var(--opaline-info)] mt-1">
           <span>{Math.round(progress)}% complete</span>
           {!isCompleted && (
             <span className="animate-pulse">Downloading...</span>
@@ -43,8 +44,9 @@ export function ModelDownloadProgress({ status, modelName, onCancel }: ModelDown
       </div>
       
       {isCompleted && (
-        <div className="mt-2 text-xs text-green-700">
-          ✓ Download completed, loading model...
+        <div className="mt-2 text-xs text-success flex items-center gap-1">
+          <Check className="w-3 h-3" />
+          Download completed, loading model...
         </div>
       )}
     </div>
@@ -74,7 +76,7 @@ export function ProgressRing({ progress, size = 40, strokeWidth = 3 }: ProgressR
           cx={size / 2}
           cy={size / 2}
           r={radius}
-          stroke="#e5e7eb"
+          stroke="var(--opaline-surface-container-high)"
           strokeWidth={strokeWidth}
           fill="transparent"
         />
@@ -82,7 +84,7 @@ export function ProgressRing({ progress, size = 40, strokeWidth = 3 }: ProgressR
           cx={size / 2}
           cy={size / 2}
           r={radius}
-          stroke="#3b82f6"
+          stroke="var(--opaline-primary)"
           strokeWidth={strokeWidth}
           strokeDasharray={strokeDasharray}
           strokeDashoffset={strokeDashoffset}
@@ -91,7 +93,7 @@ export function ProgressRing({ progress, size = 40, strokeWidth = 3 }: ProgressR
           className="transition-all duration-300 ease-in-out"
         />
       </svg>
-      <span className="absolute text-xs font-medium text-blue-600">
+      <span className="absolute text-xs font-medium text-primary">
         {Math.round(progress)}%
       </span>
     </div>
@@ -111,18 +113,21 @@ export function DownloadSummary({ totalModels, downloadedModels, totalSizeMb }: 
   };
 
   return (
-    <div className="bg-gray-50 rounded-lg p-3 text-sm">
+    <div className="bg-[var(--opaline-surface-container-low)] rounded-lg p-3 text-sm">
       <div className="flex items-center justify-between">
-        <span className="text-gray-700">
-          📦 {downloadedModels} of {totalModels} models available
+        <span className="flex items-center gap-1.5 text-[var(--opaline-on-surface-variant)]">
+          <Package className="w-4 h-4" />
+          {downloadedModels} of {totalModels} models available
         </span>
-        <span className="text-gray-600">
-          💾 {formatSize(totalSizeMb)} total
+        <span className="flex items-center gap-1.5 text-[var(--opaline-on-surface-variant)]">
+          <HardDrive className="w-4 h-4" />
+          {formatSize(totalSizeMb)} total
         </span>
       </div>
       {downloadedModels > 0 && (
-        <div className="mt-1 text-xs text-green-600">
-          ✓ Models run locally - no internet required for transcription
+        <div className="mt-1 text-xs text-success flex items-center gap-1">
+          <Check className="w-3 h-3" />
+          Models run locally - no internet required for transcription
         </div>
       )}
     </div>

@@ -61,32 +61,14 @@ import { VisuallyHidden } from '@/components/ui/visually-hidden';
 import { MessageToast } from '../MessageToast';
 import { UserChip } from './UserChip';
 import { Input } from '../ui/input';
+import { Button } from '../ui/button';
 import { meetingDisplayTitle } from '@/lib/meetingTitle';
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Figma pixel-perfect tokens
+// Sidebar - Opaline "calm command rail"
 // ──────────────────────────────────────────────────────────────────────────────
-const FIGMA = {
-  sidebarBorder: '#e5e7eb',
-  activeBg: '#f3f4f6',
-  activeText: '#111827',
-  inactiveText: '#374151',
-  mutedText: '#6b7280',
-  dimText: '#9ca3af',
-  linkRadius: 6,
-  linkPaddingX: 12,
-  linkPaddingY: 8,
-  linkGap: 12,
-  listGap: 4,
-  listPaddingBottom: 40,
-  footerPaddingBottom: 16,
-  iconSize: 20,
-  fontSize: 14,
-  lineHeight: 20,
-  fontWeight: 500,
-  workspaceBadgeSize: 24,
-  workspaceBadgeRadius: 4,
-} as const;
+// 240px rail on surface-container-lowest with a 1px hairline separator.
+// All colors come from --opaline / --nav-* tokens (theme-aware).
 
 interface SidebarItem {
   id: string;
@@ -124,14 +106,15 @@ function formatMeetingAge(iso: string | undefined): string {
   return new Date(t).toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-/** Reusable Figma nav-link treatment. Drives the entire rail's vocabulary. */
+/** Reusable nav-link treatment. Drives the entire rail's vocabulary. */
 const LinkClass = (active: boolean): string =>
   [
     'group flex w-full items-center rounded-md',
     'gap-3 px-3 py-2',
     'text-sm font-medium',
     'leading-5',
-    'transition-colors duration-150',
+    'transition-colors duration-fast ease-out',
+    'outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-background',
     active
       ? ACTIVE_NAV
       : 'text-[var(--nav-inactive-text)] hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)]',
@@ -417,14 +400,13 @@ const Sidebar: React.FC = () => {
     return (
       <TooltipProvider>
         <div className="flex flex-col items-center gap-1 px-2 pt-3">
-          {/* Collapsed brand badge - same 24×24 black square, centred */}
+          {/* Collapsed brand badge - same 24×24 badge, centred */}
           <div className="pb-2 flex flex-col items-center gap-2">
             <div
-              className="flex items-center justify-center rounded-[4px] bg-black"
-              style={{ width: FIGMA.workspaceBadgeSize, height: FIGMA.workspaceBadgeSize }}
+              className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--opaline-ink)] shadow-xs"
               aria-label="CallPilot"
             >
-              <span className="text-[12px] font-bold text-white leading-4">CP</span>
+              <span className="text-[12px] font-bold leading-4 text-white">CP</span>
             </div>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -433,7 +415,7 @@ const Sidebar: React.FC = () => {
                   onClick={toggleCollapse}
                   aria-label="Expand sidebar"
                   title="Expand sidebar"
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--nav-muted-text)] transition-colors hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--nav-muted-text)] transition-colors hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <ChevronRightIcon className="h-3.5 w-3.5" strokeWidth={2} />
                 </button>
@@ -493,6 +475,10 @@ const Sidebar: React.FC = () => {
     const isMeetingItem = item.id.includes('-') && !item.id.startsWith('intro-call');
     const matchingResult = isMeetingItem ? findMatchingSnippet(item.id) : null;
     const hasTranscriptMatch = !!matchingResult;
+    // Meeting meta (date) comes from the live meetings list, not the
+    // nav-tree shape, so rows stay fresh after renames/saves.
+    const meetingMeta = meetings.find((m) => m.id === item.id);
+    const age = meetingMeta ? formatMeetingAge(meetingMeta.createdAt) : '';
 
     return (
       <button
@@ -506,7 +492,8 @@ const Sidebar: React.FC = () => {
           router.push(basePath);
         }}
         className={[
-          'group flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-150',
+          'group flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors duration-fast ease-out',
+          'outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-background',
           isActive
             ? ACTIVE_NAV
             : 'text-[var(--nav-inactive-text)] hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)]',
@@ -515,14 +502,23 @@ const Sidebar: React.FC = () => {
       >
         <File
           className={[
-            'h-[16px] w-[16px] shrink-0',
+            'h-4 w-4 shrink-0',
             isActive ? 'text-[var(--opaline-primary)]' : 'text-[var(--nav-muted-text)]',
           ].join(' ')}
           strokeWidth={1.75}
         />
-        <span className="flex-1 truncate text-left">{item.title}</span>
+        <span className="flex min-w-0 flex-1 flex-col items-start">
+          <span className="w-full truncate text-left leading-5">{item.title}</span>
+          {isMeetingItem && age && (
+            <span className="text-data leading-4 text-[var(--nav-dim-text)]">
+              {hasTranscriptMatch
+                ? `match · ${matchingResult?.matchContext?.slice(0, 28) ?? ''}`
+                : age}
+            </span>
+          )}
+        </span>
         {isMeetingItem && (
-          <span className="flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+          <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-fast group-hover:opacity-100 group-focus-visible:opacity-100">
             <span
               role="button"
               tabIndex={0}
@@ -556,7 +552,7 @@ const Sidebar: React.FC = () => {
                   setDeleteModalState({ isOpen: true, itemId: item.id });
                 }
               }}
-              className="rounded-md p-1 text-[var(--nav-muted-text)] hover:bg-red-50 hover:text-red-600"
+              className="rounded-md p-1 text-[var(--nav-muted-text)] hover:bg-[var(--opaline-danger-soft)] hover:text-danger"
               aria-label="Delete meeting"
             >
               <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
@@ -570,27 +566,24 @@ const Sidebar: React.FC = () => {
   return (
     <div className="fixed top-0 left-0 z-40 h-screen">
       <div
-        className={`flex h-screen flex-col justify-between bg-white border-r border-[var(--hairline)] transition-all duration-300 ${
+        className={`flex h-screen flex-col justify-between bg-[var(--opaline-surface-container-lowest)] border-r border-[var(--hairline)] transition-all duration-300 ${
           isCollapsed ? 'w-16' : 'w-60'
         }`}
       >
         {/* ─────────────── TOP: workspace + nav + meetings ─────────────── */}
         {!isCollapsed ? (
           <div className="flex flex-col">
-            {/* Workspace picker - Figma 1:1: 24×24 black badge + brand name + chevron-down */}
+            {/* Workspace picker - 24×24 ink badge + brand name + chevron-down */}
             <div className="flex items-center justify-between px-4 py-4">
               <button
                 type="button"
-                className="group flex items-center gap-2 rounded-md px-1 py-0.5 transition-colors hover:bg-[var(--nav-active-bg)] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                className="group flex items-center gap-2 rounded-md px-1 py-0.5 transition-colors hover:bg-[var(--nav-active-bg)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 aria-label="Workspace selector"
               >
-                <span
-                  className="flex shrink-0 items-center justify-center rounded-[4px] bg-black"
-                  style={{ width: FIGMA.workspaceBadgeSize, height: FIGMA.workspaceBadgeSize }}
-                >
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--opaline-ink)] shadow-xs">
                   <span className="text-[12px] font-bold leading-4 text-white">CP</span>
                 </span>
-                <span className="text-[14px] font-semibold leading-5 text-black">
+                <span className="text-[14px] font-semibold leading-5 text-[var(--opaline-on-surface)]">
                   CallPilot
                 </span>
               </button>
@@ -603,7 +596,7 @@ const Sidebar: React.FC = () => {
                       onClick={toggleCollapse}
                       aria-label="Collapse sidebar"
                       title="Collapse sidebar"
-                      className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--nav-muted-text)] transition-colors hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                      className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--nav-muted-text)] transition-colors hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <ChevronLeft className="h-3.5 w-3.5" strokeWidth={2} />
                     </button>
@@ -627,7 +620,7 @@ const Sidebar: React.FC = () => {
               >
                 <SearchIcon
                   className={[
-                    'h-5 w-5 shrink-0',
+                    'h-[18px] w-[18px] shrink-0',
                     searchQuery ? 'text-[var(--nav-active-text)]' : 'text-[var(--nav-muted-text)]',
                   ].join(' ')}
                   strokeWidth={1.75}
@@ -664,7 +657,7 @@ const Sidebar: React.FC = () => {
                 onClick={() => router.push('/')}
                 className={LinkClass(isNavActive(pathname, 'home'))}
               >
-                <Home className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+                <Home className="h-[18px] w-[18px] shrink-0" strokeWidth={1.75} />
                 <span>Home</span>
               </button>
 
@@ -674,7 +667,7 @@ const Sidebar: React.FC = () => {
                   onClick={() => openImportDialog()}
                   className={LinkClass(false)}
                 >
-                  <Upload className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+                  <Upload className="h-[18px] w-[18px] shrink-0" strokeWidth={1.75} />
                   <span>Import audio</span>
                 </button>
               )}
@@ -685,8 +678,11 @@ const Sidebar: React.FC = () => {
                 onClick={() => router.push('/meeting-details')}
                 className={LinkClass(isNavActive(pathname, 'meetings'))}
               >
-                <NotebookPen className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+                <NotebookPen className="h-[18px] w-[18px] shrink-0" strokeWidth={1.75} />
                 <span>Meetings</span>
+                <span className="ml-auto rounded-full bg-[var(--opaline-surface-container)] px-1.5 py-0.5 text-data text-[var(--nav-dim-text)]">
+                  {meetings.length}
+                </span>
               </button>
 
               {/* Meeting children - rendered inline when on Meetings or when searching.
@@ -705,7 +701,7 @@ const Sidebar: React.FC = () => {
                 jumps to the meeting. */}
             {!isNavActive(pathname, 'meetings') && !searchQuery && (
               <div className="px-3 pb-8">
-                <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--nav-muted-text)]">
+                <p className="text-overline px-3 pb-1">
                   Recent meetings
                 </p>
                 {recentMeetings.length === 0 ? (
@@ -751,15 +747,16 @@ const Sidebar: React.FC = () => {
         )}
 
         {/* ─────────────── BOTTOM: pinned footer (UserChip in both modes) ───────────────
-             The UserChip is rendered OUTSIDE the collapsed icon list so it stays
-             pinned to the very bottom of the rail in both collapsed and expanded
-             states. In collapsed mode the footer is just the avatar (centered in
-             the 64px rail); in expanded mode it also carries Help + Settings. */}
+             Settings and Help sit here as quiet secondary navigation -
+             smaller, dimmer, clearly subordinate to the workspace above.
+             The UserChip is rendered OUTSIDE the collapsed icon list so it
+             stays pinned to the very bottom of the rail in both collapsed
+             and expanded states. */}
         <div className="flex-shrink-0 border-t border-[var(--hairline)] px-2 py-2">
           {isCollapsed ? (
             <UserChip collapsed={true} />
           ) : (
-            <nav className="flex flex-col gap-1">
+            <nav className="flex flex-col gap-0.5" aria-label="Secondary">
               <button
                 type="button"
                 onClick={(e) => {
@@ -771,9 +768,9 @@ const Sidebar: React.FC = () => {
                   if (dialogTrigger) dialogTrigger.click();
                   else target.blur();
                 }}
-                className={LinkClass(false)}
+                className="group flex w-full items-center gap-3 rounded-md px-3 py-1.5 text-[13px] font-medium text-[var(--nav-dim-text)] transition-colors duration-fast ease-out hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]"
               >
-                <HelpCircle className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+                <HelpCircle className="h-4 w-4 shrink-0" strokeWidth={1.75} />
                 <span>Help</span>
               </button>
 
@@ -781,9 +778,13 @@ const Sidebar: React.FC = () => {
                 type="button"
                 aria-current={isNavActive(pathname, 'settings') ? 'page' : undefined}
                 onClick={() => router.push('/settings')}
-                className={LinkClass(isNavActive(pathname, 'settings'))}
+                className={`group flex w-full items-center gap-3 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors duration-fast ease-out hover:bg-[var(--nav-active-bg)] hover:text-[var(--nav-active-text)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)] ${
+                  isNavActive(pathname, 'settings')
+                    ? 'text-[var(--opaline-primary)]'
+                    : 'text-[var(--nav-dim-text)]'
+                }`}
               >
-                <Settings className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+                <Settings className="h-4 w-4 shrink-0" strokeWidth={1.75} />
                 <span>Settings</span>
               </button>
 
@@ -815,17 +816,14 @@ const Sidebar: React.FC = () => {
         }}
       >
         <DialogContent className="sm:max-w-[425px]">
-          <VisuallyHidden>
-            <DialogTitle>Edit Meeting Title</DialogTitle>
-          </VisuallyHidden>
-          <div className="py-4">
-            <h3 className="mb-4 text-lg font-semibold">Edit Meeting Title</h3>
+          <DialogTitle>Edit Meeting Title</DialogTitle>
+          <div className="py-2">
             <div className="space-y-4">
               <div>
-                <label htmlFor="meeting-title" className="mb-2 block text-sm font-medium text-gray-700">
+                <label htmlFor="meeting-title" className="field-label mb-2 block">
                   Meeting Title
                 </label>
-                <input
+                <Input
                   id="meeting-title"
                   type="text"
                   value={editingTitle}
@@ -834,7 +832,6 @@ const Sidebar: React.FC = () => {
                     if (e.key === 'Enter') handleEditConfirm();
                     else if (e.key === 'Escape') handleEditCancel();
                   }}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Enter meeting title"
                   autoFocus
                 />
@@ -842,18 +839,12 @@ const Sidebar: React.FC = () => {
             </div>
           </div>
           <DialogFooter>
-            <button
-              onClick={handleEditCancel}
-              className="rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200"
-            >
+            <Button variant="ghost" onClick={handleEditCancel}>
               Cancel
-            </button>
-            <button
-              onClick={handleEditConfirm}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
-            >
+            </Button>
+            <Button onClick={handleEditConfirm}>
               Save
-            </button>
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

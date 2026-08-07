@@ -128,7 +128,7 @@ export function TranscriptRecovery({
           {/* Meeting List */}
           <div className="w-1/3 flex flex-col">
             <h3 className="text-sm font-medium mb-2">Interrupted Meetings</h3>
-            <ScrollArea className="flex-1 border rounded-lg">
+            <ScrollArea className="flex-1 border border-[var(--opaline-outline-variant)] rounded-lg">
               <div className="p-2 space-y-2">
                 {recoverableMeetings.map((meeting) => (
                   <button
@@ -137,7 +137,7 @@ export function TranscriptRecovery({
                     className={cn(
                       'w-full text-left p-3 rounded-lg border transition-colors',
                       selectedMeetingId === meeting.meetingId
-                        ? 'bg-primary/10 border-primary'
+                        ? 'bg-[var(--opaline-primary-soft)] border-primary'
                         : 'hover:bg-muted border-transparent'
                     )}
                   >
@@ -155,11 +155,11 @@ export function TranscriptRecovery({
                       </div>
                       {meeting.folderPath ? (
                         <span title="Audio available">
-                          <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                          <CheckCircle2 className="w-4 h-4 text-success flex-shrink-0" />
                         </span>
                       ) : (
                         <span title="No audio">
-                          <AlertCircle className="w-4 h-4 text-yellow-500 flex-shrink-0" />
+                          <AlertCircle className="w-4 h-4 text-warning flex-shrink-0" />
                         </span>
                       )}
                     </div>
@@ -172,11 +172,11 @@ export function TranscriptRecovery({
           {/* Preview Panel */}
           <div className="flex-1 flex flex-col">
             <h3 className="text-sm font-medium mb-2">Preview</h3>
-            <div className="flex-1 border rounded-lg overflow-hidden flex flex-col">
+            <div className="flex-1 border border-[var(--opaline-outline-variant)] rounded-lg overflow-hidden flex flex-col">
               {selectedMeeting ? (
                 <>
                   {/* Meeting Info */}
-                  <div className="p-4 border-b bg-muted/50">
+                  <div className="p-4 border-b border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)]">
                     <h4 className="font-semibold">{selectedMeeting.title}</h4>
                     <p className="text-sm text-muted-foreground mt-1">
                       Started {new Date(selectedMeeting.startTime).toLocaleString()}
@@ -187,12 +187,12 @@ export function TranscriptRecovery({
                         {selectedMeeting.transcriptCount} transcripts
                       </span>
                       {selectedMeeting.folderPath ? (
-                        <span className="flex items-center gap-1 text-green-600">
+                        <span className="flex items-center gap-1 text-success">
                           <CheckCircle2 className="w-4 h-4" />
                           Audio available
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1 text-yellow-600">
+                        <span className="flex items-center gap-1 text-warning">
                           <AlertCircle className="w-4 h-4" />
                           No audio
                         </span>

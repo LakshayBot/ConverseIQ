@@ -63,10 +63,10 @@ export function TranscriptPanel({
       )}
 
       {/* Title area - Sticky header */}
-      <div className="sticky top-0 z-10 bg-[var(--grain-paper)] p-4 border-[var(--grain-ink-200)]">
+      <div className="sticky top-0 z-10 bg-[var(--grain-paper)] px-4 pt-4 pb-1">
         <div className="flex flex-col space-y-3">
-          <div className="flex  flex-col space-y-2">
-            <div className="flex justify-center  items-center space-x-2">
+          <div className="flex flex-col space-y-2">
+            <div className="flex justify-end items-center space-x-2">
               <ButtonGroup>
                 {transcripts?.length > 0 && (
                   <Button

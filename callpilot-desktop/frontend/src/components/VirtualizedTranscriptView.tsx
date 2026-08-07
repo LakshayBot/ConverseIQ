@@ -36,7 +36,8 @@ import { TranscriptSegmentData } from '@/types';
 // Threshold for enabling virtualization (below this, use simple rendering)
 const VIRTUALIZATION_THRESHOLD = 10;
 
-const BRAND_GRADIENT = 'linear-gradient(180deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%)';
+const BRAND_GRADIENT =
+  'linear-gradient(180deg, var(--opaline-primary) 0%, var(--opaline-primary-hover) 100%)';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Format helpers
@@ -111,10 +112,17 @@ const TranscriptRow = memo(function TranscriptRow({
   return (
     <div
       id={`segment-${id}`}
-      className={`relative pl-3 pr-1 py-1.5 rounded-md transition-colors duration-150 ${
+      className={`relative pl-3 pr-1 py-1.5 rounded-md transition-colors duration-fast ${
         isActive ? 'bg-[var(--opaline-surface-container-low)]' : ''
       }`}
     >
+      {isActive && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full"
+          style={{ background: BRAND_GRADIENT }}
+        />
+      )}
       <div className="flex items-start gap-3">
         {/* Speaker circle - 24px (or 20px while partial). Figma's saturated
             green (REP) / purple (PROSPECT). */}

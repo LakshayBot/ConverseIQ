@@ -4,13 +4,20 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const alertVariants = cva(
-  "relative w-full rounded-lg border px-4 py-3 text-sm [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg]:text-foreground [&>svg~*]:pl-7",
+  "relative w-full rounded-lg border px-4 py-3 text-sm shadow-xs [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg]:size-4 [&>svg~*]:pl-7",
   {
     variants: {
       variant: {
-        default: "bg-background text-foreground",
+        default:
+          "border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)] text-[var(--opaline-on-surface)] [&>svg]:text-[var(--opaline-on-surface-variant)]",
         destructive:
-          "border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive",
+          "border-[var(--opaline-danger-border)] bg-[var(--opaline-danger-soft)] text-[var(--opaline-danger)] [&>svg]:text-[var(--opaline-danger)]",
+        warning:
+          "border-[var(--opaline-warning-border)] bg-[var(--opaline-warning-soft)] text-[var(--opaline-warning)] [&>svg]:text-[var(--opaline-warning)]",
+        info:
+          "border-[var(--opaline-info-border)] bg-[var(--opaline-info-soft)] text-[var(--opaline-info)] [&>svg]:text-[var(--opaline-info)]",
+        success:
+          "border-[var(--opaline-success-border)] bg-[var(--opaline-success-soft)] text-[var(--opaline-success)] [&>svg]:text-[var(--opaline-success)]",
       },
     },
     defaultVariants: {
@@ -38,7 +45,7 @@ const AlertTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <h5
     ref={ref}
-    className={cn("mb-1 font-medium leading-none tracking-tight", className)}
+    className={cn("mb-1 font-semibold leading-tight tracking-tight", className)}
     {...props}
   />
 ))

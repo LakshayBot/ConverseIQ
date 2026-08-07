@@ -152,7 +152,7 @@ export function PermissionsStep() {
 
           <button
             onClick={handleSkip}
-            className="text-sm text-neutral-500 hover:text-neutral-700 transition-colors"
+            className="text-sm text-[var(--opaline-on-surface-variant)] hover:text-[var(--opaline-on-surface)] transition-colors focus-ring rounded"
           >
             I'll do this later
           </button>
