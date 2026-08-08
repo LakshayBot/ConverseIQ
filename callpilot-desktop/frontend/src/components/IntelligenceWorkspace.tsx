@@ -167,42 +167,40 @@ export const IntelligenceWorkspace: React.FC<IntelligenceWorkspaceProps> = ({ ca
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* ── Category rails - content-driven height, flexible spacer ───── */}
-      <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto">
-        <div className="flex min-h-full flex-col">
-          {CATEGORY_ORDER.map((cat) => {
-            const items = byCategory[cat.key] ?? [];
-            if (items.length === 0) return null;
-            return (
-              <div key={cat.key} className="animate-fade-soft mb-4 last:mb-0">
-                <CategoryRail
-                  label={cat.label}
-                  category={cat.key}
-                  items={items}
-                  selectedId={selected?.title ?? null}
-                  newTitles={newTitles}
-                  mode={mode}
-                  railRef={(title, el) => {
-                    railRefs.current[title] = el;
-                  }}
-                  onSelect={select}
-                />
-              </div>
-            );
-          })}
-          {/* Flexible spacer: absorbs remaining height so the detail
-              panel stays pinned and no dead zone ever appears. */}
-          <div className="min-h-2 flex-1" aria-hidden />
-        </div>
+      {/* ── Category rails - natural content height, top-aligned ────────
+          No reserved space: the detail panel below starts immediately
+          after the last category that actually exists. If many
+          categories exceed the available height, this region shrinks and
+          scrolls internally. */}
+      <div className="custom-scrollbar min-h-0 shrink overflow-y-auto pb-3">
+        {CATEGORY_ORDER.map((cat) => {
+          const items = byCategory[cat.key] ?? [];
+          if (items.length === 0) return null;
+          return (
+            <div key={cat.key} className="animate-fade-soft mb-4 last:mb-0">
+              <CategoryRail
+                label={cat.label}
+                category={cat.key}
+                items={items}
+                selectedId={selected?.title ?? null}
+                newTitles={newTitles}
+                mode={mode}
+                railRef={(title, el) => {
+                  railRefs.current[title] = el;
+                }}
+                onSelect={select}
+              />
+            </div>
+          );
+        })}
       </div>
 
-      {/* ── Selected intelligence (detail area, bottom) ──────────────── */}
-      <div className="shrink-0 border-t border-[var(--opaline-outline-variant)] pt-3">
+      {/* ── Selected intelligence (detail area) - fills the remaining
+          height, scrolls internally when its content is long. Its
+          position is dynamic: it follows the category rows. */}
+      <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto border-t border-[var(--opaline-outline-variant)] pt-3 pb-1 pr-1">
         {selected ? (
-          <div
-            key={selected.title}
-            className="animate-fade-soft custom-scrollbar max-h-[280px] overflow-y-auto pr-1"
-          >
+          <div key={selected.title} className="animate-fade-soft">
             <div className="flex flex-col gap-2.5">
               <div className="flex items-center justify-between gap-2">
                 <span

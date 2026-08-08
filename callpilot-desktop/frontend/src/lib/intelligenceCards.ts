@@ -225,7 +225,23 @@ export function buildPastIntelligenceCards(
     // newest rec pairs with the newest card - pop() from the end.
     const pool = genericPoolByType.get(cardType) ?? [];
     const eventCard = pool.pop();
-    if (eventCard) mergeInto(eventCard, r);
+    if (eventCard) {
+      mergeInto(eventCard, r);
+    } else {
+      // No entity card to attach to (e.g. a contextual recommendation
+      // whose event never produced a card): the intelligence still
+      // exists and must be visible. It carries no entity identity, so it
+      // belongs to the CONTEXTUAL category - never PRODUCTS.
+      cards.push({
+        type: 'buying_signal',
+        title: r.title,
+        body: recBodyOf(r),
+        severity:
+          (r.priority as IntelligenceCard['severity'] | null | undefined) ??
+          severityFromConfidence(r.confidence),
+        chunks: Array.isArray(r.references) ? r.references : [],
+      });
+    }
   }
 
   // Newest first to match live-panel ordering.

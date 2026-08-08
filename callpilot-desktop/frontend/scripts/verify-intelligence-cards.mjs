@@ -68,5 +68,19 @@ const dupEvents = [events[2], { ...events[2], id: 'dup' }, { ...events[2], id: '
 const dupCards = buildPastIntelligenceCards(dupEvents, []);
 check('Three mentions of Sprint 210 → one card', dupCards.length === 1);
 
+// Standalone contextual recommendation (the disappearing case): it must
+// appear under CONTEXTUAL - never dropped, never PRODUCT MATCH.
+console.log('\nStandalone contextual recommendation (no matching event):');
+const contextualOnlyRecs = [
+  { id: 'c1', type: 'ContextualRecommendation', title: 'Contextual Recommendation', summary: 'The prospect emphasized data residency in the buy cycle.', talkingPoint: null, keyFacts: ['Data residency', 'Regional rollout'], priority: 'medium', confidence: 0.8, references: ['residency-guide.pdf'], triggerEvent: 'ContextualRecommendation', provider: 'llm', model: 'configured', generatedAt: '2026-08-08T09:45:00Z' },
+];
+const contextualCards = buildPastIntelligenceCards([events[2]], contextualOnlyRecs);
+const contextualItem = contextualCards.find(c => c.type === 'buying_signal');
+check('Contextual recommendation is NOT dropped', !!contextualCards.find(c => c.title === 'Contextual Recommendation'));
+check('Contextual recommendation is NOT a product_match', !contextualCards.some(c => c.type === 'product_match' && c.title === 'Contextual Recommendation'));
+check('Contextual recommendation lands in buying_signal (Contextual rail)', !!contextualItem, JSON.stringify(contextualCards.map(c => c.type)));
+check('Contextual recommendation carries its intelligence', !!contextualItem && contextualItem.body.toLowerCase().includes('data residency'));
+check('Contextual recommendation carries knowledge sources', !!contextualItem && contextualItem.chunks.includes('residency-guide.pdf'));
+
 console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);
