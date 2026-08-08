@@ -12,14 +12,19 @@ set -e
 #   ./scripts/rebuild.sh server     # rebuild one or more named services
 #   ./scripts/rebuild.sh --all      # full rebuild, no prompt
 #   ./scripts/rebuild.sh -y server ai-engine   # non-interactive, multi-service
+#
+# Prebuilt-image services (postgres, redis, ollama) are never rebuilt -
+# they are pulled once and reused (see pull_policy: missing in
+# docker-compose.yml).
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Configuration
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Services that carry application code worth rebuilding (excludes infra
-# like postgres/redis, which are rebuilt once and left alone).
-BUILDABLE=("ai-engine" "server" "dashboard" "ollama")
+# like postgres/redis and the ollama image - those are prebuilt images,
+# pulled once and reused; see pull_policy: missing in docker-compose.yml).
+BUILDABLE=("ai-engine" "server" "dashboard")
 
 # Human-friendly labels shown in the picker
 label_for() {
@@ -27,7 +32,6 @@ label_for() {
     ai-engine) echo "AI Engine (Python - Nemotron STT, Groq enrichment)" ;;
     server)    echo ".NET Server (API, SignalR, knowledge ingest)" ;;
     dashboard) echo "Dashboard (Next.js web UI)" ;;
-    ollama)    echo "Ollama (local LLM - optional profile)" ;;
     *)         echo "$1" ;;
   esac
 }
@@ -199,6 +203,29 @@ fi
 echo ""
 echo "[3/3] Starting services..."
 docker compose up -d "${SERVICES[@]}"
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Disk hygiene - every rebuild leaves the previous image layers behind as
+# dangling images + build cache. Prune them so space doesn't grow unbounded.
+# ──────────────────────────────────────────────────────────────────────────────
+echo ""
+echo "[cleanup] Pruning leftover images/cache..."
+docker image prune -f > /dev/null 2>&1 && ok "Dangling images pruned"
+
+if [ "$SKIP_CONFIRM" -eq 0 ]; then
+  read -r -p "  Also prune the Docker build cache (frees more space, but the next build re-downloads base layers)? [y/N] " prune_cache
+  case "$prune_cache" in
+    y|Y|yes)
+      docker builder prune -f > /dev/null 2>&1 && ok "Build cache pruned"
+      ;;
+  esac
+else
+  # Non-interactive (-y): only prune the build cache on a full rebuild,
+  # where the whole image stack is being rebuilt anyway.
+  if [ "$FULL_REBUILD" -eq 1 ]; then
+    docker builder prune -f > /dev/null 2>&1 && ok "Build cache pruned"
+  fi
+fi
 
 echo ""
 echo "Waiting for services to be healthy..."

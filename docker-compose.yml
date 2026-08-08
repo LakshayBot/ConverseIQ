@@ -1,6 +1,9 @@
 services:
   postgres:
     image: pgvector/pgvector:pg17
+    # pull only when the image is missing locally - never re-download on
+    # every `up` (this was re-pulling the moving tags on each rebuild)
+    pull_policy: missing
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-callpilot}
@@ -99,7 +102,11 @@ services:
       - server
 
   ollama:
-    image: ollama/ollama:latest
+    # Pinned to a concrete release instead of `latest`: the moving tag was
+    # re-downloaded on every rebuild/restart. Pinned tags are pulled once
+    # and reused. Bump this tag deliberately when you want a newer Ollama.
+    image: ollama/ollama:0.6.5
+    pull_policy: missing
     restart: unless-stopped
     ports:
       - "11434:11434"
@@ -110,6 +117,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    pull_policy: missing
     restart: unless-stopped
     ports:
       - "6379:6379"
