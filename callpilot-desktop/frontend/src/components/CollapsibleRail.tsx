@@ -148,7 +148,7 @@ export const CollapsibleRail: React.FC<CollapsibleRailProps> = ({ label, header,
               </TooltipContent>
             </Tooltip>
           </div>
-          <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-8 pt-4">
+          <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-4">
             {children}
           </div>
         </div>
@@ -216,7 +216,7 @@ export const CollapsibleRail: React.FC<CollapsibleRailProps> = ({ label, header,
               <X className="h-4 w-4" strokeWidth={1.75} aria-hidden />
             </button>
           </div>
-          <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-8 pt-4">
+          <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-4">
             {children}
           </div>
         </aside>

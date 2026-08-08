@@ -1,12 +1,18 @@
 'use client';
 
-import React, { useState } from 'react';
+// IntelligencePanel - the stateful surface of the right Intelligence rail.
+//
+// Three presentation contexts, derived from real application state (see
+// `mode`): live (active recording), history (reading a past meeting) and
+// idle (nothing loaded). When signals exist, the panel renders the
+// two-region IntelligenceWorkspace (detail + horizontal carousel); the
+// empty surfaces below are calm, mode-appropriate, and never imply live
+// listening on historical screens.
+
+import React from 'react';
 import {
-  ChevronDown,
-  ChevronRight,
   AlertTriangle,
   MessageCircle,
-  ThumbsUp,
   Package,
   DollarSign,
   HelpCircle,
@@ -15,10 +21,8 @@ import {
   Radio,
   WifiOff,
 } from 'lucide-react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import type { IntelligenceCard } from '@/lib/callpilotApi';
-import { fadeUp, stagger, EASE_OUT } from '@/lib/motion';
-import { ProductWorkspace, ProductEmptyState } from '@/components/ProductWorkspace';
+import { IntelligenceWorkspace } from '@/components/IntelligenceWorkspace';
 
 interface Props {
   cards: IntelligenceCard[];
@@ -37,16 +41,7 @@ interface Props {
   mode?: 'live' | 'history' | 'idle';
 }
 
-const TYPE_META: Record<IntelligenceCard['type'], { icon: React.ReactNode; label: string }> = {
-  competitor_detected: { icon: <AlertTriangle className="w-4 h-4" />, label: 'Competitor' },
-  objection:           { icon: <MessageCircle className="w-4 h-4" />, label: 'Objection' },
-  buying_signal:       { icon: <ThumbsUp className="w-4 h-4" />, label: 'Buying signal' },
-  product_match:       { icon: <Package className="w-4 h-4" />, label: 'Product match' },
-  pricing_discussion:  { icon: <DollarSign className="w-4 h-4" />, label: 'Pricing' },
-  technical_question:  { icon: <HelpCircle className="w-4 h-4" />, label: 'Technical' },
-};
-
-/** The five signal types, in reading order - used in the idle state so the
+/** The signal types, in reading order - used in the idle state so the
  *  rail teaches what it will surface before a call ever starts. */
 const SIGNAL_TYPES: Array<{ key: IntelligenceCard['type']; label: string; icon: React.ReactNode }> = [
   { key: 'competitor_detected', label: 'Competitor', icon: <AlertTriangle className="h-3.5 w-3.5" /> },
@@ -55,24 +50,6 @@ const SIGNAL_TYPES: Array<{ key: IntelligenceCard['type']; label: string; icon: 
   { key: 'product_match', label: 'Product match', icon: <Package className="h-3.5 w-3.5" /> },
   { key: 'technical_question', label: 'Technical', icon: <HelpCircle className="h-3.5 w-3.5" /> },
 ];
-
-const SEVERITY_BORDER: Record<IntelligenceCard['severity'], string> = {
-  high: 'border-l-[3px] border-l-[var(--intel-high)]',
-  medium: 'border-l-2 border-l-[var(--intel-medium)]',
-  low: 'border-l-2 border-l-[var(--intel-low)]',
-};
-
-const SEVERITY_ACCENT: Record<IntelligenceCard['severity'], string> = {
-  high: 'text-[var(--intel-high)]',
-  medium: 'text-[var(--intel-medium)]',
-  low: 'text-[var(--intel-low)]',
-};
-
-const SEVERITY_DOT: Record<IntelligenceCard['severity'], string> = {
-  high: 'bg-[var(--intel-high)]',
-  medium: 'bg-[var(--intel-medium)]',
-  low: 'bg-[var(--intel-low)]',
-};
 
 /**
  * Visual state of the intelligence stream - drives the empty-state surface
@@ -207,176 +184,26 @@ export const IntelligencePanel: React.FC<Props> = ({
   mode,
 }) => {
   const hasSession = Boolean(sessionId);
-  const reduceMotion = useReducedMotion();
 
-  // Products are surfaced through the ProductWorkspace (content region +
-  // horizontal selector); every other signal type stays a card below it.
-  const productCards = cards.filter((c) => c.type === 'product_match');
-  const signalCards = cards.filter((c) => c.type !== 'product_match');
-
-  // Historical view: read-only snapshot. Cards render as a static list
-  // (no stream states, no live language); an empty meeting gets a calm
-  // archival empty state.
-  if (mode === 'history') {
-    if (!cards.length) return <HistoricalEmptyState />;
-    return (
-      <div className="flex flex-col gap-4">
-        {productCards.length > 0 ? (
-          <ProductWorkspace products={productCards} mode="history" />
-        ) : (
-          <ProductEmptyState mode="history" />
-        )}
-        {signalCards.length > 0 && (
-          <motion.ul
-            className="flex flex-col gap-2"
-            variants={reduceMotion ? undefined : stagger(0.05)}
-            initial="initial"
-            animate="animate"
-          >
-            <AnimatePresence initial={false}>
-              {signalCards.map((card, i) => (
-                <motion.li
-                  key={`${card.type}-${i}-${card.title}`}
-                  variants={reduceMotion ? undefined : fadeUp}
-                  transition={reduceMotion ? undefined : { duration: 0.24, ease: EASE_OUT }}
-                >
-                  <IntelligenceCardItem card={card} />
-                </motion.li>
-              ))}
-            </AnimatePresence>
-          </motion.ul>
-        )}
-      </div>
-    );
+  // Live + history both render the two-region workspace when signals
+  // exist - the workspace itself is mode-aware (carousel labels, "new"
+  // dots, no live language in history).
+  if (mode === 'live' || mode === 'history') {
+    if (cards.length === 0) {
+      if (mode === 'history') return <HistoricalEmptyState />;
+      const state = resolveStreamState(connected, error, hasSession);
+      if (state === 'idle') return <IdleTaxonomyPreview sessionId={sessionId} />;
+      if (state === 'live') return <ListeningState sessionId={sessionId} />;
+      if (state === 'opening') return <OpeningState />;
+      return (
+        <OfflineState
+          message={error ? `${error}. Check Settings → CallPilot → server URL.` : undefined}
+        />
+      );
+    }
+    return <IntelligenceWorkspace cards={cards} mode={mode} />;
   }
 
-  if (!cards.length) {
-    const state = resolveStreamState(connected, error, hasSession);
-    if (state === 'idle') return <IdleTaxonomyPreview sessionId={sessionId} />;
-    if (state === 'live') return <ListeningState sessionId={sessionId} />;
-    if (state === 'opening') return <OpeningState />;
-    return (
-      <OfflineState
-        message={
-          error
-            ? `${error}. Check Settings → CallPilot → server URL.`
-            : undefined
-        }
-      />
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-4">
-      {productCards.length > 0 ? (
-        <ProductWorkspace products={productCards} mode="live" />
-      ) : (
-        <ProductEmptyState mode="live" />
-      )}
-      {signalCards.length > 0 && (
-        <motion.ul
-          className="flex flex-col gap-2"
-          variants={reduceMotion ? undefined : stagger(0.07)}
-          initial="initial"
-          animate="animate"
-        >
-          <AnimatePresence initial={false}>
-            {signalCards.map((card, i) => (
-              <motion.li
-                key={`${card.type}-${i}-${card.title}`}
-                variants={reduceMotion ? undefined : fadeUp}
-                transition={reduceMotion ? undefined : { duration: 0.24, ease: EASE_OUT }}
-              >
-                <IntelligenceCardItem card={card} />
-              </motion.li>
-            ))}
-          </AnimatePresence>
-        </motion.ul>
-      )}
-    </div>
-  );
-};
-
-const IntelligenceCardItem: React.FC<{ card: IntelligenceCard }> = ({ card }) => {
-  const [open, setOpen] = useState(false);
-  const meta = TYPE_META[card.type] ?? { icon: <MessageCircle className="h-4 w-4" strokeWidth={2} />, label: card.type };
-  const hasChunks = card.chunks && card.chunks.length > 0;
-  const reduceMotion = useReducedMotion();
-
-  return (
-    <div
-      className={`rounded-xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] shadow-xs overflow-hidden ${SEVERITY_BORDER[card.severity]}`}
-    >
-      <div className="p-4">
-        {/* Label row - type badge + priority chip, each in the severity accent. */}
-        <div className="flex items-center justify-between gap-2">
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-full bg-[var(--intel-type-bg)] px-2.5 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] ${SEVERITY_ACCENT[card.severity]}`}
-          >
-            {meta.icon}
-            {meta.label}
-          </span>
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-full border border-[var(--opaline-tone-8)] px-2.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.1em] ${SEVERITY_ACCENT[card.severity]}`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${SEVERITY_DOT[card.severity]}`} aria-hidden />
-            {card.severity}
-          </span>
-        </div>
-
-        {/* Title - largest text in the card, heaviest weight. */}
-        <div className="mt-2 text-[15px] font-bold leading-snug text-[var(--opaline-on-surface)]">
-          {card.title}
-        </div>
-
-        {/* Body - medium weight, muted, comfortable leading. */}
-        {card.body && (
-          <div className="mt-1.5 text-[13px] leading-[1.5] whitespace-pre-wrap text-[var(--opaline-on-surface-variant)]">
-            {card.body}
-          </div>
-        )}
-
-        {/* Footer - hairline divider, smallest muted type, animated expand. */}
-        {hasChunks && (
-          <div className="mt-3 border-t border-[var(--opaline-outline-variant)] pt-2.5">
-            <button
-              type="button"
-              onClick={() => setOpen((o) => !o)}
-              aria-expanded={open}
-              className="inline-flex items-center gap-1 font-mono text-[11px] text-[var(--opaline-on-surface-variant)] transition-colors hover:text-[var(--opaline-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--opaline-primary)]"
-            >
-              <span
-                className={`transition-transform duration-fast ease-out ${open ? 'rotate-180' : ''}`}
-              >
-                <ChevronDown className="h-3 w-3" />
-              </span>
-              View sources ({card.chunks.length})
-            </button>
-            <AnimatePresence initial={false}>
-              {open && (
-                <motion.ul
-                  initial={reduceMotion ? false : { height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={reduceMotion ? undefined : { height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2, ease: EASE_OUT }}
-                  className="overflow-hidden"
-                >
-                  <div className="mt-2 space-y-2">
-                    {card.chunks.map((chunk, i) => (
-                      <li
-                        key={i}
-                        className="border-l-2 border-[var(--opaline-outline-variant)] pl-2 text-xs text-[var(--opaline-on-surface-variant)]"
-                      >
-                        {chunk}
-                      </li>
-                    ))}
-                  </div>
-                </motion.ul>
-              )}
-            </AnimatePresence>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  // Idle (no session): taxonomy preview.
+  return <IdleTaxonomyPreview sessionId={sessionId} />;
 };
