@@ -26,6 +26,7 @@ use super::{
 use super::transcription::{
     self,
     reset_speech_detected_flag,
+    transcription_task_active,
 };
 
 // Re-export TranscriptUpdate for backward compatibility
@@ -848,7 +849,11 @@ pub async fn is_recording() -> bool {
 pub async fn get_transcription_status() -> TranscriptionStatus {
     TranscriptionStatus {
         chunks_in_queue: 0,
-        is_processing: IS_RECORDING.load(Ordering::SeqCst),
+        // Real completion signal: true while the transcription task is still
+        // processing queued chunks (the previous stub always reported idle,
+        // so the frontend stopped saving before the tail of the call was
+        // transcribed). Set by the worker and cleared when it finishes.
+        is_processing: transcription_task_active(),
         last_activity_ms: 0,
     }
 }

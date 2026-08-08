@@ -17,6 +17,18 @@ static SEQUENCE_COUNTER: AtomicU64 = AtomicU64::new(0);
 // Speech detection flag - reset per recording session
 static SPEECH_DETECTED_EMITTED: AtomicBool = AtomicBool::new(false);
 
+// True while the transcription task is running (queued chunks may still be
+// processing). The frontend polls `get_transcription_status` during the
+// stop flow; this flag makes that poll reflect reality instead of the
+// previous stub that always reported idle, so the final transcript no
+// longer races ahead of the tail of the recording.
+static TRANSCRIPTION_TASK_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Whether the transcription task is still processing queued chunks.
+pub fn transcription_task_active() -> bool {
+    TRANSCRIPTION_TASK_ACTIVE.load(Ordering::SeqCst)
+}
+
 /// Reset the speech detected flag for a new recording session
 pub fn reset_speech_detected_flag() {
     SPEECH_DETECTED_EMITTED.store(false, Ordering::SeqCst);
@@ -47,6 +59,7 @@ pub fn start_transcription_task<R: Runtime>(
     transcription_receiver: tokio::sync::mpsc::UnboundedReceiver<AudioChunk>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        TRANSCRIPTION_TASK_ACTIVE.store(true, Ordering::SeqCst);
         info!("🚀 Starting optimized parallel transcription task - guaranteeing zero chunk loss");
 
         // Initialize transcription engine (Whisper or Parakeet based on config)
@@ -54,6 +67,7 @@ pub fn start_transcription_task<R: Runtime>(
             Ok(engine) => engine,
             Err(e) => {
                 error!("Failed to initialize transcription engine: {}", e);
+                TRANSCRIPTION_TASK_ACTIVE.store(false, Ordering::SeqCst);
                 let _ = app.emit("transcription-error", serde_json::json!({
                     "error": e,
                     "userMessage": "Recording failed: Unable to initialize speech recognition. Please check your model settings.",
@@ -111,10 +125,48 @@ pub fn start_transcription_task<R: Runtime>(
                 }
 
                 loop {
-                    // Try to get a chunk to process
+                    // Try to get a chunk to process.
+                    //
+                    // STALE-INTERIM SKIPPING: the pipeline emits an interim
+                    // (partial) transcription every ~300ms while the speaker
+                    // is mid-turn, but a single CPU transcription pass can
+                    // take longer than that. With the unbounded queue + one
+                    // serial worker, every queued partial would be
+                    // transcribed one after another and the UI would trail
+                    // the speaker by the whole backlog (each partial is also
+                    // superseded by the next, so that work is wasted). When
+                    // the chunk at the head is an interim and newer chunks
+                    // are already queued, drop the stale interims and keep
+                    // the newest one. Finals are never dropped - a final in
+                    // the drain stops it and is processed immediately.
                     let chunk = {
                         let mut receiver = work_receiver_clone.lock().await;
-                        receiver.recv().await
+                        let mut chunk = receiver.recv().await;
+                        if let Some(head) = &chunk {
+                            if head.is_partial {
+                                loop {
+                                    match receiver.try_recv() {
+                                        Ok(next) if next.is_partial => {
+                                            // Stale interim superseded - drop
+                                            // it and count it as completed so
+                                            // progress accounting stays sane.
+                                            chunks_completed_clone.fetch_add(1, Ordering::SeqCst);
+                                            chunk = Some(next);
+                                        }
+                                        Ok(next) => {
+                                            // A final queued behind the
+                                            // interim: drop the interim,
+                                            // process the final.
+                                            chunks_completed_clone.fetch_add(1, Ordering::SeqCst);
+                                            chunk = Some(next);
+                                            break;
+                                        }
+                                        Err(_) => break, // queue empty - process what we have
+                                    }
+                                }
+                            }
+                        }
+                        chunk
                     };
 
                     match chunk {
@@ -400,6 +452,17 @@ pub fn start_transcription_task<R: Runtime>(
         }
 
         info!("✅ Parallel transcription task completed - all workers finished, ready for model unload");
+
+        // The full transcription pipeline is done: every queued chunk has
+        // been transcribed and its transcript-update emitted. Signal the
+        // frontend (it listens for 'transcription-complete') and clear the
+        // active flag so get_transcription_status reports idle.
+        TRANSCRIPTION_TASK_ACTIVE.store(false, Ordering::SeqCst);
+        let _ = app.emit("transcription-complete", serde_json::json!({
+            "message": "All transcription chunks processed",
+            "chunks_completed": chunks_completed.load(Ordering::SeqCst)
+        }));
+        info!("📡 Emitted transcription-complete, task active flag cleared");
     })
 }
 

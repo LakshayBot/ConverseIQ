@@ -547,7 +547,11 @@ app.MapGet("/api/v1/meetings/{id:guid}/transcripts", async (Guid id, CallPilotDb
             ts.Confidence,
             ts.IsFinal,
             ts.Sequence,
-            ts.CreatedAt
+            ts.CreatedAt,
+            // Recording-relative offsets - the desktop renders these as the
+            // [MM:SS] transcript column; without them every segment shows 00:00.
+            ts.StartOffset,
+            ts.EndOffset
         })
         .ToListAsync();
 
