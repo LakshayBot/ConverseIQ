@@ -1,37 +1,50 @@
 'use client';
 
-// VirtualizedTranscriptView - live transcript feed.
+// VirtualizedTranscriptView - live + historical transcript feed.
 //
-// Reference for the visual language: a court-reporter's live feed / broadcast
-// subtitles. Dense, calm, focused. The signature element is a 3px-wide
-// left-edge bar in the brand gradient on the active (most-recent) row, plus
-// a soft 1ch-wide breathing caret that follows the in-flight partial. They
-// both communicate "things are happening right now" without ever demanding
-// attention.
+// Court-reporter visual language: dense, calm, focused. The signature
+// element is a 3px-wide left-edge bar on the active (most-recent) row,
+// plus a breathing caret that follows the in-flight partial.
 //
-// Tokens (in addition to the existing app palette):
-//   --ink-900  #0f172a   final transcript text
-//   --ink-500  #64748b   partial (in-progress) text
-//   --ink-300  #cbd5e1   timestamps, dividers
-//   --rep      #10b981   REP speaker chip
-//   --prospect #0ea5e9   PROSPECT speaker chip
-//   brand gradient (blue→indigo→violet) - the "now" indicator
+// Detected PRODUCT entities (from the Intelligence rail) are highlighted
+// wherever they appear in the text - passive tint by default, solid
+// accent when that occurrence is the active one. The transcript and the
+// Intelligence rail share one selection (IntelligenceSelectionContext):
+// clicking a rail product scrolls to its latest mention; clicking a
+// mention selects the product in the rail.
 //
 // Performance:
-//   - Virtualizer uses dynamic measurement so row heights match real content
-//     (partials are typically one line, finals can be two).
-//   - Overscan dropped from 10 → 5 (still smooth, less re-render work).
-//   - The text-row component is React.memo so re-renders only re-paint
-//     the row whose data actually changed.
+//   - Occurrences are precomputed per (segments, products) change in
+//     transcriptEntities.ts - never searched per render.
+//   - The row component is React.memo; only rows whose parts/active
+//     state changed re-paint.
 
-import { useCallback, useRef, useReducer, startTransition, useEffect, memo } from 'react';
+import {
+  useCallback,
+  useRef,
+  useReducer,
+  startTransition,
+  useEffect,
+  useMemo,
+  useState,
+  memo,
+} from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { useReducedMotion } from 'framer-motion';
 import { useAutoScroll } from '@/hooks/useAutoScroll';
 import { ConfidenceIndicator } from './ConfidenceIndicator';
 import { SpeakerDot } from './SpeakerDot';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { RecordingStatusBar } from './RecordingStatusBar';
 import { TranscriptSegmentData } from '@/types';
+import { useIntelligenceSelection } from '@/contexts/IntelligenceSelectionContext';
+import {
+  buildTranscriptEntityMap,
+  splitTextByOccurrences,
+  type TextPart,
+  type TranscriptEntityOccurrence,
+} from '@/lib/transcriptEntities';
+import { cn } from '@/lib/utils';
 
 // Threshold for enabling virtualization (below this, use simple rendering)
 const VIRTUALIZATION_THRESHOLD = 10;
@@ -40,7 +53,7 @@ const BRAND_GRADIENT =
   'linear-gradient(180deg, var(--opaline-primary) 0%, var(--opaline-primary-hover) 100%)';
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Format helpers
+// Format + display helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
 /** Recording-relative time as MM:SS. No brackets - the timestamp is its own
@@ -53,15 +66,53 @@ function formatRecordingTime(seconds: number | undefined): string {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
-/** Soft-filler cleanup ("uh", "um") so the live feed reads cleanly. Final
- *  segment text only - partials stay verbatim so the user sees the current
- *  utterance as it is. */
+/** Soft-filler cleanup ("uh", "um") so the feed reads cleanly. Final
+ *  segment text only - partials stay verbatim. */
 function cleanStopWords(text: string): string {
   return text
     .replace(/\b(uh|um|er|ah|hmm|hm|eh|oh)[,\s]*/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+/** The exact text the row renders - entity occurrences are computed on
+ *  this, so offsets always align with what the user sees. */
+export function transcriptDisplayText(segment: TranscriptSegmentData): string {
+  const text = segment.text ?? '';
+  if (segment.is_partial) return text || '…';
+  return cleanStopWords(text) || (text.trim() === '' ? '[Silence]' : text);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Entity highlight - inline button span inside the transcript text.
+// ──────────────────────────────────────────────────────────────────────────────
+
+const EntityHighlight = memo(function EntityHighlight({
+  part,
+  active,
+  onEntityClick,
+}: {
+  part: TextPart;
+  active: boolean;
+  onEntityClick: (occ: TranscriptEntityOccurrence) => void;
+}) {
+  const occ = part.occurrence!;
+  return (
+    <button
+      type="button"
+      onClick={() => onEntityClick(occ)}
+      aria-label={`Product mention: ${occ.entityName}${occ.timestamp >= 0 ? ` at ${formatRecordingTime(occ.timestamp)}` : ''}`}
+      className={cn(
+        'mx-[1px] inline cursor-pointer rounded-[3px] px-[3px] transition-colors duration-fast focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)] focus-visible:ring-offset-1 [font:inherit] [line-height:inherit] [text-align:inherit]',
+        active
+          ? 'bg-[var(--opaline-primary)] text-[var(--opaline-on-primary)] underline decoration-[var(--opaline-on-primary)]/50 decoration-1 underline-offset-2'
+          : 'bg-[var(--opaline-primary-soft)] text-[var(--opaline-on-surface)] hover:bg-[var(--opaline-tone-12)]',
+      )}
+    >
+      {part.text}
+    </button>
+  );
+});
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Row component
@@ -70,41 +121,41 @@ function cleanStopWords(text: string): string {
 interface TranscriptRowProps {
   id: string;
   timestamp: number | undefined;
-  text: string;
+  parts: TextPart[];
   confidence?: number;
   isPartial: boolean;
   isActive: boolean;
+  hasEntityActive: boolean;
+  activeOccurrenceKey: string | null;
   showConfidence: boolean;
   audioSource?: 'mic' | 'system' | 'unknown';
+  onEntityClick: (occ: TranscriptEntityOccurrence) => void;
 }
+
+const activeKeyOf = (occ: TranscriptEntityOccurrence) => `${occ.segmentId}:${occ.startOffset}`;
 
 const TranscriptRow = memo(function TranscriptRow({
   id,
   timestamp,
-  text,
+  parts,
   confidence,
   isPartial,
   isActive,
+  hasEntityActive,
+  activeOccurrenceKey,
   showConfidence,
   audioSource,
+  onEntityClick,
 }: TranscriptRowProps) {
-  const isFinal = !isPartial;
-  // Final text gets filler cleanup; partial text stays verbatim so the
-  // speaker's mid-thought phrasing reads true.
-  const displayText = isFinal
-    ? cleanStopWords(text) || (text.trim() === '' ? '[Silence]' : text)
-    : text || (isPartial ? '…' : '[Silence]');
-
   const speakerSource: 'mic' | 'system' | 'unknown' | undefined = audioSource;
 
   // Figma dialogue layout: 24px speaker circle on the left, a column
-  // (timestamp on top, body text below) on the right. 12px gap between
-  // the circle and the column, 24px gap between consecutive turns.
+  // (timestamp on top, body text below) on the right.
   const circleSize = isPartial ? 20 : 24;
 
   // Text style:
-  //   - final:    sans-serif, --body-text, regular, 14px (Figma's body color)
-  //   - partial:  monospace, --nav-muted-text, italic, 13px (signals "transient")
+  //   - final:    sans-serif, --body-text, regular, 14px
+  //   - partial:  monospace, --nav-muted-text, italic, 13px (transient)
   const textClass = isPartial
     ? 'font-mono italic text-[13px] text-[var(--nav-muted-text)] leading-[22.75px]'
     : 'text-[14px] text-[var(--body-text)] leading-[22.75px]';
@@ -112,20 +163,24 @@ const TranscriptRow = memo(function TranscriptRow({
   return (
     <div
       id={`segment-${id}`}
-      className={`relative pl-3 pr-1 py-1.5 rounded-md transition-colors duration-fast ${
-        isActive ? 'bg-[var(--opaline-surface-container-low)]' : ''
-      }`}
+      className={cn(
+        'relative pl-3 pr-1 py-1.5 rounded-md transition-colors duration-fast',
+        hasEntityActive
+          ? 'bg-[var(--opaline-tone-4)]'
+          : isActive
+            ? 'bg-[var(--opaline-surface-container-low)]'
+            : '',
+      )}
     >
-      {isActive && (
+      {(isActive || hasEntityActive) && (
         <span
           aria-hidden
           className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full"
-          style={{ background: BRAND_GRADIENT }}
+          style={{ background: hasEntityActive ? 'var(--opaline-primary)' : BRAND_GRADIENT }}
         />
       )}
       <div className="flex items-start gap-3">
-        {/* Speaker circle - 24px (or 20px while partial). Figma's saturated
-            green (REP) / purple (PROSPECT). */}
+        {/* Speaker circle */}
         <Tooltip>
           <TooltipTrigger asChild>
             <span
@@ -162,7 +217,18 @@ const TranscriptRow = memo(function TranscriptRow({
             {formatRecordingTime(timestamp)}
           </div>
           <p className={`min-w-0 ${textClass}`}>
-            {displayText}
+            {parts.map((part, i) =>
+              part.occurrence ? (
+                <EntityHighlight
+                  key={`${part.occurrence.segmentId}:${part.occurrence.startOffset}`}
+                  part={part}
+                  active={activeKeyOf(part.occurrence) === activeOccurrenceKey}
+                  onEntityClick={onEntityClick}
+                />
+              ) : (
+                <span key={i}>{part.text}</span>
+              ),
+            )}
             {/* Live caret - breathes on the active partial row. */}
             {isPartial && isActive && (
               <span
@@ -195,6 +261,8 @@ export const VirtualizedTranscriptView: React.FC<{
   totalCount?: number;
   loadedCount?: number;
   onLoadMore?: () => void;
+  /** Detected product entity names - highlighted wherever they appear. */
+  products?: string[];
 }> = ({
   segments,
   isRecording = false,
@@ -209,14 +277,73 @@ export const VirtualizedTranscriptView: React.FC<{
   totalCount = 0,
   loadedCount = 0,
   onLoadMore,
+  products = [],
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
   const [, rerender] = useReducer((x: number) => x + 1, 0);
+  const reduceMotion = useReducedMotion();
+  const { selectedId, lastSource, select } = useIntelligenceSelection();
 
-  // Dynamic measurement so partial rows (single line) and final rows
-  // (often wrap to two) don't fight the fixed estimate. estimateSize is
-  // a fallback for the first render before measurement is available.
+  // ── Entity occurrence map - precomputed, never searched per render ──
+  const entityMap = useMemo(
+    () => buildTranscriptEntityMap(segments, products, transcriptDisplayText),
+    [segments, products],
+  );
+
+  const partsBySegment = useMemo(() => {
+    const map = new Map<string, TextPart[]>();
+    for (const seg of segments) {
+      const occs = entityMap.bySegmentId.get(seg.id);
+      if (occs && occs.length > 0) {
+        map.set(seg.id, splitTextByOccurrences(transcriptDisplayText(seg), occs));
+      }
+    }
+    return map;
+  }, [segments, entityMap]);
+
+  // ── Active occurrence - set by rail selection (scrolls) or by a
+  //    transcript click (already in view). ─────────────────────────────
+  const [activeOccurrenceKey, setActiveOccurrenceKey] = useState<string | null>(null);
+
+  const findLatest = useCallback(
+    (id: string): TranscriptEntityOccurrence | undefined => {
+      const key = id.toLowerCase();
+      for (const [name, occ] of entityMap.latestByEntityName) {
+        if (name.toLowerCase() === key) return occ;
+      }
+      return undefined;
+    },
+    [entityMap],
+  );
+
+  useEffect(() => {
+    if (!selectedId || lastSource !== 'rail') return;
+    const latest = findLatest(selectedId);
+    if (!latest) return;
+    setActiveOccurrenceKey(activeKeyOf(latest));
+    if (segments.length >= VIRTUALIZATION_THRESHOLD) {
+      virtualizer.scrollToIndex(latest.segmentIndex, { align: 'center' });
+    } else {
+      requestAnimationFrame(() => {
+        document
+          .getElementById(`segment-${latest.segmentId}`)
+          ?.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, lastSource, findLatest, segments.length, reduceMotion]);
+
+  const handleEntityClick = useCallback(
+    (occ: TranscriptEntityOccurrence) => {
+      setActiveOccurrenceKey(activeKeyOf(occ));
+      select(occ.entityName, 'transcript');
+    },
+    [select],
+  );
+
+  // Dynamic measurement so partial rows and final rows don't fight the
+  // fixed estimate.
   const virtualizer = useVirtualizer({
     count: segments.length,
     getScrollElement: () => scrollRef.current,
@@ -240,8 +367,8 @@ export const VirtualizedTranscriptView: React.FC<{
     disableAutoScroll,
   });
 
-  // The "active" row is the most-recent segment - it's the one that gets the
-  // pulsing left-edge bar + caret. Reference equality on the last segment.
+  // The "active" row is the most-recent segment - it gets the pulsing
+  // left-edge bar + caret. Reference equality on the last segment.
   const lastIndex = segments.length - 1;
   const lastSegment = lastIndex >= 0 ? segments[lastIndex] : null;
 
@@ -267,30 +394,36 @@ export const VirtualizedTranscriptView: React.FC<{
   }, [hasMore, isLoadingMore, onLoadMore, isRecording, segments.length]);
 
   const renderItem = useCallback(
-    (segment: TranscriptSegmentData, index: number, isActive: boolean) => (
-      <TranscriptRow
-        key={segment.id}
-        id={segment.id}
-        timestamp={segment.timestamp}
-        text={segment.text}
-        confidence={segment.confidence}
-        isPartial={segment.is_partial ?? false}
-        isActive={isActive}
-        showConfidence={showConfidence}
-        audioSource={segment.audioSource as 'mic' | 'system' | 'unknown' | undefined}
-      />
-    ),
-    [showConfidence]
+    (segment: TranscriptSegmentData, index: number, isActive: boolean) => {
+      const parts = partsBySegment.get(segment.id);
+      const hasEntityActive = parts?.some(
+        (p) => p.occurrence && activeKeyOf(p.occurrence) === activeOccurrenceKey,
+      );
+      return (
+        <TranscriptRow
+          key={segment.id}
+          id={segment.id}
+          timestamp={segment.timestamp}
+          parts={parts ?? [{ text: transcriptDisplayText(segment) }]}
+          confidence={segment.confidence}
+          isPartial={segment.is_partial ?? false}
+          isActive={isActive}
+          hasEntityActive={!!hasEntityActive}
+          activeOccurrenceKey={activeOccurrenceKey}
+          showConfidence={showConfidence}
+          audioSource={segment.audioSource as 'mic' | 'system' | 'unknown' | undefined}
+          onEntityClick={handleEntityClick}
+        />
+      );
+    },
+    [partsBySegment, activeOccurrenceKey, handleEntityClick, showConfidence],
   );
 
   // Streaming flag is intentionally ignored now - the typewriter was the
-  // bottleneck. The prop is kept for API compat (callers don't need to
-  // change) but no animation runs.
+  // bottleneck. The prop is kept for API compat.
   void enableStreaming;
 
-  // RecordingStatusBar must only render during an active session. It reads
-  // `isRecording` from RecordingStateContext internally, so without this
-  // gate the bar would show "Recording • 0:00" on every idle page-load.
+  // RecordingStatusBar must only render during an active session.
   const showStatusBar = isRecording || isPaused || isProcessing || isStopping;
 
   if (segments.length < VIRTUALIZATION_THRESHOLD) {

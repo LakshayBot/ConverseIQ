@@ -18,18 +18,20 @@
 // The intelligence panel used here reads from the same `IntelligenceCard`
 // type the live panel consumes, so card styling is identical.
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LoaderIcon } from 'lucide-react';
 import { VirtualizedTranscriptView } from '@/components/VirtualizedTranscriptView';
 import { IntelligencePanel } from '@/components/IntelligencePanel';
 import { CollapsibleRail } from '@/components/CollapsibleRail';
+import { IntelligenceSelectionProvider } from '@/contexts/IntelligenceSelectionContext';
 import { TranscriptSegmentData } from '@/types';
 import Analytics from '@/lib/analytics';
 import {
   getEventsForMeeting,
   getRecommendationsForMeeting,
   buildPastIntelligenceCards,
+  entityDisplayName,
   PastConversationEvent,
   PastRecommendation,
 } from '@/lib/callpilotApi';
@@ -68,6 +70,15 @@ const PageContent: React.FC<PageContentProps> = ({
   const [pastCards, setPastCards] = useState<ReturnType<typeof buildPastIntelligenceCards>>([]);
   const [cardsLoading, setCardsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'transcript' | 'summary'>('transcript');
+
+  // Product entities for transcript highlighting - the PRODUCTS rail
+  // identity, deduped.
+  const productNames = useMemo(() => {
+    const names = pastCards
+      .filter((c) => c.type === 'product_match')
+      .map((c) => entityDisplayName(c.title));
+    return Array.from(new Set(names));
+  }, [pastCards]);
 
   useEffect(() => {
     Analytics.trackPageView('meeting_details');
@@ -109,7 +120,8 @@ const PageContent: React.FC<PageContentProps> = ({
   }
 
   return (
-    <div className="flex flex-col h-screen bg-[var(--grain-paper)]">
+    <IntelligenceSelectionProvider key={meeting.id}>
+      <div className="flex flex-col h-screen bg-[var(--grain-paper)]">
       {/* Header - breadcrumb + actions row + tab strip, Figma style. */}
       <header className="bg-[var(--opaline-surface-container-lowest)] border-b border-[var(--hairline)]">
         <div className="flex items-center justify-between px-6 py-4">
@@ -194,6 +206,7 @@ const PageContent: React.FC<PageContentProps> = ({
                   totalCount={totalCount}
                   loadedCount={loadedCount}
                   onLoadMore={onLoadMore}
+                  products={productNames}
                 />
               </div>
             </div>
@@ -241,7 +254,8 @@ const PageContent: React.FC<PageContentProps> = ({
           </CollapsibleRail>
         </div>
       </main>
-    </div>
+      </div>
+    </IntelligenceSelectionProvider>
   );
 };
 

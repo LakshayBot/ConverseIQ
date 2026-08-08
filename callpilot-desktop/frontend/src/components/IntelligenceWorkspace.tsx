@@ -38,6 +38,7 @@ import {
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import type { IntelligenceCard } from '@/lib/callpilotApi';
 import { entityDisplayName } from '@/lib/callpilotApi';
+import { useIntelligenceSelection } from '@/contexts/IntelligenceSelectionContext';
 import { cn } from '@/lib/utils';
 import { EASE_OUT } from '@/lib/motion';
 
@@ -94,8 +95,7 @@ interface IntelligenceWorkspaceProps {
 }
 
 export const IntelligenceWorkspace: React.FC<IntelligenceWorkspaceProps> = ({ cards, mode }) => {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const manualRef = useRef(false);
+  const { selectedId, select, selectAuto, manualRef } = useIntelligenceSelection();
   const reduceMotion = useReducedMotion();
 
   // Normalize to chronological order (both live and history arrive
@@ -103,20 +103,26 @@ export const IntelligenceWorkspace: React.FC<IntelligenceWorkspaceProps> = ({ ca
   const chronological = React.useMemo(() => [...cards].reverse(), [cards]);
   const railRefs = useRef<Record<string, HTMLElement | null>>({});
 
+  // The shared identity is the ENTITY NAME - rail cards, the detail panel
+  // and transcript highlights all refer to the same entity.
+  const entityNameOf = (card: IntelligenceCard) => entityDisplayName(card.title);
+
   // "New" indication + rail auto-scroll for freshly arrived items (live).
   const knownTitlesRef = useRef<Set<string>>(new Set());
   const [newTitles, setNewTitles] = useState<Set<string>>(new Set());
   useEffect(() => {
     if (mode !== 'live') return;
     const known = knownTitlesRef.current;
-    const added = cards.filter((c) => !known.has(c.title)).map((c) => c.title);
+    const added = cards
+      .filter((c) => !known.has(entityNameOf(c)))
+      .map((c) => entityNameOf(c));
     added.forEach((t) => known.add(t));
     if (added.length === 0) return;
     setNewTitles((prev) => new Set([...prev, ...added]));
 
     requestAnimationFrame(() => {
-      added.forEach((title) => {
-        railRefs.current[title]?.scrollIntoView({
+      added.forEach((name) => {
+        railRefs.current[name]?.scrollIntoView({
           block: 'nearest',
           inline: 'nearest',
           behavior: reduceMotion ? 'auto' : 'smooth',
@@ -132,38 +138,38 @@ export const IntelligenceWorkspace: React.FC<IntelligenceWorkspaceProps> = ({ ca
       });
     }, 4000);
     return () => window.clearTimeout(timer);
-  }, [cards, mode, reduceMotion]);
+  }, [cards, mode, reduceMotion, entityNameOf]);
 
   // Default selection: latest product; otherwise latest item of the
-  // first non-empty category. Manual selections are never overridden.
+  // first non-empty category. Automatic selection never overrides a
+  // manual one (the manual flag lives in the shared context so transcript
+  // clicks lock it too).
   const byCategory = React.useMemo(() => dedupeByCategory(chronological), [chronological]);
   useEffect(() => {
     if (chronological.length === 0) {
-      setSelectedId(null);
+      if (selectedId != null && selectedId !== '') selectAuto('');
       return;
     }
     if (manualRef.current) return;
-    setSelectedId((prev) => {
-      if (prev && chronological.some((c) => c.title === prev)) return prev;
-      const latestProduct = byCategory.products?.[byCategory.products.length - 1];
-      if (latestProduct) return latestProduct.title;
-      const firstNonEmpty = CATEGORY_ORDER.find((cat) => (byCategory[cat.key]?.length ?? 0) > 0);
-      const items = firstNonEmpty ? byCategory[firstNonEmpty.key] : chronological;
-      return items[items.length - 1].title;
-    });
-  }, [chronological, byCategory]);
+    const latestProduct = byCategory.products?.[byCategory.products.length - 1];
+    const latestProductName = latestProduct ? entityNameOf(latestProduct) : null;
+    if (latestProductName) {
+      if (latestProductName !== selectedId) selectAuto(latestProductName);
+      return;
+    }
+    const firstNonEmpty = CATEGORY_ORDER.find((cat) => (byCategory[cat.key]?.length ?? 0) > 0);
+    const items = firstNonEmpty ? byCategory[firstNonEmpty.key] : chronological;
+    const target = items.length > 0 ? entityNameOf(items[items.length - 1]) : '';
+    if (target && target !== selectedId) selectAuto(target);
+  }, [chronological, byCategory, selectedId, selectAuto, manualRef, entityNameOf]);
 
   // The selected card is resolved from the deduped groups so the detail
   // shows the merged intelligence (e.g. event + recommendation for a
   // product entity), not just the raw first occurrence.
   const selected =
-    (Object.values(byCategory) as IntelligenceCard[][]).flat().find((c) => c.title === selectedId) ??
-    null;
-
-  const select = (title: string) => {
-    manualRef.current = true;
-    setSelectedId(title);
-  };
+    (Object.values(byCategory) as IntelligenceCard[][]).flat().find(
+      (c) => entityNameOf(c).toLowerCase() === (selectedId ?? '').toLowerCase(),
+    ) ?? null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -188,7 +194,7 @@ export const IntelligenceWorkspace: React.FC<IntelligenceWorkspaceProps> = ({ ca
                 railRef={(title, el) => {
                   railRefs.current[title] = el;
                 }}
-                onSelect={select}
+                onSelect={(name) => select(name, 'rail')}
               />
             </div>
           );
@@ -253,7 +259,7 @@ interface CategoryRailProps {
   selectedId: string | null;
   newTitles: Set<string>;
   mode: 'live' | 'history';
-  railRef: (title: string, el: HTMLElement | null) => void;
+  railRef: (entityName: string, el: HTMLElement | null) => void;
   onSelect: (title: string) => void;
 }
 
@@ -297,7 +303,7 @@ const CategoryRail: React.FC<CategoryRailProps> = ({
     const idx = items.findIndex((c) => c.title === selectedId);
     const next =
       e.key === 'ArrowRight' ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
-    onSelect(items[next].title);
+    onSelect(entityDisplayName(items[next].title));
     const itemsEl = scrollRef.current?.querySelectorAll<HTMLElement>('[data-signal-item]');
     itemsEl?.[next]?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' });
   };
@@ -332,11 +338,11 @@ const CategoryRail: React.FC<CategoryRailProps> = ({
                 <button
                   key={card.title}
                   data-signal-item
-                  ref={(el) => railRef(card.title, el)}
+                  ref={(el) => railRef(entityDisplayName(card.title), el)}
                   type="button"
                   role="option"
                   aria-selected={active}
-                  onClick={() => onSelect(card.title)}
+                  onClick={() => onSelect(entityDisplayName(card.title))}
                   title={name}
                   className={cn(
                     'flex h-8 max-w-[190px] shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-[12px] font-medium transition-colors duration-fast focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]',
@@ -361,11 +367,11 @@ const CategoryRail: React.FC<CategoryRailProps> = ({
               <button
                 key={card.title}
                 data-signal-item
-                ref={(el) => railRef(card.title, el)}
+                ref={(el) => railRef(entityDisplayName(card.title), el)}
                 type="button"
                 role="option"
                 aria-selected={active}
-                onClick={() => onSelect(card.title)}
+                onClick={() => onSelect(entityDisplayName(card.title))}
                 title={name}
                 className={cn(
                   'flex min-h-[74px] w-[136px] shrink-0 flex-col items-start gap-1 rounded-lg border p-2.5 text-left transition-colors duration-fast focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]',

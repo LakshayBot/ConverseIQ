@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RecordingControls } from '@/components/RecordingControls';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
@@ -10,6 +10,8 @@ import { useTranscripts } from '@/contexts/TranscriptContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import { StatusOverlays } from '@/app/_components/StatusOverlays';
 import Analytics from '@/lib/analytics';
+import { entityDisplayName } from '@/lib/callpilotApi';
+import { IntelligenceSelectionProvider } from '@/contexts/IntelligenceSelectionContext';
 import { SettingsModals } from './_components/SettingsModal';
 import { TranscriptPanel } from './_components/TranscriptPanel';
 import { IntelligencePanel } from '@/components/IntelligencePanel';
@@ -136,6 +138,15 @@ export default function Home() {
 
   const { cards: intelligenceCards, connected: intelligenceConnected, error: intelligenceError } =
     useIntelligenceStream(sessionId);
+
+  // Product entities for live transcript highlighting (the PRODUCTS rail
+  // identity, deduped).
+  const productNames = useMemo(() => {
+    const names = intelligenceCards
+      .filter((c) => c.type === 'product_match')
+      .map((c) => entityDisplayName(c.title));
+    return Array.from(new Set(names));
+  }, [intelligenceCards]);
 
   useEffect(() => {
     // Track page view
@@ -367,6 +378,7 @@ export default function Home() {
         </div>
       </header>
 
+      <IntelligenceSelectionProvider>
       <div className="relative flex flex-1 overflow-hidden">
         {/* Transcript column. `relative` anchors the floating mic button so it
            stays centered within THIS column on every viewport - independent of
@@ -386,6 +398,7 @@ export default function Home() {
                   isProcessingStop={isProcessingStop}
                   isStopping={isStopping}
                   showModal={showModal}
+                  products={productNames}
                 />
               </motion.div>
             ) : (
@@ -470,6 +483,7 @@ export default function Home() {
           sidebarCollapsed={sidebarCollapsed}
         />
       </div>
+      </IntelligenceSelectionProvider>
     </div>
   );
 }
