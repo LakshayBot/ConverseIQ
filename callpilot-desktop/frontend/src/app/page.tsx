@@ -13,6 +13,7 @@ import Analytics from '@/lib/analytics';
 import { SettingsModals } from './_components/SettingsModal';
 import { TranscriptPanel } from './_components/TranscriptPanel';
 import { IntelligencePanel } from '@/components/IntelligencePanel';
+import { CollapsibleRail } from '@/components/CollapsibleRail';
 import { useIntelligenceStream } from '@/hooks/useIntelligenceStream';
 import { useModalState } from '@/hooks/useModalState';
 import { useRecordingStateSync } from '@/hooks/useRecordingStateSync';
@@ -349,7 +350,7 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="relative flex flex-1 overflow-hidden">
         {/* Transcript column. `relative` anchors the floating mic button so it
            stays centered within THIS column on every viewport - independent of
            the sidebar width and the right-side intelligence aside. */}
@@ -420,25 +421,27 @@ export default function Home() {
               </div>
             )}
         </div>
-        <aside className="hidden lg:flex w-[340px] flex-col border-l border-[var(--opaline-outline-variant)] bg-[var(--grain-paper)]">
-          <div className="sticky top-0 z-10 flex items-baseline justify-between border-b border-[var(--opaline-outline-variant)] bg-[var(--grain-paper)] px-5 pt-4 pb-3">
-            <h2 className="text-overline">Intelligence</h2>
-            <span
-              className={`status-pill !px-2 !py-0.5 ${intelligenceConnected ? 'status-pill--live' : ''}`}
-            >
-              <span className="pill-dot" aria-hidden />
-              {intelligenceConnected ? 'live' : 'idle'}
-            </span>
-          </div>
-          <div className="custom-scrollbar flex-1 overflow-y-auto px-4 pb-8 pt-4">
-            <IntelligencePanel
-              cards={intelligenceCards}
-              connected={intelligenceConnected}
-              error={intelligenceError}
-              sessionId={sessionId}
-            />
-          </div>
-        </aside>
+        <CollapsibleRail
+          label="Intelligence"
+          header={
+            <>
+              <h2 className="text-overline">Intelligence</h2>
+              <span
+                className={`status-pill !px-2 !py-0.5 ${intelligenceConnected ? 'status-pill--live' : ''}`}
+              >
+                <span className="pill-dot" aria-hidden />
+                {intelligenceConnected ? 'live' : 'idle'}
+              </span>
+            </>
+          }
+        >
+          <IntelligencePanel
+            cards={intelligenceCards}
+            connected={intelligenceConnected}
+            error={intelligenceError}
+            sessionId={sessionId}
+          />
+        </CollapsibleRail>
 
         {/* Status Overlays - Processing and Saving */}
         <StatusOverlays

@@ -5,23 +5,16 @@
 // Two states:
 //   - Collapsed (64px rail): 32px avatar circle only.
 //   - Expanded (256px rail): avatar + email + chevron, click opens a small
-//     popover containing Sign out.
+//     popover containing the appearance switcher and Sign out.
 //
-// The avatar uses a deterministic gradient derived from the email hash so
-// every account gets a stable, distinct colour without an uploaded avatar
-// or Gravatar hop. Letter glyph is the first character of the local-part.
-//
-// Popover surface: the default PopoverContent uses `bg-popover` which
-// isn't a Tailwind color in this project (the Opaline override only
-// exposed the tokens we actually use). Without an explicit background
-// the popover renders transparent. `bg-[var(--opaline-surface-container-lowest)]` + a 1px hairline + a
-// soft shadow give the menu a clear opaque surface that matches the
-// rest of the sidebar.
+// The avatar is deterministic (Avatar component): the same email always
+// renders the same initials + color pair, with no external service.
 
 import React, { useMemo, useState } from 'react';
 import { LogOut, ChevronUp, Monitor, Sun, Moon, Check } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useAuth } from '@/contexts/AuthContext';
+import { Avatar } from '@/components/Avatar';
 import {
   type ThemePreference,
   getThemePreference,
@@ -61,12 +54,6 @@ function pickGradient(email: string): readonly [string, string] {
   return AVATAR_PALETTES[hashEmail(email.toLowerCase()) % AVATAR_PALETTES.length];
 }
 
-function avatarInitial(email: string): string {
-  const local = email.split('@')[0] ?? '';
-  const first = local.trim().charAt(0);
-  return first ? first.toUpperCase() : '?';
-}
-
 interface UserChipProps {
   collapsed: boolean;
 }
@@ -76,8 +63,7 @@ export const UserChip: React.FC<UserChipProps> = ({ collapsed }) => {
   const [open, setOpen] = useState(false);
 
   const email = session?.email ?? '';
-  const [from, to] = useMemo(() => pickGradient(email), [email]);
-  const initial = useMemo(() => avatarInitial(email), [email]);
+  const gradient = useMemo(() => pickGradient(email), [email]);
 
   // Collapsed: pure avatar circle, centered in the 64px rail.
   if (collapsed) {
@@ -88,12 +74,9 @@ export const UserChip: React.FC<UserChipProps> = ({ collapsed }) => {
             type="button"
             aria-label={email ? `Account: ${email}` : 'Account menu'}
             title={email || 'Account'}
-            className="group mx-auto flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold text-white shadow-sm ring-1 ring-[var(--opaline-tone-4)] transition-transform hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            style={{
-              backgroundImage: `linear-gradient(135deg, ${from}, ${to})`,
-            }}
+            className="group mx-auto flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            {initial}
+            <Avatar name={email} size="md" gradient={gradient} />
           </button>
         </PopoverTrigger>
         <PopoverContent
@@ -102,7 +85,7 @@ export const UserChip: React.FC<UserChipProps> = ({ collapsed }) => {
           sideOffset={8}
           className={POPOVER_SURFACE_CLASS}
         >
-          <UserMenu email={email} initial={initial} from={from} to={to} onSignOut={logout} />
+          <UserMenu email={email} gradient={gradient} onSignOut={logout} />
         </PopoverContent>
       </Popover>
     );
@@ -117,12 +100,7 @@ export const UserChip: React.FC<UserChipProps> = ({ collapsed }) => {
           aria-label="Account menu"
           className="group mt-2 flex w-full items-center gap-2.5 rounded-lg border border-transparent px-2 py-1.5 text-left transition-colors hover:border-[var(--opaline-outline-variant)] hover:bg-[var(--opaline-surface-container-low)] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white shadow-sm ring-1 ring-[var(--opaline-tone-4)]"
-            style={{ backgroundImage: `linear-gradient(135deg, ${from}, ${to})` }}
-          >
-            {initial}
-          </span>
+          <Avatar name={email} size="md" gradient={gradient} />
           <span className="min-w-0 flex-1 truncate text-sm text-[var(--opaline-on-surface-variant)]">
             {email || 'Signed in'}
           </span>
@@ -137,7 +115,7 @@ export const UserChip: React.FC<UserChipProps> = ({ collapsed }) => {
         sideOffset={8}
         className={POPOVER_SURFACE_CLASS}
       >
-        <UserMenu email={email} initial={initial} from={from} to={to} onSignOut={logout} />
+        <UserMenu email={email} gradient={gradient} onSignOut={logout} />
       </PopoverContent>
     </Popover>
   );
@@ -145,13 +123,11 @@ export const UserChip: React.FC<UserChipProps> = ({ collapsed }) => {
 
 interface UserMenuProps {
   email: string;
-  initial: string;
-  from: string;
-  to: string;
+  gradient: readonly [string, string];
   onSignOut: () => Promise<void>;
 }
 
-const UserMenu: React.FC<UserMenuProps> = ({ email, initial, from, to, onSignOut }) => {
+const UserMenu: React.FC<UserMenuProps> = ({ email, gradient, onSignOut }) => {
   const [theme, setTheme] = useState<ThemePreference>(() => getThemePreference());
 
   const appearanceOptions: Array<{
@@ -167,12 +143,7 @@ const UserMenu: React.FC<UserMenuProps> = ({ email, initial, from, to, onSignOut
   return (
     <div className="flex flex-col bg-[var(--opaline-surface-container-lowest)]">
       <div className="flex items-center gap-3 px-3 py-3">
-        <span
-          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white shadow-sm ring-1 ring-[var(--opaline-tone-4)]"
-          style={{ backgroundImage: `linear-gradient(135deg, ${from}, ${to})` }}
-        >
-          {initial}
-        </span>
+        <Avatar name={email} size="lg" gradient={gradient} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium text-[var(--opaline-on-surface)]">
             {email || 'Signed in'}

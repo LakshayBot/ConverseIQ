@@ -23,6 +23,7 @@ import { useRouter } from 'next/navigation';
 import { LoaderIcon } from 'lucide-react';
 import { VirtualizedTranscriptView } from '@/components/VirtualizedTranscriptView';
 import { IntelligencePanel } from '@/components/IntelligencePanel';
+import { CollapsibleRail } from '@/components/CollapsibleRail';
 import { TranscriptSegmentData } from '@/types';
 import Analytics from '@/lib/analytics';
 import {
@@ -171,7 +172,7 @@ const PageContent: React.FC<PageContentProps> = ({
       </header>
 
       <main className="flex-1 overflow-hidden">
-        <div className="flex h-full">
+        <div className="relative flex h-full">
           {/* Transcript column - fed by the page-level paginated hook, not
              by the empty live TranscriptContext. disableAutoScroll prevents
              the live-stream auto-scroll behaviour from fighting the user
@@ -204,29 +205,31 @@ const PageContent: React.FC<PageContentProps> = ({
              the transcript readable. The header is sticky so the section
              title stays visible while cards scroll beneath it; the content
              area scrolls independently (thin design-system scrollbar). */}
-          <aside className="custom-scrollbar hidden xl:flex w-[360px] flex-col border-l border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)] overflow-y-auto">
-            <div className="sticky top-0 z-10 flex items-baseline justify-between border-b border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)] px-4 pt-4 pb-3">
-              <h2 className="text-overline">Intelligence</h2>
-              <span className="text-data text-[var(--opaline-on-surface-variant)]">
-                {pastCards.length > 0 ? `${pastCards.length} card${pastCards.length === 1 ? '' : 's'}` : 'past'}
-              </span>
-            </div>
-            <div className="flex-1 px-4 pb-10 pt-3">
-              {cardsLoading ? (
-                <div className="flex items-center justify-center py-8 text-xs text-[var(--opaline-on-surface-variant)]">
-                  <LoaderIcon className="animate-spin size-4 mr-2" />
-                  Loading past intelligence…
-                </div>
-              ) : (
-                <IntelligencePanel
-                  cards={pastCards}
-                  connected={true}
-                  error={null}
-                  sessionId={meeting?.id ?? null}
-                />
-              )}
-            </div>
-          </aside>
+          <CollapsibleRail
+            label="Intelligence"
+            header={
+              <>
+                <h2 className="text-overline">Intelligence</h2>
+                <span className="text-data text-[var(--opaline-on-surface-variant)]">
+                  {pastCards.length > 0 ? `${pastCards.length} card${pastCards.length === 1 ? '' : 's'}` : 'past'}
+                </span>
+              </>
+            }
+          >
+            {cardsLoading ? (
+              <div className="flex items-center justify-center py-8 text-xs text-[var(--opaline-on-surface-variant)]">
+                <LoaderIcon className="animate-spin size-4 mr-2" />
+                Loading past intelligence…
+              </div>
+            ) : (
+              <IntelligencePanel
+                cards={pastCards}
+                connected={true}
+                error={null}
+                sessionId={meeting?.id ?? null}
+              />
+            )}
+          </CollapsibleRail>
         </div>
       </main>
     </div>
