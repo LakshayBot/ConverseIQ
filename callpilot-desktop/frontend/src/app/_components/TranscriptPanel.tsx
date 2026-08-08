@@ -50,7 +50,7 @@ export function TranscriptPanel({
   );
 
   return (
-    <div ref={transcriptContainerRef} className="w-full border-r border-[var(--grain-ink-200)] bg-[var(--grain-paper)] flex flex-col overflow-y-auto">
+    <div ref={transcriptContainerRef} className="h-full w-full border-r border-[var(--grain-ink-200)] bg-[var(--grain-paper)] flex flex-col overflow-y-auto">
       {/* Live recording indicator - thin colored line that breathes while
           a session is active. The signature of the Grain redesign: a quiet
           ambient signal that something is happening now, in the transcript

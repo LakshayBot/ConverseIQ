@@ -71,16 +71,31 @@ function formatDocTimestamp(iso: string | undefined): string {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-/** Maps a doc's processing/enrichment status to a health chip. */
-function docStatus(doc: KnowledgeDoc): { label: string; tone: 'success' | 'info' | 'danger' | 'neutral' } {
-  const p = (doc.processingStatus || '').toLowerCase();
-  const e = (doc.enrichmentStatus || '').toLowerCase();
-  if (p === 'completed' || p === 'ready') {
-    if (e === 'failed') return { label: 'Enrichment failed', tone: 'danger' };
-    return { label: 'Ready', tone: 'success' };
+/**
+ * Maps a doc's processing/enrichment status to a health chip. Uses the
+ * same vocabulary as the Knowledge tab: 'Indexed' = done, 'Error:*' =
+ * failed, 'No extractable text found' = warned; structured docs only
+ * read as Ready once enrichment has settled ('enriched'/'enrichment_failed'
+ * or a legacy doc that never started enrichment).
+ */
+function docStatus(
+  doc: KnowledgeDoc,
+): { label: string; tone: 'success' | 'info' | 'danger' | 'warning' } {
+  const p = String(doc.processingStatus || '');
+  const e = String(doc.enrichmentStatus || '');
+  const indexed = p === 'Indexed';
+  const failed = p.startsWith('Error:');
+
+  if (failed) return { label: 'Failed', tone: 'danger' };
+  if (p === 'No extractable text found') return { label: 'No text found', tone: 'warning' };
+  if (!indexed) return { label: 'Indexing…', tone: 'info' };
+
+  // Indexed - check the enrichment pass for structured docs.
+  if (doc.mode === 'structured') {
+    if (e === 'enrichment_failed') return { label: 'Enrichment failed', tone: 'danger' };
+    if (e && e !== 'enriched') return { label: 'Enriching…', tone: 'info' };
   }
-  if (p === 'failed' || p === 'error') return { label: 'Failed', tone: 'danger' };
-  return { label: 'Indexing…', tone: 'info' };
+  return { label: 'Ready', tone: 'success' };
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -100,7 +115,7 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({
   const recentDocs = useMemo(() => knowledgeDocs.slice(0, 5), [knowledgeDocs]);
 
   return (
-    <div className="flex-1 overflow-y-auto custom-scrollbar">
+    <div className="h-full overflow-y-auto custom-scrollbar">
       <div className="mx-auto max-w-2xl px-8 pb-10 pt-4">
         {/* ── 1. Start centerpiece ────────────────────────────────────── */}
         <motion.section
@@ -290,7 +305,7 @@ export const IdleMainPage: React.FC<IdleMainPageProps> = ({
                               ? 'chip-info'
                               : status.tone === 'danger'
                                 ? 'chip-danger'
-                                : 'chip-neutral'
+                                : 'chip-warning'
                         }`}
                       >
                         {status.label}
