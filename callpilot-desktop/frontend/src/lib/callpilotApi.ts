@@ -159,15 +159,22 @@ export async function postTranscriptText(meetingId: string, text: string): Promi
 }
 
 // ===== Intelligence cards =====
+//
+// Pure mapping from detection data to IntelligenceCards lives in
+// ./intelligenceCards (no Tauri deps, unit-testable). Re-exported here
+// for back-compat with the rest of the app.
 
-export interface IntelligenceCard {
-  type: 'competitor_detected' | 'objection' | 'buying_signal' |
-        'product_match' | 'pricing_discussion' | 'technical_question';
-  title: string;
-  body: string;
-  severity: 'high' | 'medium' | 'low';
-  chunks: string[];
-}
+import type {
+  IntelligenceCard,
+  PastConversationEvent,
+  PastRecommendation,
+} from './intelligenceCards';
+export type {
+  IntelligenceCard,
+  PastConversationEvent,
+  PastRecommendation,
+} from './intelligenceCards';
+export { entityDisplayName, buildPastIntelligenceCards } from './intelligenceCards';
 
 // ===== Test connection (uses the Rust-side test command directly) =====
 
@@ -198,146 +205,12 @@ export async function persistAiEngineUrl(url: string): Promise<void> {
   }
 }
 
-// ===== Past meeting intelligence (events + recommendations) =====
-//
-// Used by the meeting-details view to reconstruct the intelligence cards the
-// user saw during the live recording. Mirrors the SignalR payload shape that
-// `useIntelligenceStream` consumes (EventDetected + RecommendationGenerated).
-
-export interface PastConversationEvent {
-  id: string;
-  eventType: string;
-  entityName: string | null;
-  confidence: number;
-  supportingTranscript: string;
-  detectedAt: string;
-}
-
-export interface PastRecommendation {
-  id: string;
-  type: string;
-  title: string;
-  summary: string;
-  talkingPoint: string | null;
-  keyFacts: string[] | null;
-  priority: string | null;
-  confidence: number;
-  references: string[] | null;
-  triggerEvent: string | null;
-  provider: string | null;
-  model: string | null;
-  generatedAt: string;
-}
-
+/** Fetch a past meeting's persisted conversation events (oldest first). */
 export async function getEventsForMeeting(meetingId: string): Promise<PastConversationEvent[]> {
-  try {
-    return await authedApiCall<PastConversationEvent[]>(
-      'GET',
-      `/api/v1/meetings/${meetingId}/events`,
-    );
-  } catch (e) {
-    console.warn('[callpilot] getEventsForMeeting failed:', e);
-    return [];
-  }
+  return authedApiCall<PastConversationEvent[]>('GET', `/api/v1/meetings/${meetingId}/events`);
 }
 
+/** Fetch a past meeting's persisted recommendations (newest first). */
 export async function getRecommendationsForMeeting(meetingId: string): Promise<PastRecommendation[]> {
-  try {
-    return await authedApiCall<PastRecommendation[]>(
-      'GET',
-      `/api/v1/meetings/${meetingId}/recommendations`,
-    );
-  } catch (e) {
-    console.warn('[callpilot] getRecommendationsForMeeting failed:', e);
-    return [];
-  }
-}
-
-// Map eventType / type strings → IntelligenceCard type. Mirrors the
-// CARD_TYPE_BY_EVENT / CARD_TYPE_BY_REC tables in useIntelligenceStream.ts so
-// past meetings render the same card category as the live stream.
-const PAST_EVENT_TYPE_BY_CARD: Record<string, IntelligenceCard['type']> = {
-  ProductMentioned: 'product_match',
-  CompetitorMentioned: 'competitor_detected',
-  Objection: 'objection',
-  PricingDiscussion: 'pricing_discussion',
-  PricingQuestion: 'pricing_discussion',
-  TechnicalQuestion: 'technical_question',
-};
-
-const PAST_REC_TYPE_BY_CARD: Record<string, IntelligenceCard['type']> = {
-  ProductMentioned: 'product_match',
-  CompetitorMentioned: 'competitor_detected',
-  Objection: 'objection',
-  PricingQuestion: 'pricing_discussion',
-  PricingDiscussion: 'pricing_discussion',
-  TechnicalQuestion: 'technical_question',
-};
-
-function severityFromConfidence(c: number | undefined): IntelligenceCard['severity'] {
-  const v = typeof c === 'number' ? c : 0;
-  if (v >= 0.9) return 'high';
-  if (v >= 0.7) return 'medium';
-  return 'low';
-}
-
-/**
- * Build IntelligenceCards from a past meeting's persisted events + recommendations.
- * Newest entries first (matches `MAX_CARDS_VISIBLE` ordering of the live panel).
- * Dedupes by title so a recommendation paired with its triggering event doesn't
- * show twice.
- */
-export function buildPastIntelligenceCards(
-  events: PastConversationEvent[],
-  recommendations: PastRecommendation[],
-): IntelligenceCard[] {
-  const cards: IntelligenceCard[] = [];
-  const seenTitles = new Set<string>();
-
-  // Events first - chronological order, oldest at top.
-  for (const e of events) {
-    const cardType = PAST_EVENT_TYPE_BY_CARD[e.eventType];
-    if (!cardType) continue;
-    const titleEntity = e.entityName ? `: ${e.entityName}` : '';
-    const title = `${e.eventType}${titleEntity}`;
-    if (seenTitles.has(title)) continue;
-    seenTitles.add(title);
-    cards.push({
-      type: cardType,
-      title,
-      body: e.supportingTranscript ?? '',
-      severity: severityFromConfidence(e.confidence),
-      chunks: e.supportingTranscript ? [e.supportingTranscript] : [],
-    });
-  }
-
-  // Recommendations appended so they cluster naturally after their trigger event.
-  for (const r of recommendations) {
-    const cardType = PAST_REC_TYPE_BY_CARD[r.type ?? ''] ?? 'product_match';
-    if (!r.title) continue;
-    if (seenTitles.has(r.title)) continue;
-    seenTitles.add(r.title);
-    const body =
-      r.talkingPoint || (r.keyFacts && r.keyFacts.length > 0)
-        ? `${r.talkingPoint ?? ''}${
-            r.keyFacts && r.keyFacts.length > 0
-              ? `\n\n${r.keyFacts.map((f) => `• ${f}`).join('\n')}`
-              : ''
-          }`.trim()
-        : (r.summary ?? '');
-    cards.push({
-      type: cardType,
-      title: r.title,
-      body,
-      // Server-side priority (structured LLM output) is authoritative;
-      // confidence heuristic only applies on the no-LLM fallback path.
-      severity:
-        (r.priority as IntelligenceCard['severity'] | null | undefined) ??
-        severityFromConfidence(r.confidence),
-      chunks: Array.isArray(r.references) ? r.references : [],
-    });
-  }
-
-  // Newest first to match live-panel ordering.
-  return cards.reverse();
+  return authedApiCall<PastRecommendation[]>('GET', `/api/v1/meetings/${meetingId}/recommendations`);
 }

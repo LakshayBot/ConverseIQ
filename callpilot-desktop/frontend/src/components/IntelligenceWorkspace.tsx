@@ -2,29 +2,26 @@
 
 // IntelligenceWorkspace - the Intelligence rail's information architecture.
 //
-// VERTICAL = categories, HORIZONTAL = items within each category:
+// VERTICAL = categories, HORIZONTAL = items within each category, detail
+// at the bottom:
 //
 //   PRODUCTS      [Apex 100] [Prodigy] [Sprint 210] →
 //   CONTEXTUAL    [AMI requirements] [Accuracy] →
-//   OBJECTIONS    [Third-party CT] [Accuracy concerns] →
+//   OBJECTIONS    [Third-party CT] →
 //   ...
+//   (flexible space)
 //   ─────────────────────────────
-//   SELECTED INTELLIGENCE        ← detail for the selected item
+//   SELECTED INTELLIGENCE
 //
-// Only categories with detected items are rendered. Each rail scrolls
-// horizontally (never wraps). The detail area at the bottom is the
-// content view; rails are the navigation.
+// Rails contain ENTITIES (deduped by entity name); the detail panel
+// carries the actual intelligence for the selected entity. Only
+// categories with data render. The vertical layout is content-driven:
+// rails take their natural height, a flexible spacer absorbs the rest,
+// and the detail stays pinned at the bottom - no fixed dead zones.
 //
-// All data is DERIVED from the panel's real IntelligenceCards (live
-// SignalR detections or historical events/recommendations). Both modes
-// deliver newest-first, so items are normalized to chronological order.
-// Selection rules:
-//   - default: the LATEST product (last in the PRODUCTS rail)
-//   - a manual selection is respected - later detections never override it
-//   - with no products, the latest item of the first non-empty category
-//
-// Live-mode niceties: freshly arrived items get a brief dot and their
-// rail auto-scrolls to reveal them, without shifting other rails.
+// Selection: default = the LATEST product; a manual click locks the
+// selection against later detections. Live arrivals get a brief dot and
+// their rail auto-scrolls, without shifting other rails.
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -40,6 +37,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import type { IntelligenceCard } from '@/lib/callpilotApi';
+import { entityDisplayName } from '@/lib/callpilotApi';
 import { cn } from '@/lib/utils';
 import { EASE_OUT } from '@/lib/motion';
 
@@ -90,16 +88,6 @@ const SEVERITY_DOT: Record<IntelligenceCard['severity'], string> = {
   low: 'bg-[var(--intel-low)]',
 };
 
-/** Strip historical event prefixes for display ("Objection: Data
- *  residency" → "Data residency", "ProductMentioned: X" → "X"). */
-function displayName(title: string): string {
-  return (
-    title
-      .replace(/^(ProductMentioned|CompetitorMentioned|PricingDiscussion|PricingQuestion|TechnicalQuestion|Objection):\s*/i, '')
-      .trim() || 'Signal'
-  );
-}
-
 interface IntelligenceWorkspaceProps {
   cards: IntelligenceCard[];
   mode: 'live' | 'history';
@@ -112,7 +100,7 @@ export const IntelligenceWorkspace: React.FC<IntelligenceWorkspaceProps> = ({ ca
 
   // Normalize to chronological order (both live and history arrive
   // newest-first) so rails read oldest → newest and "latest" = last item.
-  const chronological = useMemoOrdered(cards);
+  const chronological = React.useMemo(() => [...cards].reverse(), [cards]);
   const railRefs = useRef<Record<string, HTMLElement | null>>({});
 
   // "New" indication + rail auto-scroll for freshly arrived items (live).
@@ -126,11 +114,13 @@ export const IntelligenceWorkspace: React.FC<IntelligenceWorkspaceProps> = ({ ca
     if (added.length === 0) return;
     setNewTitles((prev) => new Set([...prev, ...added]));
 
-    // Reveal each new item inside its own rail (no cross-rail jumps).
     requestAnimationFrame(() => {
       added.forEach((title) => {
-        const el = railRefs.current[title];
-        el?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' });
+        railRefs.current[title]?.scrollIntoView({
+          block: 'nearest',
+          inline: 'nearest',
+          behavior: reduceMotion ? 'auto' : 'smooth',
+        });
       });
     });
 
@@ -146,6 +136,7 @@ export const IntelligenceWorkspace: React.FC<IntelligenceWorkspaceProps> = ({ ca
 
   // Default selection: latest product; otherwise latest item of the
   // first non-empty category. Manual selections are never overridden.
+  const byCategory = React.useMemo(() => dedupeByCategory(chronological), [chronological]);
   useEffect(() => {
     if (chronological.length === 0) {
       setSelectedId(null);
@@ -154,16 +145,20 @@ export const IntelligenceWorkspace: React.FC<IntelligenceWorkspaceProps> = ({ ca
     if (manualRef.current) return;
     setSelectedId((prev) => {
       if (prev && chronological.some((c) => c.title === prev)) return prev;
-      const byCategory = groupByCategory(chronological);
       const latestProduct = byCategory.products?.[byCategory.products.length - 1];
       if (latestProduct) return latestProduct.title;
       const firstNonEmpty = CATEGORY_ORDER.find((cat) => (byCategory[cat.key]?.length ?? 0) > 0);
       const items = firstNonEmpty ? byCategory[firstNonEmpty.key] : chronological;
       return items[items.length - 1].title;
     });
-  }, [chronological]);
+  }, [chronological, byCategory]);
 
-  const selected = chronological.find((c) => c.title === selectedId) ?? null;
+  // The selected card is resolved from the deduped groups so the detail
+  // shows the merged intelligence (e.g. event + recommendation for a
+  // product entity), not just the raw first occurrence.
+  const selected =
+    (Object.values(byCategory) as IntelligenceCard[][]).flat().find((c) => c.title === selectedId) ??
+    null;
 
   const select = (title: string) => {
     manualRef.current = true;
@@ -172,67 +167,77 @@ export const IntelligenceWorkspace: React.FC<IntelligenceWorkspaceProps> = ({ ca
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* ── Category rails (vertical scroll region) ──────────────────── */}
-      <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto pr-1">
-        {CATEGORY_ORDER.map((cat) => {
-          const items = groupByCategory(chronological)[cat.key] ?? [];
-          if (items.length === 0) return null;
-          return (
-            <CategoryRail
-              key={cat.key}
-              label={cat.label}
-              items={items}
-              selectedId={selected?.title ?? null}
-              newTitles={newTitles}
-              mode={mode}
-              railRef={(title, el) => {
-                railRefs.current[title] = el;
-              }}
-              onSelect={select}
-            />
-          );
-        })}
+      {/* ── Category rails - content-driven height, flexible spacer ───── */}
+      <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto">
+        <div className="flex min-h-full flex-col">
+          {CATEGORY_ORDER.map((cat) => {
+            const items = byCategory[cat.key] ?? [];
+            if (items.length === 0) return null;
+            return (
+              <div key={cat.key} className="animate-fade-soft mb-4 last:mb-0">
+                <CategoryRail
+                  label={cat.label}
+                  category={cat.key}
+                  items={items}
+                  selectedId={selected?.title ?? null}
+                  newTitles={newTitles}
+                  mode={mode}
+                  railRef={(title, el) => {
+                    railRefs.current[title] = el;
+                  }}
+                  onSelect={select}
+                />
+              </div>
+            );
+          })}
+          {/* Flexible spacer: absorbs remaining height so the detail
+              panel stays pinned and no dead zone ever appears. */}
+          <div className="min-h-2 flex-1" aria-hidden />
+        </div>
       </div>
 
       {/* ── Selected intelligence (detail area, bottom) ──────────────── */}
       <div className="shrink-0 border-t border-[var(--opaline-outline-variant)] pt-3">
         {selected ? (
-          <div key={selected.title} className="animate-fade-soft flex flex-col gap-2.5">
-            <div className="flex items-center justify-between gap-2">
-              <span
-                className={`inline-flex items-center gap-1.5 text-overline ${SEVERITY_ACCENT[selected.severity]}`}
-              >
-                {TYPE_META[selected.type]?.icon ?? null}
-                {TYPE_META[selected.type]?.label ?? selected.type}
-              </span>
-              <span className="status-pill !px-2 !py-0.5">
-                <span className={`pill-dot ${SEVERITY_DOT[selected.severity]}`} aria-hidden />
-                {SEVERITY_LABEL[selected.severity] ?? 'Signal'}
-              </span>
+          <div
+            key={selected.title}
+            className="animate-fade-soft custom-scrollbar max-h-[280px] overflow-y-auto pr-1"
+          >
+            <div className="flex flex-col gap-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span
+                  className={`inline-flex items-center gap-1.5 text-overline ${SEVERITY_ACCENT[selected.severity]}`}
+                >
+                  {TYPE_META[selected.type]?.icon ?? null}
+                  {TYPE_META[selected.type]?.label ?? selected.type}
+                </span>
+                <span className="status-pill !px-2 !py-0.5">
+                  <span className={`pill-dot ${SEVERITY_DOT[selected.severity]}`} aria-hidden />
+                  {SEVERITY_LABEL[selected.severity] ?? 'Signal'}
+                </span>
+              </div>
+
+              <h4 className="font-display text-headline-sm break-words text-[var(--opaline-on-surface)]">
+                {entityDisplayName(selected.title)}
+              </h4>
+
+              {selected.body ? (
+                <p className="whitespace-pre-wrap text-body-sm leading-relaxed text-[var(--opaline-on-surface-variant)]">
+                  {selected.body}
+                </p>
+              ) : selected.title.toLowerCase().startsWith('detecting') ? (
+                <p className="text-caption">Analysing context…</p>
+              ) : (
+                <p className="text-caption">No additional details available for this signal.</p>
+              )}
+
+              {selected.chunks && selected.chunks.length > 0 && (
+                <KnowledgeSource sources={selected.chunks} />
+              )}
             </div>
-
-            <h4 className="font-display text-headline-sm text-[var(--opaline-on-surface)]">
-              {displayName(selected.title)}
-            </h4>
-
-            {selected.body ? (
-              <p className="whitespace-pre-wrap text-body-sm leading-relaxed text-[var(--opaline-on-surface-variant)]">
-                {selected.body}
-              </p>
-            ) : selected.title.toLowerCase().startsWith('detecting') ? (
-              <p className="text-caption">Analysing context…</p>
-            ) : (
-              <p className="text-caption">No additional details available for this signal.</p>
-            )}
-
-            {selected.chunks && selected.chunks.length > 0 && (
-              <KnowledgeSource sources={selected.chunks} />
-            )}
           </div>
         ) : (
-          <p className="py-2 text-caption">
-            Select an item above to see its details.
-          </p>
+          <p className="py-2 text-caption">Select an item above to see its details.</p>
         )}
       </div>
     </div>
@@ -240,11 +245,12 @@ export const IntelligenceWorkspace: React.FC<IntelligenceWorkspaceProps> = ({ ca
 };
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Category rail - one horizontal row of compact cards.
+ * Category rail - one horizontal row of compact, category-flavoured cards.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 interface CategoryRailProps {
   label: string;
+  category: CategoryKey;
   items: IntelligenceCard[];
   selectedId: string | null;
   newTitles: Set<string>;
@@ -255,6 +261,7 @@ interface CategoryRailProps {
 
 const CategoryRail: React.FC<CategoryRailProps> = ({
   label,
+  category,
   items,
   selectedId,
   newTitles,
@@ -298,7 +305,7 @@ const CategoryRail: React.FC<CategoryRailProps> = ({
   };
 
   return (
-    <section className="mb-4 last:mb-0">
+    <section>
       <div className="mb-1.5 flex items-baseline justify-between">
         <h3 className="text-overline">{label}</h3>
         <span className="text-data text-[var(--opaline-outline)]">{items.length}</span>
@@ -319,6 +326,39 @@ const CategoryRail: React.FC<CategoryRailProps> = ({
               icon: <MessageCircle className="h-3.5 w-3.5" />,
               label: 'Context',
             };
+            const name = entityDisplayName(card.title);
+
+            if (category === 'contextual') {
+              // Compact pill - contextual concepts are single-line by design.
+              return (
+                <button
+                  key={card.title}
+                  data-signal-item
+                  ref={(el) => railRef(card.title, el)}
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  onClick={() => onSelect(card.title)}
+                  title={name}
+                  className={cn(
+                    'flex h-8 max-w-[190px] shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-[12px] font-medium transition-colors duration-fast focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]',
+                    active
+                      ? 'border-[var(--opaline-primary)] bg-[var(--opaline-primary-soft)] text-[var(--opaline-primary)]'
+                      : 'border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] text-[var(--opaline-on-surface-variant)] hover:bg-[var(--opaline-surface-container-low)] hover:text-[var(--opaline-on-surface)]',
+                  )}
+                >
+                  {meta.icon}
+                  <span className="truncate">{name}</span>
+                  {isNew && (
+                    <span aria-hidden className="ml-0.5 h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--opaline-primary)]" />
+                  )}
+                </button>
+              );
+            }
+
+            // Entity cards (products, objections, pricing, technical,
+            // competitors): type label + entity name + status. Names wrap
+            // to two lines when long - never ellipsize a short name.
             return (
               <button
                 key={card.title}
@@ -328,13 +368,12 @@ const CategoryRail: React.FC<CategoryRailProps> = ({
                 role="option"
                 aria-selected={active}
                 onClick={() => onSelect(card.title)}
-                title={displayName(card.title)}
+                title={name}
                 className={cn(
-                  'flex h-[74px] w-[136px] shrink-0 flex-col items-start gap-1 rounded-lg border p-2.5 text-left transition-colors duration-fast focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]',
+                  'flex min-h-[74px] w-[136px] shrink-0 flex-col items-start gap-1 rounded-lg border p-2.5 text-left transition-colors duration-fast focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]',
                   active
                     ? 'border-[var(--opaline-primary)] bg-[var(--opaline-primary-soft)]'
                     : 'border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] hover:bg-[var(--opaline-surface-container-low)]',
-                  isNew && 'animate-fade-soft',
                 )}
               >
                 <span
@@ -343,14 +382,11 @@ const CategoryRail: React.FC<CategoryRailProps> = ({
                   {meta.icon}
                   <span className="truncate">{meta.label}</span>
                   {isNew && (
-                    <span
-                      aria-hidden
-                      className="ml-auto h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--opaline-primary)]"
-                    />
+                    <span aria-hidden className="ml-auto h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--opaline-primary)]" />
                   )}
                 </span>
-                <span className="w-full truncate text-[13px] font-semibold text-[var(--opaline-on-surface)]">
-                  {displayName(card.title)}
+                <span className="line-clamp-2 w-full break-words text-[13px] font-semibold leading-snug text-[var(--opaline-on-surface)]">
+                  {name}
                 </span>
                 <span className="text-caption">
                   {mode === 'live' ? 'Mentioned in conversation' : 'Detected'}
@@ -385,7 +421,10 @@ const CategoryRail: React.FC<CategoryRailProps> = ({
  * Helpers
  * ──────────────────────────────────────────────────────────────────────────── */
 
-function groupByCategory(cards: IntelligenceCard[]): Record<CategoryKey, IntelligenceCard[]> {
+/** Group cards into categories and collapse to ONE card per ENTITY -
+ *  repeated mentions never duplicate a rail item. The kept card is the
+ *  richest (body first, then severity). */
+function dedupeByCategory(cards: IntelligenceCard[]): Record<CategoryKey, IntelligenceCard[]> {
   const groups: Record<CategoryKey, IntelligenceCard[]> = {
     products: [],
     contextual: [],
@@ -396,15 +435,24 @@ function groupByCategory(cards: IntelligenceCard[]): Record<CategoryKey, Intelli
   };
   for (const card of cards) {
     const key = TYPE_TO_CATEGORY[card.type] ?? 'contextual';
-    groups[key].push(card);
+    const entityKey = entityDisplayName(card.title).toLowerCase();
+    const existing = groups[key].find((c) => entityDisplayName(c.title).toLowerCase() === entityKey);
+    if (existing) {
+      // Keep the card carrying the intelligence; merge references across
+      // duplicate detections of the same entity.
+      if (!existing.body && card.body) existing.body = card.body;
+      if (existing.chunks.length === 0 && card.chunks.length > 0) {
+        existing.chunks = card.chunks;
+      } else if (card.chunks.length > 0) {
+        for (const ref of card.chunks) {
+          if (!existing.chunks.includes(ref)) existing.chunks.push(ref);
+        }
+      }
+      continue;
+    }
+    groups[key].push({ ...card });
   }
   return groups;
-}
-
-function useMemoOrdered(cards: IntelligenceCard[]): IntelligenceCard[] {
-  // Both live and historical inputs are newest-first; the workspace wants
-  // chronological (oldest → newest) so "latest" = last item.
-  return React.useMemo(() => [...cards].reverse(), [cards]);
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

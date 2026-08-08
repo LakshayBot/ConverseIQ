@@ -60,6 +60,7 @@ const CARD_TYPE_BY_EVENT: Record<string, IntelligenceCard['type']> = {
   ProductMentioned: 'product_match',
   CompetitorMentioned: 'competitor_detected',
   Objection: 'objection',
+  BuyingSignal: 'buying_signal',
   PricingDiscussion: 'pricing_discussion',
   PricingQuestion: 'pricing_discussion',
   TechnicalQuestion: 'technical_question',
@@ -69,6 +70,7 @@ const CARD_TYPE_BY_REC: Record<string, IntelligenceCard['type']> = {
   ProductMentioned: 'product_match',
   CompetitorMentioned: 'competitor_detected',
   Objection: 'objection',
+  BuyingSignal: 'buying_signal',
   PricingQuestion: 'pricing_discussion',
   PricingDiscussion: 'pricing_discussion',
   TechnicalQuestion: 'technical_question',
@@ -82,7 +84,9 @@ function severityFromConfidence(c: number | undefined): IntelligenceCard['severi
 }
 
 function cardFromRecommendation(p: RecommendationPayload): IntelligenceCard | null {
-  const cardType = CARD_TYPE_BY_REC[p.type ?? ''] ?? 'product_match';
+  // Unknown recommendation types fall to the contextual signal category -
+  // never PRODUCTS (a generic recommendation is not a product entity).
+  const cardType = CARD_TYPE_BY_REC[p.type ?? ''] ?? 'buying_signal';
   if (!p.title) return null;
   // Structured LLM output takes precedence over the opaque summary: the card
   // body is the talking point + key-fact bullets.

@@ -231,8 +231,13 @@ public class RecommendationEngine
     {
         return evt.EventType switch
         {
+            // Product recommendations must carry the PRODUCT ENTITY, not a
+            // generic label - the Intelligence rail groups PRODUCTS by
+            // entity, and a generic title rendered a recommendation as a
+            // bogus product ("Contextual Recommendation" inside PRODUCTS).
+            "ProductMentioned" => evt.EntityName ?? "Product Recommendation",
+            "PricingQuestion" or "PricingDiscussion" => "Pricing Guidance",
             "CompetitorMentioned" => $"{evt.EntityName ?? "Competitor"} Comparison",
-            "PricingQuestion" => "Pricing Guidance",
             "Objection" => $"Addressing {evt.EntityName ?? "Objection"}",
             "TechnicalQuestion" => "Technical Reference",
             _ => "Contextual Recommendation"
