@@ -38,6 +38,13 @@ ok()   { printf "  \033[1;32m✓\033[0m %s\n" "$*"; }
 warn() { printf "  \033[1;33m⚠\033[0m %s\n" "$*"; }
 err()  { printf "  \033[1;31m✗\033[0m %s\n" "$*"; }
 
+# Run from anywhere: resolve the repo root from this script's location and
+# cd into it, so relative paths (.env, docker-compose.yml, src/...) work
+# whether the script is invoked from the repo root or from scripts/.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+cd "$REPO_ROOT"
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Bootstrap: .env + prerequisites
 # ──────────────────────────────────────────────────────────────────────────────

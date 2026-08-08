@@ -1,6 +1,13 @@
 #!/bin/bash
 set -e
 
+# Run from anywhere: resolve the repo root from this script's location so
+# docker-compose.yml and src/ paths work whether invoked from the root or
+# from scripts/.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+cd "$REPO_ROOT"
+
 echo "================================================"
 echo " CallPilot AI - Starting Development Environment"
 echo "================================================"
