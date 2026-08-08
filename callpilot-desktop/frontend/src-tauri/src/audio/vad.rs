@@ -254,21 +254,30 @@ impl ContinuousVadProcessor {
         // Handle VAD transitions
         for transition in transitions {
             match transition {
-                VadTransition::SpeechStart { timestamp_ms } => {
+                VadTransition::SpeechStart { .. } => {
                     // Only log if state changed
                     if !self.last_logged_state {
-                        debug!("VAD: Speech started at {}ms", timestamp_ms);
+                        debug!("VAD: Speech started");
                         self.last_logged_state = true;
                     }
                     self.in_speech = true;
-                    // Use 16000 (VAD processing rate) since processed_samples counts 16kHz samples
-                    self.speech_start_sample = self.processed_samples + (timestamp_ms * 16000 / 1000);
+                    // Track speech start on OUR sample counter (16kHz
+                    // samples fed to the VAD). The silero crate reports
+                    // its transition timestamps on its own internal clock,
+                    // which drifts ahead of the samples we feed it -
+                    // adding `timestamp_ms` to `processed_samples`
+                    // double-counted audio and produced negative, ever-
+                    // growing segment times (interim partials sorted to
+                    // the top of the transcript, so live text never
+                    // appeared until the final segment landed after a
+                    // pause). Our counter is authoritative.
+                    self.speech_start_sample = self.processed_samples;
                     self.current_speech.clear();
                 }
-                VadTransition::SpeechEnd { start_timestamp_ms, end_timestamp_ms, samples } => {
+                VadTransition::SpeechEnd { samples, .. } => {
                     // Only log if we were previously in speech state
                     if self.last_logged_state {
-                        debug!("VAD: Speech ended at {}ms (duration: {}ms)", end_timestamp_ms, end_timestamp_ms - start_timestamp_ms);
+                        debug!("VAD: Speech ended");
                         self.last_logged_state = false;
                     }
                     self.in_speech = false;
@@ -281,15 +290,24 @@ impl ContinuousVadProcessor {
                     };
 
                     if !speech_samples.is_empty() {
+                        // Rebuild start/end from our own counter so the
+                        // final segment sits on the same clock as the
+                        // interim partials that preceded it. The crate's
+                        // `samples` are the actual speech audio, so its
+                        // length gives the exact end offset.
+                        let start_ms = (self.speech_start_sample as f64 / 16000.0) * 1000.0;
+                        let end_ms =
+                            start_ms + (speech_samples.len() as f64 / 16000.0) * 1000.0;
+
                         let segment = SpeechSegment {
                             samples: speech_samples,
-                            start_timestamp_ms: start_timestamp_ms as f64,
-                            end_timestamp_ms: end_timestamp_ms as f64,
+                            start_timestamp_ms: start_ms,
+                            end_timestamp_ms: end_ms,
                             confidence: 0.9, // VAD confidence
                         };
 
                         info!("VAD: Completed speech segment: {:.1}ms duration, {} samples",
-                              end_timestamp_ms - start_timestamp_ms, segment.samples.len());
+                              end_ms - start_ms, segment.samples.len());
 
                         self.speech_segments.push_back(segment);
                     }
