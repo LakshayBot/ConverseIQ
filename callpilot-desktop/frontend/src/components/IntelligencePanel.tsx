@@ -26,6 +26,14 @@ interface Props {
   /** Current session ID - surfaced in the panel so the user can confirm the
    *  active meeting at a glance. */
   sessionId?: string | null;
+  /** Presentation context, derived from real application state:
+   *   - "live"    → an active recording is streaming signals (listening/
+   *                 detecting states allowed)
+   *   - "history" → the user is reading a past meeting (calm, read-only -
+   *                 never "listening")
+   *   - "idle"    → no active session at all
+   *  Defaults to the legacy connected/sessionId resolution when omitted. */
+  mode?: 'live' | 'history' | 'idle';
 }
 
 const TYPE_META: Record<IntelligenceCard['type'], { icon: React.ReactNode; label: string }> = {
@@ -152,6 +160,22 @@ const OpeningState: React.FC = () => (
   </div>
 );
 
+/**
+ * Historical empty state - calm and archival. A past meeting must never
+ * imply an active microphone, so there is no equalizer, no pulse, and no
+ * "listening" language - just a quiet note that nothing was recorded.
+ */
+const HistoricalEmptyState: React.FC = () => (
+  <div className="flex flex-col items-center gap-2.5 rounded-xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)]/60 px-4 py-8 text-center">
+    <p className="text-body-md font-medium text-[var(--opaline-on-surface)]">
+      No signals detected
+    </p>
+    <p className="max-w-[240px] text-caption leading-relaxed">
+      No notable intelligence signals were recorded for this meeting.
+    </p>
+  </div>
+);
+
 /** Offline surface - stream error. */
 const OfflineState: React.FC<{ message?: string }> = ({ message }) => (
   <div className="flex flex-col items-center gap-3 rounded-xl border border-[var(--opaline-danger-border)] bg-[var(--opaline-danger-soft)]/60 px-4 py-8 text-center">
@@ -174,9 +198,42 @@ function resolveStreamState(connected: boolean, error: string | null, hasSession
   return 'idle';
 }
 
-export const IntelligencePanel: React.FC<Props> = ({ cards, connected, error, sessionId }) => {
+export const IntelligencePanel: React.FC<Props> = ({
+  cards,
+  connected,
+  error,
+  sessionId,
+  mode,
+}) => {
   const hasSession = Boolean(sessionId);
   const reduceMotion = useReducedMotion();
+
+  // Historical view: read-only snapshot. Cards render as a static list
+  // (no stream states, no live language); an empty meeting gets a calm
+  // archival empty state.
+  if (mode === 'history') {
+    if (!cards.length) return <HistoricalEmptyState />;
+    return (
+      <motion.ul
+        className="flex flex-col gap-2"
+        variants={reduceMotion ? undefined : stagger(0.05)}
+        initial="initial"
+        animate="animate"
+      >
+        <AnimatePresence initial={false}>
+          {cards.map((card, i) => (
+            <motion.li
+              key={`${card.type}-${i}-${card.title}`}
+              variants={reduceMotion ? undefined : fadeUp}
+              transition={reduceMotion ? undefined : { duration: 0.24, ease: EASE_OUT }}
+            >
+              <IntelligenceCardItem card={card} />
+            </motion.li>
+          ))}
+        </AnimatePresence>
+      </motion.ul>
+    );
+  }
 
   if (!cards.length) {
     const state = resolveStreamState(connected, error, hasSession);

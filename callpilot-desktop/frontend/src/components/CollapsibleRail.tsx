@@ -19,7 +19,7 @@
 // reduced-motion kill-switch covers prefers-reduced-motion.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, PanelRightClose, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
@@ -127,8 +127,26 @@ export const CollapsibleRail: React.FC<CollapsibleRailProps> = ({ label, header,
         {/* Fixed-width inner column: content never reflows during the
             width transition. */}
         <div className="flex h-full min-h-0 min-w-[340px] flex-col">
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--opaline-outline-variant)] px-5 pb-3 pt-4">
-            {header}
+          <div className="flex shrink-0 items-center gap-2 border-b border-[var(--opaline-outline-variant)] px-5 pb-3 pt-4">
+            <div className="flex min-w-0 flex-1 items-center gap-2">{header}</div>
+            {/* In-header collapse control (desktop). The boundary toggle
+                is the reopen affordance when the rail is closed. */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={toggle}
+                  aria-expanded={open}
+                  aria-label={`Collapse ${label} panel`}
+                  className="hidden h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--opaline-on-surface-variant)] transition-colors duration-fast hover:bg-[var(--opaline-surface-container-low)] hover:text-[var(--opaline-on-surface)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)] lg:inline-flex"
+                >
+                  <PanelRightClose className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>Collapse panel</p>
+              </TooltipContent>
+            </Tooltip>
           </div>
           <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-8 pt-4">
             {children}

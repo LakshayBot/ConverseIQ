@@ -275,6 +275,23 @@ export default function Home() {
   const sessionLive =
     recordingState.isRecording || status === RecordingStatus.STARTING;
 
+  // Intelligence presentation context, derived from real app state:
+  //   live    → a recording is active right now
+  //   history → a past meeting's session is loaded (deep-link) but no
+  //             microphone is active - read-only snapshot
+  //   idle    → nothing loaded at all
+  const intelligenceMode: 'live' | 'history' | 'idle' = sessionLive
+    ? 'live'
+    : sessionId
+      ? 'history'
+      : 'idle';
+  const railStatusLabel =
+    intelligenceMode === 'live'
+      ? 'Listening'
+      : intelligenceMode === 'history'
+        ? 'Past'
+        : 'Idle';
+
   return (
     <div className="flex flex-col h-screen bg-[var(--grain-paper)]">
       {/* All Modals supported*/}
@@ -427,10 +444,12 @@ export default function Home() {
             <>
               <h2 className="text-overline">Intelligence</h2>
               <span
-                className={`status-pill !px-2 !py-0.5 ${intelligenceConnected ? 'status-pill--live' : ''}`}
+                className={`status-pill !px-2 !py-0.5 ${
+                  intelligenceMode === 'live' ? 'status-pill--live' : ''
+                }`}
               >
                 <span className="pill-dot" aria-hidden />
-                {intelligenceConnected ? 'live' : 'idle'}
+                {railStatusLabel}
               </span>
             </>
           }
@@ -440,6 +459,7 @@ export default function Home() {
             connected={intelligenceConnected}
             error={intelligenceError}
             sessionId={sessionId}
+            mode={intelligenceMode}
           />
         </CollapsibleRail>
 

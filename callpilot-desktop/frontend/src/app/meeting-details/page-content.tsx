@@ -210,8 +210,16 @@ const PageContent: React.FC<PageContentProps> = ({
             header={
               <>
                 <h2 className="text-overline">Intelligence</h2>
-                <span className="text-data text-[var(--opaline-on-surface-variant)]">
-                  {pastCards.length > 0 ? `${pastCards.length} card${pastCards.length === 1 ? '' : 's'}` : 'past'}
+                <span className="flex items-center gap-2">
+                  {/* Historical meetings are always read-only - never
+                      "Listening"/"Live" language or active indicators. */}
+                  <span className="status-pill !px-2 !py-0.5">
+                    <span className="pill-dot" aria-hidden />
+                    Past
+                  </span>
+                  <span className="text-data text-[var(--opaline-on-surface-variant)]">
+                    {pastCards.length > 0 ? `${pastCards.length} card${pastCards.length === 1 ? '' : 's'}` : 'no signals'}
+                  </span>
                 </span>
               </>
             }
@@ -227,6 +235,7 @@ const PageContent: React.FC<PageContentProps> = ({
                 connected={true}
                 error={null}
                 sessionId={meeting?.id ?? null}
+                mode="history"
               />
             )}
           </CollapsibleRail>
