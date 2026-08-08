@@ -24,8 +24,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils';
 
 const STORAGE_KEY = 'callpilot-rail-open';
+const WIDTH_STORAGE_KEY = 'callpilot-rail-width';
 const DESKTOP_BREAKPOINT = '(min-width: 1024px)'; // matches Tailwind `lg`
-const RAIL_WIDTH = 340;
+const DEFAULT_WIDTH = 340;
+const MIN_WIDTH = 280;
+const MAX_WIDTH = 480;
 const TRANSITION_CLASS = 'transition-[width,right] duration-[250ms] ease-out';
 
 const FOCUSABLE_SELECTOR =
@@ -53,6 +56,43 @@ export const CollapsibleRail: React.FC<CollapsibleRailProps> = ({ label, header,
 
   const drawerRef = useRef<HTMLElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Resizable width (desktop): drag the rail's left edge. Persisted so a
+  // narrow/wide preference survives navigation and refresh.
+  const [width, setWidth] = useState<number>(() => {
+    if (typeof window === 'undefined') return DEFAULT_WIDTH;
+    const stored = Number(localStorage.getItem(WIDTH_STORAGE_KEY));
+    if (Number.isFinite(stored) && stored >= MIN_WIDTH && stored <= MAX_WIDTH) return stored;
+    return DEFAULT_WIDTH;
+  });
+  const widthRef = useRef(width);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const startResize = (e: React.PointerEvent) => {
+    if (!open) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = widthRef.current;
+    setIsDragging(true);
+
+    const onMove = (ev: PointerEvent) => {
+      const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + (startX - ev.clientX)));
+      widthRef.current = next;
+      setWidth(next);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      setIsDragging(false);
+      try {
+        localStorage.setItem(WIDTH_STORAGE_KEY, String(widthRef.current));
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
 
   // Track the breakpoint so the drawer only engages below lg.
   useEffect(() => {
@@ -119,14 +159,31 @@ export const CollapsibleRail: React.FC<CollapsibleRailProps> = ({ label, header,
         className={cn(
           'relative hidden h-full shrink-0 flex-col overflow-hidden bg-[var(--grain-paper)] lg:flex',
           TRANSITION_CLASS,
+          isDragging && '!transition-none',
           open
-            ? 'w-[340px] border-l border-[var(--opaline-outline-variant)]'
-            : 'w-0 border-l border-transparent',
+            ? 'border-l border-[var(--opaline-outline-variant)]'
+            : 'border-l border-transparent',
         )}
+        style={{ width: open ? width : 0 }}
       >
+        {/* Resize handle - drag the rail's left edge (desktop). */}
+        {open && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize Intelligence panel"
+            onPointerDown={startResize}
+            className="group absolute inset-y-0 -left-[3px] z-20 hidden w-[7px] cursor-col-resize touch-none items-center justify-center lg:flex"
+          >
+            <span
+              className="h-10 w-[3px] rounded-full bg-[var(--opaline-outline)] opacity-0 transition-opacity duration-fast group-hover:opacity-60 group-active:opacity-60"
+              aria-hidden
+            />
+          </div>
+        )}
         {/* Fixed-width inner column: content never reflows during the
             width transition. */}
-        <div className="flex h-full min-h-0 min-w-[340px] flex-col">
+        <div className="flex h-full min-h-0 min-w-0 flex-col" style={{ width }}>
           <div className="flex shrink-0 items-center gap-2 border-b border-[var(--opaline-outline-variant)] px-5 pb-3 pt-4">
             <div className="flex min-w-0 flex-1 items-center gap-2">{header}</div>
             {/* In-header collapse control (desktop). The boundary toggle
@@ -166,7 +223,7 @@ export const CollapsibleRail: React.FC<CollapsibleRailProps> = ({ label, header,
               'absolute top-1/2 z-10 hidden h-8 w-5 -translate-y-1/2 items-center justify-center rounded-l-full rounded-r-full border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] text-[var(--opaline-on-surface-variant)] shadow-sm hover:bg-[var(--opaline-surface-container-low)] hover:text-[var(--opaline-on-surface)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)] lg:flex',
               TRANSITION_CLASS,
             )}
-            style={{ right: open ? RAIL_WIDTH : 0 }}
+            style={{ right: open ? width : 0 }}
           >
             {open ? (
               <ChevronLeft className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
