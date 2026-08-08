@@ -18,6 +18,7 @@ import {
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import type { IntelligenceCard } from '@/lib/callpilotApi';
 import { fadeUp, stagger, EASE_OUT } from '@/lib/motion';
+import { ProductWorkspace, ProductEmptyState } from '@/components/ProductWorkspace';
 
 interface Props {
   cards: IntelligenceCard[];
@@ -208,30 +209,44 @@ export const IntelligencePanel: React.FC<Props> = ({
   const hasSession = Boolean(sessionId);
   const reduceMotion = useReducedMotion();
 
+  // Products are surfaced through the ProductWorkspace (content region +
+  // horizontal selector); every other signal type stays a card below it.
+  const productCards = cards.filter((c) => c.type === 'product_match');
+  const signalCards = cards.filter((c) => c.type !== 'product_match');
+
   // Historical view: read-only snapshot. Cards render as a static list
   // (no stream states, no live language); an empty meeting gets a calm
   // archival empty state.
   if (mode === 'history') {
     if (!cards.length) return <HistoricalEmptyState />;
     return (
-      <motion.ul
-        className="flex flex-col gap-2"
-        variants={reduceMotion ? undefined : stagger(0.05)}
-        initial="initial"
-        animate="animate"
-      >
-        <AnimatePresence initial={false}>
-          {cards.map((card, i) => (
-            <motion.li
-              key={`${card.type}-${i}-${card.title}`}
-              variants={reduceMotion ? undefined : fadeUp}
-              transition={reduceMotion ? undefined : { duration: 0.24, ease: EASE_OUT }}
-            >
-              <IntelligenceCardItem card={card} />
-            </motion.li>
-          ))}
-        </AnimatePresence>
-      </motion.ul>
+      <div className="flex flex-col gap-4">
+        {productCards.length > 0 ? (
+          <ProductWorkspace products={productCards} mode="history" />
+        ) : (
+          <ProductEmptyState mode="history" />
+        )}
+        {signalCards.length > 0 && (
+          <motion.ul
+            className="flex flex-col gap-2"
+            variants={reduceMotion ? undefined : stagger(0.05)}
+            initial="initial"
+            animate="animate"
+          >
+            <AnimatePresence initial={false}>
+              {signalCards.map((card, i) => (
+                <motion.li
+                  key={`${card.type}-${i}-${card.title}`}
+                  variants={reduceMotion ? undefined : fadeUp}
+                  transition={reduceMotion ? undefined : { duration: 0.24, ease: EASE_OUT }}
+                >
+                  <IntelligenceCardItem card={card} />
+                </motion.li>
+              ))}
+            </AnimatePresence>
+          </motion.ul>
+        )}
+      </div>
     );
   }
 
@@ -252,24 +267,33 @@ export const IntelligencePanel: React.FC<Props> = ({
   }
 
   return (
-    <motion.ul
-      className="flex flex-col gap-2"
-      variants={reduceMotion ? undefined : stagger(0.07)}
-      initial="initial"
-      animate="animate"
-    >
-      <AnimatePresence initial={false}>
-        {cards.map((card, i) => (
-          <motion.li
-            key={`${card.type}-${i}-${card.title}`}
-            variants={reduceMotion ? undefined : fadeUp}
-            transition={reduceMotion ? undefined : { duration: 0.24, ease: EASE_OUT }}
-          >
-            <IntelligenceCardItem card={card} />
-          </motion.li>
-        ))}
-      </AnimatePresence>
-    </motion.ul>
+    <div className="flex flex-col gap-4">
+      {productCards.length > 0 ? (
+        <ProductWorkspace products={productCards} mode="live" />
+      ) : (
+        <ProductEmptyState mode="live" />
+      )}
+      {signalCards.length > 0 && (
+        <motion.ul
+          className="flex flex-col gap-2"
+          variants={reduceMotion ? undefined : stagger(0.07)}
+          initial="initial"
+          animate="animate"
+        >
+          <AnimatePresence initial={false}>
+            {signalCards.map((card, i) => (
+              <motion.li
+                key={`${card.type}-${i}-${card.title}`}
+                variants={reduceMotion ? undefined : fadeUp}
+                transition={reduceMotion ? undefined : { duration: 0.24, ease: EASE_OUT }}
+              >
+                <IntelligenceCardItem card={card} />
+              </motion.li>
+            ))}
+          </AnimatePresence>
+        </motion.ul>
+      )}
+    </div>
   );
 };
 
