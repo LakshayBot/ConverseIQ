@@ -21,10 +21,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LoaderIcon } from 'lucide-react';
-import { VirtualizedTranscriptView } from '@/components/VirtualizedTranscriptView';
+import { VirtualizedTranscriptView, transcriptDisplayText } from '@/components/VirtualizedTranscriptView';
 import { IntelligencePanel } from '@/components/IntelligencePanel';
 import { CollapsibleRail } from '@/components/CollapsibleRail';
 import { IntelligenceSelectionProvider } from '@/contexts/IntelligenceSelectionContext';
+import { buildTranscriptEntityMap } from '@/lib/transcriptEntities';
+import type { ProductMention } from '@/components/ProductIntelligenceCard';
 import { TranscriptSegmentData } from '@/types';
 import Analytics from '@/lib/analytics';
 import {
@@ -79,6 +81,25 @@ const PageContent: React.FC<PageContentProps> = ({
       .map((c) => entityDisplayName(c.title));
     return Array.from(new Set(names));
   }, [pastCards]);
+
+  // Meeting-specific product mentions (timestamp + snippet) for the product
+  // profile card's "Meeting context" section. Lowercased keys to match the
+  // workspace lookup.
+  const productMentions = useMemo(() => {
+    if (!segments || segments.length === 0) return {};
+    const map = buildTranscriptEntityMap(segments, productNames, transcriptDisplayText);
+    const out: Record<string, ProductMention[]> = {};
+    for (const [name, occs] of map.byEntityName) {
+      out[name] = occs.map((o) => {
+        const seg = segments[o.segmentIndex];
+        return {
+          timestamp: o.timestamp,
+          text: seg ? transcriptDisplayText(seg).slice(0, 200) : '',
+        };
+      });
+    }
+    return out;
+  }, [segments, productNames]);
 
   useEffect(() => {
     Analytics.trackPageView('meeting_details');
@@ -249,6 +270,7 @@ const PageContent: React.FC<PageContentProps> = ({
                 error={null}
                 sessionId={meeting?.id ?? null}
                 mode="history"
+                productMentions={productMentions}
               />
             )}
           </CollapsibleRail>

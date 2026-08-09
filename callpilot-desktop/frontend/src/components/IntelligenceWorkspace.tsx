@@ -39,6 +39,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import type { IntelligenceCard } from '@/lib/callpilotApi';
 import { entityDisplayName } from '@/lib/callpilotApi';
 import { useIntelligenceSelection } from '@/contexts/IntelligenceSelectionContext';
+import { ProductIntelligenceCard, type ProductMention } from '@/components/ProductIntelligenceCard';
 import { cn } from '@/lib/utils';
 import { EASE_OUT } from '@/lib/motion';
 
@@ -92,9 +93,12 @@ const SEVERITY_DOT: Record<IntelligenceCard['severity'], string> = {
 interface IntelligenceWorkspaceProps {
   cards: IntelligenceCard[];
   mode: 'live' | 'history';
+  /** Transcript occurrences per product (lowercased entity name → mentions),
+   *  surfaced as the "MEETING CONTEXT" section of the product profile card. */
+  productMentions?: Record<string, ProductMention[]>;
 }
 
-export const IntelligenceWorkspace: React.FC<IntelligenceWorkspaceProps> = ({ cards, mode }) => {
+export const IntelligenceWorkspace: React.FC<IntelligenceWorkspaceProps> = ({ cards, mode, productMentions }) => {
   const { selectedId, select, selectAuto, manualRef } = useIntelligenceSelection();
   const reduceMotion = useReducedMotion();
 
@@ -206,40 +210,52 @@ export const IntelligenceWorkspace: React.FC<IntelligenceWorkspaceProps> = ({ ca
           position is dynamic: it follows the category rows. */}
       <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto border-t border-[var(--opaline-outline-variant)] pt-3 pb-1 pr-1">
         {selected ? (
-          <div key={selected.title} className="animate-fade-soft">
-            <div className="flex flex-col gap-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <span
-                  className={`inline-flex items-center gap-1.5 text-overline ${SEVERITY_ACCENT[selected.severity]}`}
-                >
-                  {TYPE_META[selected.type]?.icon ?? null}
-                  {TYPE_META[selected.type]?.label ?? selected.type}
-                </span>
-                <span className="status-pill !px-2 !py-0.5">
-                  <span className={`pill-dot ${SEVERITY_DOT[selected.severity]}`} aria-hidden />
-                  {SEVERITY_LABEL[selected.severity] ?? 'Signal'}
-                </span>
+          selected.type === 'product_match' ? (
+            // Product profiles are a richer surface: global researched
+            // intelligence + this meeting's context. Rendered in place of
+            // the generic signal card.
+            <ProductIntelligenceCard
+              productName={entityDisplayName(selected.title)}
+              mentions={productMentions?.[entityDisplayName(selected.title).toLowerCase()]}
+              fallbackBody={selected.body}
+              knowledgeChunks={selected.chunks}
+            />
+          ) : (
+            <div key={selected.title} className="animate-fade-soft">
+              <div className="flex flex-col gap-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1.5 text-overline ${SEVERITY_ACCENT[selected.severity]}`}
+                  >
+                    {TYPE_META[selected.type]?.icon ?? null}
+                    {TYPE_META[selected.type]?.label ?? selected.type}
+                  </span>
+                  <span className="status-pill !px-2 !py-0.5">
+                    <span className={`pill-dot ${SEVERITY_DOT[selected.severity]}`} aria-hidden />
+                    {SEVERITY_LABEL[selected.severity] ?? 'Signal'}
+                  </span>
+                </div>
+
+                <h4 className="font-display text-headline-sm break-words text-[var(--opaline-on-surface)]">
+                  {entityDisplayName(selected.title)}
+                </h4>
+
+                {selected.body ? (
+                  <p className="whitespace-pre-wrap text-body-sm leading-relaxed text-[var(--opaline-on-surface-variant)]">
+                    {selected.body}
+                  </p>
+                ) : selected.title.toLowerCase().startsWith('detecting') ? (
+                  <p className="text-caption">Analysing context…</p>
+                ) : (
+                  <p className="text-caption">No additional details available for this signal.</p>
+                )}
+
+                {selected.chunks && selected.chunks.length > 0 && (
+                  <KnowledgeSource sources={selected.chunks} />
+                )}
               </div>
-
-              <h4 className="font-display text-headline-sm break-words text-[var(--opaline-on-surface)]">
-                {entityDisplayName(selected.title)}
-              </h4>
-
-              {selected.body ? (
-                <p className="whitespace-pre-wrap text-body-sm leading-relaxed text-[var(--opaline-on-surface-variant)]">
-                  {selected.body}
-                </p>
-              ) : selected.title.toLowerCase().startsWith('detecting') ? (
-                <p className="text-caption">Analysing context…</p>
-              ) : (
-                <p className="text-caption">No additional details available for this signal.</p>
-              )}
-
-              {selected.chunks && selected.chunks.length > 0 && (
-                <KnowledgeSource sources={selected.chunks} />
-              )}
             </div>
-          </div>
+          )
         ) : (
           <p className="py-2 text-caption">Select an item above to see its details.</p>
         )}

@@ -39,6 +39,9 @@ interface Props {
    *   - "idle"    → no active session at all
    *  Defaults to the legacy connected/sessionId resolution when omitted. */
   mode?: 'live' | 'history' | 'idle';
+  /** Transcript occurrences per product (lowercased entity name → mentions),
+   *  forwarded to the workspace for the product profile's meeting context. */
+  productMentions?: Record<string, import('@/components/ProductIntelligenceCard').ProductMention[]>;
 }
 
 /** The signal types, in reading order - used in the idle state so the
@@ -182,6 +185,7 @@ export const IntelligencePanel: React.FC<Props> = ({
   error,
   sessionId,
   mode,
+  productMentions,
 }) => {
   const hasSession = Boolean(sessionId);
 
@@ -201,7 +205,7 @@ export const IntelligencePanel: React.FC<Props> = ({
         />
       );
     }
-    return <IntelligenceWorkspace cards={cards} mode={mode} />;
+    return <IntelligenceWorkspace cards={cards} mode={mode} productMentions={productMentions} />;
   }
 
   // Idle (no session): taxonomy preview.

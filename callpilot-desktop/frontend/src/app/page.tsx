@@ -28,6 +28,10 @@ import { indexedDBService } from '@/services/indexedDBService';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { authedApiCall } from '@/lib/auth';
+import { TranscriptSegmentData } from '@/types';
+import { transcriptDisplayText } from '@/components/VirtualizedTranscriptView';
+import { buildTranscriptEntityMap } from '@/lib/transcriptEntities';
+import type { ProductMention } from '@/components/ProductIntelligenceCard';
 import { fadeIn, motionProps } from '@/lib/motion';
 
 interface KnowledgeDoc {
@@ -68,7 +72,7 @@ export default function Home() {
   const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
 
   // Use contexts for state management
-  const { meetingTitle } = useTranscripts();
+  const { meetingTitle, transcripts } = useTranscripts();
   const { transcriptModelConfig, selectedDevices } = useConfig();
   const recordingState = useRecordingState();
 
@@ -147,6 +151,30 @@ export default function Home() {
       .map((c) => entityDisplayName(c.title));
     return Array.from(new Set(names));
   }, [intelligenceCards]);
+
+  // Meeting-specific product mentions (timestamp + snippet) for the product
+  // profile card's "Meeting context" section. Live buffer → entity map.
+  const productMentions = useMemo(() => {
+    if (!transcripts || transcripts.length === 0 || productNames.length === 0) return {};
+    const segments: TranscriptSegmentData[] = transcripts.map((t) => ({
+      id: t.id,
+      timestamp: t.audio_start_time ?? 0,
+      text: t.text,
+      is_partial: t.is_partial,
+    }));
+    const map = buildTranscriptEntityMap(segments, productNames, transcriptDisplayText);
+    const out: Record<string, ProductMention[]> = {};
+    for (const [name, occs] of map.byEntityName) {
+      out[name] = occs.map((o) => {
+        const seg = segments[o.segmentIndex];
+        return {
+          timestamp: o.timestamp,
+          text: seg ? transcriptDisplayText(seg).slice(0, 200) : '',
+        };
+      });
+    }
+    return out;
+  }, [transcripts, productNames]);
 
   useEffect(() => {
     // Track page view
@@ -473,6 +501,7 @@ export default function Home() {
             error={intelligenceError}
             sessionId={sessionId}
             mode={intelligenceMode}
+            productMentions={productMentions}
           />
         </CollapsibleRail>
 

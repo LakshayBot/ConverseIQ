@@ -214,3 +214,105 @@ export async function getEventsForMeeting(meetingId: string): Promise<PastConver
 export async function getRecommendationsForMeeting(meetingId: string): Promise<PastRecommendation[]> {
   return authedApiCall<PastRecommendation[]>('GET', `/api/v1/meetings/${meetingId}/recommendations`);
 }
+
+// ===== Product Intelligence (global, canonical product profiles) =====
+
+export interface ProductIntelligenceProfile {
+  name: string;
+  canonicalName: string;
+  manufacturer?: string | null;
+  category?: string | null;
+  description?: string | null;
+  whatItDoes?: string | null;
+  useCases: string[];
+  targetIndustries: string[];
+  keyFeatures: string[];
+  keySpecifications: string[];
+  standoutPoints: string[];
+  variants: string[];
+  limitations: string[];
+  searchQuery?: string | null;
+  searchStatus: string;
+  enrichmentStatus: string;
+  confidenceScore: number;
+  sourceCount: number;
+  lastEnrichedAt?: string | null;
+  lastError?: string | null;
+}
+
+export interface ProductSourceInfo {
+  title: string;
+  url: string;
+  domain?: string | null;
+  sourceType: string;
+  snippet?: string | null;
+  relevanceScore: number;
+}
+
+/** Reads the cached product profile. The server creates the row + kicks off
+ *  background research when the product has never been enriched, so the
+ *  returned `enrichmentStatus` drives the loading/ready/failed UI states. */
+export async function getProductIntelligence(productName: string): Promise<ProductIntelligenceProfile | null> {
+  try {
+    return await authedApiCall<ProductIntelligenceProfile>('GET', `/api/v1/products/intelligence/${encodeURIComponent(productName)}`);
+  } catch (e) {
+    warnStub('getProductIntelligence');
+    return null;
+  }
+}
+
+/** Lazily fetches the researched sources behind a product profile. */
+export async function getProductSources(productName: string): Promise<ProductSourceInfo[]> {
+  try {
+    const resp = await authedApiCall<{ sources: ProductSourceInfo[] }>('GET', `/api/v1/products/intelligence/${encodeURIComponent(productName)}/sources`);
+    return resp?.sources ?? [];
+  } catch (e) {
+    warnStub('getProductSources');
+    return [];
+  }
+}
+
+/** Forces a fresh research run for a product (retry after failure). */
+export async function enrichProduct(productName: string): Promise<void> {
+  try {
+    await authedApiCall('POST', `/api/v1/products/intelligence/${encodeURIComponent(productName)}/enrich`);
+  } catch (e) {
+    warnStub('enrichProduct');
+  }
+}
+
+/** Explicit, document-scoped enrichment (drawer Start / Reprocess / Retry).
+ *  Marks this document's own product entity + the shared profile Enriching. */
+export async function enrichDocumentProduct(documentId: string, productName: string): Promise<void> {
+  try {
+    await authedApiCall('POST', `/api/v1/knowledge/${documentId}/products/${encodeURIComponent(productName)}/enrich`);
+  } catch (e) {
+    warnStub('enrichDocumentProduct');
+  }
+}
+
+/** Bulk enrichment for a document's selected product entity IDs. Reuses the
+ *  same pipeline as the individual action; already-Processing products are
+ *  left untouched. Throws on failure so the caller can surface a real error
+ *  (never silently report "0 queued"). */
+export async function bulkEnrichDocumentProducts(
+  documentId: string,
+  productIds: string[],
+): Promise<{ queued: number; processing: number; skipped: number }> {
+  return authedApiCall('POST', `/api/v1/knowledge/${documentId}/products/bulk-enrich`, { ids: productIds });
+}
+
+/** Bulk delete for a document's selected product entity IDs. Scoped to the
+ *  document; never removes the source document or other docs' products.
+ *  Throws on failure so the caller can surface a real error. */
+export async function bulkDeleteDocumentProducts(
+  documentId: string,
+  productIds: string[],
+): Promise<{ deleted: number }> {
+  return authedApiCall('POST', `/api/v1/knowledge/${documentId}/products/bulk-delete`, { ids: productIds });
+}
+
+/** Removes a product from a document's product intelligence (not the PDF). */
+export async function deleteDocumentProduct(documentId: string, productName: string): Promise<void> {
+  await authedApiCall('DELETE', `/api/v1/knowledge/${documentId}/products/${encodeURIComponent(productName)}`);
+}

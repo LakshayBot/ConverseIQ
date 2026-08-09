@@ -43,6 +43,11 @@ import {
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { authedApiCall } from '@/lib/auth';
+import { bulkEnrichDocumentProducts, bulkDeleteDocumentProducts } from '@/lib/callpilotApi';
+import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+import { productStatusMeta, productStatusChipClass } from '@/lib/productStatus';
+import { ProductDetailDrawer, type DrawerProduct } from '@/components/ProductDetailDrawer';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types - mirror src/callpilot-dashboard/src/lib/api.ts so the two
@@ -99,6 +104,7 @@ interface EnrichmentProgress {
 
 interface KnowledgeDocument {
   id: string;
+  knowledgeBaseId: string | null;
   fileName: string;
   contentType: string;
   fileSizeBytes: number;
@@ -107,6 +113,28 @@ interface KnowledgeDocument {
   createdAt: string;
   chunkCount: number;
   mode?: 'fast' | 'structured';
+}
+
+interface KnowledgeBase {
+  id: string;
+  name: string;
+  companyName: string;
+  website: string | null;
+  description: string | null;
+  createdAt: string;
+  productsTotal: number;
+  productsEnriched: number;
+}
+
+interface DocumentProduct {
+  id: string;
+  name: string;
+  canonical: string;
+  displayName?: string;
+  enrichmentStatus: string;
+  lastEnrichedAt: string | null;
+  sourcePage?: number | null;
+  sourceChunk?: number | null;
 }
 
 interface DocumentStatus {
@@ -120,6 +148,9 @@ interface DocumentStatus {
   stages: IngestStage[];
   lastError: IngestStageError | null;
   enrichmentProgress: EnrichmentProgress | null;
+  products?: DocumentProduct[];
+  productsTotal?: number;
+  productsEnriched?: number;
 }
 
 interface KnowledgeChunkDetail {
@@ -380,12 +411,252 @@ const DocTypeIcon: React.FC<{ contentType?: string }> = ({ contentType }) => {
   return <FileText className="h-4 w-4" />;
 };
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Product enrichment - per-product intelligence status discovered from this
+// document. Mirrors the ProductIntelligenceCard lifecycle so the Knowledge
+// Bank shows the same vocabulary (Ready / Researching / Pending / No info).
+// Status vocabulary is shared via lib/productStatus.ts.
+// ──────────────────────────────────────────────────────────────────────────────
+
+const ProductStatusChip: React.FC<{ status: string }> = ({ status }) => {
+  const meta = productStatusMeta(status);
+  return (
+    <span className={`chip ${productStatusChipClass(meta.tone)} !px-1.5 !py-0 !text-[10px]`}>
+      {meta.label}
+    </span>
+  );
+};
+
+const ProductProgressList: React.FC<{
+  products: DocumentProduct[];
+  documentId: string;
+  sourceDocument: string;
+  onOpenProduct: (product: DrawerProduct, documentId: string) => void;
+  onProductsDeleted: (ids: string[]) => void;
+}> = ({ products, documentId, sourceDocument, onOpenProduct, onProductsDeleted }) => {
+  const enriched = products.filter((p) => p.enrichmentStatus === 'Completed').length;
+  const processing = products.filter((p) => p.enrichmentStatus === 'Enriching').length;
+  const failed = products.filter((p) => p.enrichmentStatus === 'Failed').length;
+
+  // Selection is per-document frontend state (each ProductProgressList is a
+  // separate component instance per document, so selection never leaks between
+  // documents). Keyed by the stable per-document product/entity id.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const selectAllRef = useRef<HTMLInputElement>(null);
+
+  const allSelected = products.length > 0 && selected.size === products.length;
+  const someSelected = selected.size > 0 && !allSelected;
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someSelected;
+  }, [someSelected]);
+
+  // Drop selection for products that no longer exist (e.g. deleted, or the
+  // doc's product list was refreshed).
+  useEffect(() => {
+    const valid = new Set(products.map((p) => p.id));
+    setSelected((prev) => {
+      const next = new Set([...prev].filter((id) => valid.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [products]);
+
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(products.map((p) => p.id)));
+  const toggleOne = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  const clear = () => setSelected(new Set());
+
+  const handleBulkProcess = async () => {
+    if (selected.size === 0 || busy) return;
+    setBusy(true);
+    try {
+      const res = await bulkEnrichDocumentProducts(documentId, [...selected]);
+      const parts = [`${res.queued} product${res.queued === 1 ? '' : 's'} queued for enrichment`];
+      if (res.processing > 0) parts.push(`${res.processing} already processing`);
+      if (res.skipped > 0) parts.push(`${res.skipped} skipped`);
+      toast.success(parts.join(' · '));
+      clear();
+    } catch (e) {
+      toast.error('Could not start enrichment. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selected.size === 0 || busy) return;
+    setBusy(true);
+    try {
+      const ids = [...selected];
+      const res = await bulkDeleteDocumentProducts(documentId, ids);
+      onProductsDeleted(ids);
+      toast.success(`${res.deleted} product${res.deleted === 1 ? '' : 's'} removed from product intelligence`);
+      clear();
+      setConfirmDelete(false);
+    } catch (e) {
+      toast.error('Could not delete the products. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-1 bg-[var(--opaline-surface-container-low)]/40 px-4 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <input
+            ref={selectAllRef}
+            type="checkbox"
+            checked={allSelected}
+            onChange={toggleAll}
+            aria-label="Select all products in this document"
+            className="h-3.5 w-3.5 cursor-pointer accent-[var(--opaline-primary)]"
+          />
+          <p className="text-overline text-[var(--opaline-on-surface-variant)]">Product intelligence</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {selected.size > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-caption tabular-nums text-[var(--opaline-on-surface-variant)]">
+                {selected.size} selected
+              </span>
+              <button
+                type="button"
+                onClick={handleBulkProcess}
+                disabled={busy}
+                className="rounded-md border border-[var(--opaline-outline-variant)] px-2 py-0.5 text-[11px] font-medium text-[var(--opaline-on-surface)] transition-colors hover:bg-[var(--opaline-surface-container-low)] disabled:opacity-50"
+              >
+                Process selected
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                disabled={busy}
+                className="rounded-md border border-[var(--opaline-outline-variant)] px-2 py-0.5 text-[11px] font-medium text-[var(--opaline-on-surface)] transition-colors hover:bg-[var(--opaline-error-container)] hover:text-[var(--opaline-on-error-container)] disabled:opacity-50"
+              >
+                Delete selected
+              </button>
+              <button
+                type="button"
+                onClick={clear}
+                className="text-[11px] font-medium text-[var(--opaline-on-surface-variant)] transition-colors hover:text-[var(--opaline-on-surface)]"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+          <span className="text-caption tabular-nums text-[var(--opaline-outline)]">
+            {enriched} / {products.length} enriched
+            {processing > 0 && ` · ${processing} processing`}
+            {failed > 0 && ` · ${failed} failed`}
+          </span>
+        </div>
+      </div>
+
+      {confirmDelete && (
+        <div className="flex items-center justify-between gap-3 rounded-md border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] px-3 py-2">
+          <p className="min-w-0 text-[12px] text-[var(--opaline-on-surface-variant)]">
+            Delete {selected.size} product{selected.size === 1 ? '' : 's'}? This removes their stored product
+            intelligence and enrichment data. The source document is not affected.
+          </p>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(false)}
+              disabled={busy}
+              className="rounded-md px-2 py-1 text-[11px] font-medium text-[var(--opaline-on-surface-variant)] transition-colors hover:bg-[var(--opaline-surface-container-low)] disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleBulkDelete}
+              disabled={busy}
+              className="rounded-md bg-[var(--opaline-danger)] px-2 py-1 text-[11px] font-medium text-[var(--opaline-on-danger)] transition-colors hover:opacity-90 disabled:opacity-50"
+            >
+              {busy && <LoaderIcon className="mr-1 inline h-2.5 w-2.5 animate-spin" />}
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        {products.map((p) => {
+          const label = p.displayName ?? p.name;
+          const meta = productStatusMeta(p.enrichmentStatus);
+          const isSelected = selected.has(p.id);
+          return (
+            <div
+              key={p.id}
+              className={cn(
+                'inline-flex items-center rounded-md border bg-[var(--opaline-surface-container-lowest)] transition-colors',
+                isSelected
+                  ? 'border-[var(--opaline-primary)]/60'
+                  : 'border-[var(--opaline-outline-variant)]',
+              )}
+            >
+              <button
+                type="button"
+                aria-pressed={isSelected}
+                aria-label={`Select ${label}`}
+                onClick={() => toggleOne(p.id)}
+                className="pl-1.5 py-1 pr-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--opaline-primary)]"
+              >
+                <span
+                  className={cn(
+                    'flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border',
+                    isSelected
+                      ? 'border-[var(--opaline-primary)] bg-[var(--opaline-primary)]'
+                      : 'border-[var(--opaline-outline)] bg-transparent',
+                  )}
+                >
+                  {isSelected && <Check className="h-2.5 w-2.5 text-[var(--opaline-on-primary)]" aria-hidden />}
+                </span>
+              </button>
+              <button
+                type="button"
+                title={`${label} · ${meta.label}`}
+                onClick={() => onOpenProduct(
+                  {
+                    name: p.name,
+                    canonical: p.canonical,
+                    displayName: p.displayName,
+                    enrichmentStatus: p.enrichmentStatus,
+                    lastEnrichedAt: p.lastEnrichedAt,
+                    sourcePage: p.sourcePage,
+                    sourceChunk: p.sourceChunk,
+                  },
+                  documentId,
+                )}
+                className="inline-flex min-w-0 max-w-[190px] items-center gap-1.5 py-1 pr-2 pl-0.5 text-left transition-colors hover:text-[var(--opaline-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--opaline-primary)]"
+              >
+                <span className="min-w-0 truncate text-[11px] font-medium text-[var(--opaline-on-surface)]">
+                  {label}
+                </span>
+                <ProductStatusChip status={p.enrichmentStatus} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const DocumentRow: React.FC<{
   doc: KnowledgeDocument;
   live: DocumentStatus | null;
   onDelete: (id: string) => void;
   onView: (id: string) => void;
-}> = ({ doc, live, onDelete, onView }) => {
+  onOpenProduct: (product: DrawerProduct, documentId: string) => void;
+  onProductsDeleted: (documentId: string, ids: string[]) => void;
+}> = ({ doc, live, onDelete, onView, onOpenProduct, onProductsDeleted }) => {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const confirmTimerRef = useRef<number | null>(null);
 
@@ -507,6 +778,33 @@ const DocumentRow: React.FC<{
           )}
         </div>
       )}
+      {live?.products && live.products.length > 0 && (
+        <ProductProgressList
+          products={live.products}
+          documentId={doc.id}
+          sourceDocument={doc.fileName}
+          onOpenProduct={onOpenProduct}
+          onProductsDeleted={(ids) => onProductsDeleted(doc.id, ids)}
+        />
+      )}
+      {/* Empty state: only once product research has settled and truly found
+          nothing - never while identification is still running. */}
+      {live && live.products && live.products.length === 0 && (
+        (() => {
+          const research = live.stages.find((s: any) => s.key === 'productresearch');
+          const settled = research && (research.status === 'done' || research.status === 'failed');
+          const processed = isDocTerminal({ ...doc, ...live });
+          if (!settled && !processed) return null;
+          return (
+            <div className="space-y-0.5 bg-[var(--opaline-surface-container-low)]/40 px-4 py-2.5">
+              <p className="text-overline text-[var(--opaline-on-surface-variant)]">Product intelligence</p>
+              <p className="text-caption text-[var(--opaline-on-surface-variant)]">
+                No products detected in this document.
+              </p>
+            </div>
+          );
+        })()
+      )}
     </React.Fragment>
   );
 };
@@ -525,11 +823,50 @@ export const KnowledgeUpload: React.FC = () => {
   const [viewLoading, setViewLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'chunks' | 'entities'>('chunks');
   const [search, setSearch] = useState('');
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
+  const [selectedKbId, setSelectedKbId] = useState<string | null>(null);
+  const [showKbForm, setShowKbForm] = useState(false);
+  const [creatingKb, setCreatingKb] = useState(false);
+  const [kbForm, setKbForm] = useState({ name: '', companyName: '', website: '', description: '' });
+  const [drawer, setDrawer] = useState<{ product: DrawerProduct; documentId: string; sourceDocument: string } | null>(null);
 
-  // Load docs on mount
+  // Load docs + knowledge bases on mount
   useEffect(() => {
     void loadDocs();
+    void loadKnowledgeBases();
   }, []);
+
+  const loadKnowledgeBases = async () => {
+    try {
+      const resp = await authedApiCall<{ knowledgeBases: KnowledgeBase[] }>('GET', '/api/v1/knowledge-bases');
+      const kbs = resp?.knowledgeBases ?? [];
+      setKnowledgeBases(kbs);
+      setSelectedKbId((prev) => prev ?? kbs[0]?.id ?? null);
+    } catch (e) {
+      console.warn('[KnowledgeUpload] failed to load knowledge bases:', e);
+    }
+  };
+
+  const handleCreateKb = async () => {
+    if (!kbForm.companyName.trim() || !kbForm.name.trim()) return;
+    setCreatingKb(true);
+    try {
+      const kb = await authedApiCall<KnowledgeBase>('POST', '/api/v1/knowledge-bases', {
+        name: kbForm.name,
+        companyName: kbForm.companyName,
+        website: kbForm.website,
+        description: kbForm.description,
+      });
+      setKnowledgeBases((prev) => [kb, ...prev]);
+      setSelectedKbId(kb.id);
+      setShowKbForm(false);
+      setKbForm({ name: '', companyName: '', website: '', description: '' });
+    } catch (e) {
+      console.warn('[KnowledgeUpload] failed to create knowledge base:', e);
+    } finally {
+      setCreatingKb(false);
+    }
+  };
 
   const loadDocs = async () => {
     try {
@@ -562,7 +899,18 @@ export const KnowledgeUpload: React.FC = () => {
       const currentDocs = docsRef.current;
       const inFlight = currentDocs.filter((d) => {
         const live = liveStatusesRef.current[d.id];
-        return !isDocTerminal(live ?? d);
+        // Keep polling while the ingest pipeline is running…
+        if (!isDocTerminal(live ?? d)) return true;
+        // …and give every terminal doc at least one status snapshot so the
+        // per-document product intelligence list can render. Then keep
+        // polling only while a product is still being researched.
+        if (!live) return true;
+        if (live.products && live.products.length > 0) {
+          return live.products.some(
+            (p) => p.enrichmentStatus === 'Pending' || p.enrichmentStatus === 'Enriching',
+          );
+        }
+        return false;
       });
       if (inFlight.length === 0) return;
 
@@ -650,7 +998,7 @@ export const KnowledgeUpload: React.FC = () => {
       }
 
       const result = await invoke<KnowledgeDocument>('callpilot_api_upload', {
-        path: `/api/v1/knowledge/upload?mode=${mode}`,
+        path: `/api/v1/knowledge/upload?mode=${mode}${selectedKbId ? `&knowledgeBaseId=${encodeURIComponent(selectedKbId)}` : ''}`,
         fileName,
         contentType,
         fileBytes: Array.from(fileBytes),
@@ -715,6 +1063,47 @@ export const KnowledgeUpload: React.FC = () => {
     }
   };
 
+  // A product was deleted from its detail drawer - drop it from the
+  // document's local product list so the chip + counter update immediately
+  // (the next status poll confirms from the backend).
+  const handleProductDeleted = (canonical: string) => {
+    if (!drawer) return;
+    const { documentId } = drawer;
+    setLiveStatuses((prev) => {
+      const live = prev[documentId];
+      if (!live) return prev;
+      return {
+        ...prev,
+        [documentId]: {
+          ...live,
+          products: (live.products ?? []).filter((p) => p.canonical !== canonical),
+        },
+      };
+    });
+    setDrawer(null);
+  };
+
+  // Bulk delete: remove the selected products (by entity id) from THIS
+  // document's local list immediately; the poll confirms from the backend.
+  const handleProductsDeleted = (documentId: string, ids: string[]) => {
+    setLiveStatuses((prev) => {
+      const live = prev[documentId];
+      if (!live) return prev;
+      return {
+        ...prev,
+        [documentId]: {
+          ...live,
+          products: (live.products ?? []).filter((p) => !ids.includes(p.id)),
+        },
+      };
+    });
+  };
+
+  const handleOpenProduct = (product: DrawerProduct, documentId: string) => {
+    const doc = docsRef.current.find((d) => d.id === documentId);
+    setDrawer({ product, documentId, sourceDocument: doc?.fileName ?? 'Document' });
+  };
+
   // ─── Render ───────────────────────────────────────────────────────────────
   const docsForRender = docs.map((d) => {
     const live = liveStatuses[d.id];
@@ -736,8 +1125,119 @@ export const KnowledgeUpload: React.FC = () => {
     return docsForRender.filter(({ doc }) => doc.fileName.toLowerCase().includes(q));
   }, [docsForRender, search]);
 
+  const selectedKb = knowledgeBases.find((k) => k.id === selectedKbId) ?? null;
+
   return (
     <div className="space-y-6">
+      {/* Knowledge base (company context) - scopes product intelligence.
+          Products discovered in uploaded documents are researched once
+          under this company and reused live - no web search during calls. */}
+      <section className="space-y-3">
+        <h2 className="text-overline">Knowledge base</h2>
+
+        {knowledgeBases.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {knowledgeBases.map((kb) => (
+              <button
+                key={kb.id}
+                type="button"
+                onClick={() => setSelectedKbId(kb.id)}
+                className={cn(
+                  'chip !px-2 !py-1 !text-xs',
+                  selectedKbId === kb.id ? 'chip-primary' : 'chip-neutral',
+                )}
+              >
+                {kb.companyName}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setShowKbForm((s) => !s)}
+              className="chip chip-neutral !px-2 !py-1 !text-xs"
+            >
+              + New knowledge base
+            </button>
+          </div>
+        )}
+
+        {selectedKb && (
+          <p className="text-caption text-[var(--opaline-on-surface-variant)]">
+            <span className="font-medium text-[var(--opaline-on-surface)]">{selectedKb.name}</span>
+            {selectedKb.companyName ? ` · ${selectedKb.companyName}` : ''}
+            {selectedKb.productsTotal > 0
+              ? ` · ${selectedKb.productsEnriched}/${selectedKb.productsTotal} products enriched`
+              : ''}
+          </p>
+        )}
+
+        {(showKbForm || knowledgeBases.length === 0) && (
+          <div className="space-y-2.5 rounded-xl border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] p-3">
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              <div>
+                <label className="field-label" htmlFor="kb-company">Company</label>
+                <Input
+                  id="kb-company"
+                  value={kbForm.companyName}
+                  onChange={(e) => setKbForm((f) => ({ ...f, companyName: e.target.value }))}
+                  placeholder="Secure Meters"
+                />
+              </div>
+              <div>
+                <label className="field-label" htmlFor="kb-name">Knowledge base name</label>
+                <Input
+                  id="kb-name"
+                  value={kbForm.name}
+                  onChange={(e) => setKbForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="Secure Meters Products"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="field-label" htmlFor="kb-website">Website (optional)</label>
+              <Input
+                id="kb-website"
+                value={kbForm.website}
+                onChange={(e) => setKbForm((f) => ({ ...f, website: e.target.value }))}
+                placeholder="https://…"
+              />
+            </div>
+            <div>
+              <label className="field-label" htmlFor="kb-desc">Description (optional)</label>
+              <textarea
+                id="kb-desc"
+                value={kbForm.description}
+                onChange={(e) => setKbForm((f) => ({ ...f, description: e.target.value }))}
+                placeholder="Product knowledge used during sales conversations."
+                className="min-h-[64px] w-full resize-y rounded-lg border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] px-3 py-2 text-sm text-[var(--opaline-on-surface)] placeholder:text-[var(--opaline-outline)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)]"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCreateKb}
+                disabled={creatingKb || !kbForm.companyName.trim() || !kbForm.name.trim()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--opaline-primary)] px-3 py-1.5 text-xs font-medium text-[var(--opaline-on-primary)] transition-colors hover:bg-[var(--opaline-primary-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {creatingKb && <LoaderIcon className="h-3 w-3 animate-spin" />}
+                Create knowledge base
+              </button>
+              {knowledgeBases.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowKbForm(false)}
+                  className="rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--opaline-on-surface-variant)] transition-colors hover:bg-[var(--opaline-surface-container-low)]"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+            <p className="text-caption text-[var(--opaline-on-surface-variant)]">
+              Products discovered in uploaded documents are researched and saved under this company — during calls their intelligence is shown instantly, no web search needed.
+            </p>
+          </div>
+        )}
+      </section>
+
       {/* Upload dropzone */}
       <section className="space-y-3">
         <h2 className="text-overline">Upload</h2>
@@ -879,6 +1379,8 @@ export const KnowledgeUpload: React.FC = () => {
                   live={live}
                   onDelete={handleDelete}
                   onView={handleView}
+                  onOpenProduct={handleOpenProduct}
+                  onProductsDeleted={handleProductsDeleted}
                 />
               ))}
             </div>
@@ -896,6 +1398,16 @@ export const KnowledgeUpload: React.FC = () => {
           onClose={() => setViewDoc(null)}
         />
       )}
+
+      {/* Product detail drawer */}
+      <ProductDetailDrawer
+        open={!!drawer}
+        onClose={() => setDrawer(null)}
+        documentId={drawer?.documentId ?? ''}
+        sourceDocument={drawer?.sourceDocument ?? ''}
+        product={drawer?.product ?? null}
+        onDeleted={handleProductDeleted}
+      />
     </div>
   );
 };
