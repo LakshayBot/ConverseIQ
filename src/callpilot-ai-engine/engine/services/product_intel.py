@@ -1,0 +1,509 @@
+"""Product Intelligence research - Tavily discovery + LLM structured extraction.
+
+Mirrors the competitive-intel pipeline (competitor_intel.py) but produces a
+structured, reusable product profile rather than a free-text summary. The
+result is returned to .NET which persists it as the canonical
+ProductIntelligence row (the database is the cache - research happens once).
+
+Fail-open by design: every external dependency (Tavily, LLM) degrades to a
+partial result or a structured "failed" status - never an exception that can
+break the caller.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+from typing import Optional
+
+from engine.services.competitor_intel import _tavily_search
+
+logger = logging.getLogger(__name__)
+
+MAX_SOURCES = 6
+SNIPPET_CHARS = 400
+
+_SOURCE_TYPE_HINTS: list[tuple[str, list[str]]] = [
+    ("datasheet", ["datasheet", "data sheet", "spec sheet", "technical sheet"]),
+    ("documentation", ["manual", "specification", "specs", "product spec", "user guide", ".pdf", "pdf"]),
+    ("publication", ["wikipedia", "news", "press", "magazine", "journal", "review", "blog"]),
+    ("distributor", ["distributor", "supplier", "retailer", "reseller", "alibaba", "amazon", "mouser", "digikey", "rs-online", "elektronik"]),
+]
+
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
+
+# Terms that routinely appear in product documentation but are NOT products.
+# The LLM does the real filtering; this is a hard backstop so generic
+# metering vocabulary never becomes a "product".
+_GENERIC_TERMS = {
+    "ami", "dlms", "dlms cosem", "cosem", "accuracy", "smart metering", "smart meter",
+    "three phase", "three-phase", "three phase meter", "single phase", "single-phase",
+    "communication", "meter", "electricity meter", "energy meter", "metering",
+    "metering solution", "metering solutions", "technology", "solution", "solutions",
+    "gprs", "gsm", "rf", "zigbee", "wifi", "bluetooth", "ct", "current transformer",
+    "sensor", "sensors", "software", "app", "platform", "system", "product", "products",
+    "feature", "features", "module", "modules", "communications module", "communication module",
+    "connection", "connectivity", "reading", "billing", "tariff", "tariffs", "metering",
+    "load", "supply", "voltage", "current", "power", "energy", "consumption",
+}
+
+
+def _is_generic(canonical: str) -> bool:
+    c = canonical.strip().lower()
+    if not c or len(c) < 3:
+        return True
+    if c in _GENERIC_TERMS:
+        return True
+    if len(c.split()) == 1 and len(c) <= 4:
+        return True  # "meter", "lib", "api" style single short tokens
+    return False
+
+
+_IDENTIFY_PROMPT = """You are extracting and classifying the entities a company's product documentation mentions.
+
+Context: this documentation belongs to the company "__COMPANY__".
+
+From the text below, list every notable entity, and for each one decide its entityType:
+
+- PRODUCT: an actual named, productized offering the company sells (e.g. "Prodigy", "Apex 100", "Sprint 210", "i-Credit 510").
+- PRODUCT_CATEGORY: a family/class of products (e.g. "three-phase meters", "electric motors").
+- FEATURE: a capability or characteristic (e.g. "DLMS support", "remote firmware update").
+- COMPONENT: a part or sub-assembly (e.g. "CT transformer", "gearbox").
+- ACCESSORY: an optional add-on (e.g. "communication module").
+- APPLICATION: a use case or industry (e.g. "industrial metering", "transmission points").
+- TECHNICAL_SPECIFICATION: a spec value (e.g. "class 0.2 accuracy", "three phase").
+- OTHER: anything else.
+
+RULES:
+- Be conservative about PRODUCT. Only classify as PRODUCT if the document clearly presents it as a named, sellable offering of the company - not a component, feature, capability, industry, application, spec, or generic category.
+- "Prodigy", "PRODIGY" and "Prodigy meter" are the SAME product - keep one canonical name and collect alternate spellings as aliases.
+- "canonical" is the clean primary name, title-cased, WITHOUT generic trailing words when the document brands it shorter (e.g. canonical "Sprint 210" not "Sprint 210 modular meter").
+- "confidence" is 0.0-1.0 reflecting how confident you are the entityType is correct.
+- "evidence" is a short verbatim quote from the text that supports the classification.
+- Return EVERY notable entity (products AND non-products) so nothing is lost.
+
+Return ONLY valid JSON with this exact schema (no preamble, no markdown):
+{{
+  "entities": [
+    {{"canonical": string, "aliases": [string], "entityType": string, "confidence": number, "evidence": string}}
+  ]
+}}
+
+Text:
+__TEXT__"""
+
+# Confidence thresholds for automatic product enrichment (precision > recall):
+#   >= 0.7  → confident PRODUCT, auto-enrich at ingest
+#   0.4-0.69 → possible PRODUCT, stored but NOT auto-enriched (user can Start)
+#   < 0.4   → treated as non-product for Product Intelligence
+AUTO_ENRICH_CONFIDENCE = 0.7
+PRODUCT_CONFIDENCE_FLOOR = 0.4
+
+_VALID_ENTITY_TYPES = {
+    "product", "product_category", "feature", "component", "accessory",
+    "application", "technical_specification", "other",
+}
+
+
+async def identify_products(text: str, company_name: str = "", llm_client=None) -> list[dict]:
+    """LLM product/entity identification: classified entities from document
+    text, with confidence + evidence. Non-product entities are kept (with their
+    category) but only confident PRODUCT entities drive enrichment. Fail-open -
+    on any LLM failure we return [] so the ingest pipeline is never blocked."""
+    if not text or not text.strip():
+        return []
+    snippet = text[:8000]
+    prompt = _IDENTIFY_PROMPT.replace("__COMPANY__", company_name or "unknown").replace("__TEXT__", snippet)
+
+    payload = None
+    # 1) Groq (structured json_object) first - reliable JSON.
+    try:
+        from engine.services.enrichment_service import _call_groq_with_retry
+        result = await _call_groq_with_retry(prompt)
+        if result and getattr(result, "content", None):
+            payload = _parse_json_object(result.content)
+    except Exception as exc:
+        logger.warning("Product identification (Groq) failed: %s", exc)
+
+    # 2) BYOK proxy fallback.
+    if not payload and llm_client is not None:
+        try:
+            raw = await llm_client(prompt)
+            if raw:
+                payload = _parse_json_object(raw)
+        except Exception as exc:
+            logger.warning("Product identification (BYOK) failed: %s", exc)
+
+    entities: list[dict] = []
+    if payload:
+        for item in (payload.get("entities") or payload.get("products") or []):
+            if not isinstance(item, dict):
+                continue
+            canonical = (item.get("canonical") or "").strip()
+            if not canonical:
+                continue
+            entity_type = str(item.get("entityType") or "product").strip().lower()
+            if entity_type not in _VALID_ENTITY_TYPES:
+                entity_type = "other"
+            confidence = _clamp_confidence(item.get("confidence"))
+            # Hard backstop: generic metering vocabulary is never a product.
+            if entity_type == "product" and _is_generic(canonical):
+                entity_type = "other"
+                confidence = min(confidence, 0.3)
+            entities.append({
+                "canonical": canonical,
+                "aliases": _as_str_list(item.get("aliases")),
+                "entityType": entity_type,
+                "confidence": confidence,
+                "evidence": (item.get("evidence") or "").strip(),
+            })
+    return entities
+
+
+def _clamp_confidence(value) -> float:
+    try:
+        c = float(value)
+        return round(min(max(c, 0.0), 1.0), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _classify_source_type(title: str, url: str) -> str:
+    """Keyword-based source classification. Official/manufacturer wins only
+    when the source is actually the manufacturer's own domain."""
+    blob = f"{title} {url}".lower()
+    for source_type, keywords in _SOURCE_TYPE_HINTS:
+        if any(kw in blob for kw in keywords):
+            return source_type
+    return "search"
+
+
+def _domain_of(url: str) -> str:
+    match = re.search(r"https?://(?:www\.)?([^/]+)", url or "")
+    return match.group(1).lower() if match else ""
+
+
+def _looks_official(url: str, manufacturer: str) -> bool:
+    if not manufacturer or not url:
+        return False
+    domain = _domain_of(url)
+    if not domain:
+        return False
+    tokens = [t for t in re.split(r"[^a-z0-9]+", manufacturer.lower()) if len(t) >= 3]
+    return any(t in domain for t in tokens)
+
+
+def _build_search_query(name: str, manufacturer: str, category: str, boost: str = "", company: str = "") -> str:
+    """Contextual query. The owning company leads the query when known so
+    generic product names ("Prodigy") resolve to the right vendor, not a
+    same-named game/audio product. `boost` carries distinctive domain terms
+    (e.g. from knowledge-base descriptions) that further disambiguate."""
+    parts: list[str] = []
+    org = company or manufacturer
+    if org:
+        parts.append(org)
+    parts.append(name)
+    if boost:
+        parts.append(boost)
+    if category:
+        parts.append(category)
+    parts.append("product specifications datasheet")
+    return " ".join(dict.fromkeys(p for p in parts if p))
+
+
+def _tokens(text: str) -> list[str]:
+    return [t for t in re.split(r"[^a-z0-9]+", text.lower()) if len(t) >= 3]
+
+
+def _website_host(website: str) -> str:
+    match = re.search(r"https?://(?:www\.)?([^/]+)", website or "")
+    return match.group(1).lower() if match else ""
+
+
+def _filter_relevant(results: list[dict], name: str, manufacturer: str, website: str = "") -> list[dict]:
+    """Keep only sources plausibly about the product. With a known org
+    (manufacturer/company/website), a source must reference it (domain,
+    title, or content) - which kills same-name noise like "Prodigy" the
+    video game. Without one, a product-name mention in title/content is
+    enough."""
+    name_tokens = set(_tokens(name))
+    org_tokens = set(_tokens(manufacturer))
+    website_tokens = set(_tokens(_website_host(website)))
+    relevant: list[dict] = []
+    for r in results:
+        title = (r.get("title") or "")
+        content = (r.get("content") or "")
+        domain = _domain_of(r.get("url") or "")
+        blob = f"{title} {content}".lower()
+        org_referenced = (
+            any(t in domain for t in org_tokens)
+            or any(t in domain for t in website_tokens)
+            or any(t in blob for t in org_tokens)
+        )
+        name_mentioned = any(t in blob for t in name_tokens)
+        if org_tokens or website_tokens:
+            if org_referenced:
+                relevant.append(r)
+        elif name_mentioned:
+            relevant.append(r)
+    return relevant or results[:2]
+
+
+def _sanitize_sources(results: list[dict], manufacturer: str, website: str = "") -> list[dict]:
+    """Convert raw Tavily results into product-source descriptors, ranked by
+    relevance (official/manufacturer sources first)."""
+    website_host = _website_host(website)
+    sources: list[dict] = []
+    for r in results:
+        url = (r.get("url") or "").strip()
+        title = (r.get("title") or "").strip()
+        if not url:
+            continue
+        content = (r.get("content") or "").strip()[:SNIPPET_CHARS]
+        source_type = _classify_source_type(title, url)
+        if source_type != "official" and (_looks_official(url, manufacturer) or (website_host and website_host in _domain_of(url))):
+            source_type = "official"
+        relevance = 1.0 if source_type == "official" else 0.6
+        sources.append({
+            "title": title or _domain_of(url),
+            "url": url,
+            "domain": _domain_of(url),
+            "source_type": source_type,
+            "snippet": content,
+            "relevance_score": relevance,
+        })
+    # Official/manufacturer sources first, then by relevance.
+    sources.sort(key=lambda s: (s["source_type"] == "official", s["relevance_score"]), reverse=True)
+    return sources[:MAX_SOURCES]
+
+
+def _strip_json_fence(text: str) -> str:
+    fence = _JSON_FENCE_RE.search(text)
+    if fence:
+        return fence.group(1).strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start >= 0 and end > start:
+        return text[start : end + 1].strip()
+    return text.strip()
+
+
+def _as_str_list(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    return []
+
+
+def _as_str_map(value) -> list[str]:
+    """Normalize keySpecifications: accept a dict {name: value} or a list."""
+    if isinstance(value, dict):
+        return [f"{str(k)}: {str(v)}" for k, v in value.items() if v is not None and str(v).strip()]
+    return _as_str_list(value)
+
+
+def _sanitize_product(raw: dict) -> dict:
+    """Coerce LLM output to the expected shape; every field is a best-effort
+    sanitize so a malformed payload still yields a usable profile."""
+    return {
+        "canonicalName": (raw.get("canonicalName") or raw.get("name") or "").strip(),
+        "manufacturer": (raw.get("manufacturer") or "").strip() or None,
+        "category": (raw.get("category") or "").strip() or None,
+        "description": (raw.get("description") or raw.get("shortDescription") or "").strip() or None,
+        "whatItDoes": (raw.get("whatItDoes") or "").strip() or None,
+        "useCases": _as_str_list(raw.get("useCases")),
+        "targetIndustries": _as_str_list(raw.get("targetIndustries")),
+        "keyFeatures": _as_str_list(raw.get("keyFeatures")),
+        "keySpecifications": _as_str_map(raw.get("keySpecifications")),
+        "standoutPoints": _as_str_list(raw.get("standoutPoints")),
+        "variants": _as_str_list(raw.get("variants")),
+        "limitations": _as_str_list(raw.get("limitations")),
+    }
+
+
+def _compute_confidence(product: dict, source_count: int) -> float:
+    """Deterministic confidence: grounded in how many verified sources and
+    populated fields exist - never inflated by the LLM."""
+    score = 0.0
+    if source_count >= 1:
+        score += 0.35
+    if source_count >= 2:
+        score += 0.15
+    if source_count >= 3:
+        score += 0.1
+    if product.get("manufacturer"):
+        score += 0.1
+    if product.get("description") or product.get("whatItDoes"):
+        score += 0.1
+    if any(product.get(k) for k in ("keyFeatures", "keySpecifications", "useCases")):
+        score += 0.1
+    return round(min(score, 1.0), 2)
+
+
+_EXTRACTION_PROMPT = """You are a product intelligence extractor. Analyze the web research
+snippets below about the product "__NAME__".
+
+Extract a structured product profile. CRITICAL RULES:
+- Extract ONLY facts supported by the provided sources.
+- If a field is NOT supported by the sources, use null for strings and [] for lists.
+- NEVER invent specifications, technical ratings, certifications, features,
+  pricing, compatibility, or use cases.
+- "description" should be a 1-2 sentence factual summary of what the product
+  is, grounded in the source text (do not leave it null if the sources
+  describe the product).
+- "manufacturer" is the full company name that makes the product, taken
+  verbatim from the sources when visible (e.g. "Secure Meters").
+- "keySpecifications" is an object mapping a spec name to its value
+  (e.g. {"Phase": "Three-phase", "Accuracy class": "0.2s"}).
+- Keep list items short and factual.
+- "canonicalName" should be the clean product name (e.g. "Prodigy").
+
+Return ONLY valid JSON with this exact schema (no preamble, no markdown):
+{{
+  "canonicalName": string,
+  "manufacturer": string or null,
+  "category": string or null,
+  "description": string or null,
+  "whatItDoes": string or null,
+  "useCases": [string],
+  "targetIndustries": [string],
+  "keyFeatures": [string],
+  "keySpecifications": {{string: string}},
+  "standoutPoints": [string],
+  "variants": [string],
+  "limitations": [string]
+}}
+
+Known identity hints (use as grounding, but only include if supported by the sources):
+__HINTS__
+
+Sources:
+__SNIPPETS__"""
+
+
+async def _extract_with_llm(name: str, sources: list[dict], llm_client=None, hints: dict | None = None) -> dict:
+    if not sources:
+        return {}
+
+    hint_lines = []
+    if hints:
+        if hints.get("manufacturer"):
+            hint_lines.append(f"- Manufacturer: {hints['manufacturer']}")
+        if hints.get("category"):
+            hint_lines.append(f"- Category: {hints['category']}")
+    hint_text = "\n".join(hint_lines) if hint_lines else "- None provided"
+
+    snippets = "\n".join(
+        f"- {s['title']} | {s['url']}\n  {s['snippet']}" for s in sources
+    )
+    prompt = (
+        _EXTRACTION_PROMPT
+        .replace("__NAME__", name)
+        .replace("__HINTS__", hint_text)
+        .replace("__SNIPPETS__", snippets)
+    )
+
+    # 1) BYOK proxy (the user's configured provider, via .NET LlmService).
+    if llm_client is not None:
+        try:
+            raw = await llm_client(prompt)
+            if raw:
+                payload = _parse_json_object(raw)
+                if payload:
+                    return payload
+        except Exception as exc:
+            logger.warning("Product extraction BYOK call failed: %s", exc)
+
+    # 2) Groq fallback (existing enrichment client - json_object guaranteed).
+    #    Keeps research working even when no BYOK provider is configured.
+    try:
+        from engine.services.enrichment_service import _call_groq_with_retry
+        result = await _call_groq_with_retry(prompt)
+        if result and getattr(result, "content", None):
+            payload = _parse_json_object(result.content)
+            if payload:
+                return payload
+    except Exception as exc:
+        logger.warning("Product extraction Groq fallback failed: %s", exc)
+
+    return {}
+
+
+def _parse_json_object(raw: str):
+    """Parse strict-JSON (fence-tolerant). Returns None on any malformation
+    so the caller can fall through to the next LLM path."""
+    try:
+        payload = json.loads(_strip_json_fence(raw))
+        return payload if isinstance(payload, dict) else None
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+async def research_product(
+    name: str,
+    manufacturer: str = "",
+    category: str = "",
+    context: str = "",
+    llm_client=None,
+    boost: str = "",
+    company: str = "",
+    website: str = "",
+) -> dict:
+    """Run the full product research pipeline and return a result dict.
+
+    Returns a stable shape:
+      {status: "ok"|"partial"|"failed", search_query, product, sources, error}
+    """
+    display_name = (name or "").strip() or "unknown"
+    query = _build_search_query(display_name, manufacturer, category, boost, company)
+
+    raw_results = await _tavily_search(query, max_results=MAX_SOURCES, search_depth="advanced")
+    if not raw_results:
+        return {
+            "status": "failed",
+            "search_query": query,
+            "product": {},
+            "sources": [],
+            "error": "no search results",
+        }
+
+    results = _filter_relevant(raw_results, display_name, manufacturer, website)
+    if not results:
+        return {
+            "status": "failed",
+            "search_query": query,
+            "product": {},
+            "sources": [],
+            "error": "no relevant sources found",
+        }
+
+    sources = _sanitize_sources(results, manufacturer, website)
+    extracted = await _extract_with_llm(
+        display_name, sources, llm_client,
+        hints={"manufacturer": manufacturer or company, "category": category},
+    )
+
+    if not extracted:
+        return {
+            "status": "failed",
+            "search_query": query,
+            "product": {},
+            "sources": [],
+            "error": "llm extraction returned no usable data",
+        }
+
+    product = _sanitize_product(extracted)
+    product["confidenceScore"] = _compute_confidence(product, len(sources))
+    filled = [k for k in ("description", "whatItDoes", "keyFeatures", "keySpecifications") if product.get(k)]
+    status = "ok" if len(filled) >= 2 and len(sources) >= 1 else "partial"
+
+    return {
+        "status": status,
+        "search_query": query,
+        "product": product,
+        "sources": sources,
+        "error": None,
+    }

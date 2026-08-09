@@ -3,6 +3,7 @@ using System;
 using CallPilot.Server.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CallPilot.Server.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(CallPilotDbContext))]
-    partial class CallPilotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260809112546_AddProductIntelligence")]
+    partial class AddProductIntelligence
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -52,47 +55,6 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("Embeddings");
-                });
-
-            modelBuilder.Entity("CallPilot.Server.Domain.Knowledge.KnowledgeBase", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("CompanyName")
-                        .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Website")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CompanyName");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("KnowledgeBases");
                 });
 
             modelBuilder.Entity("CallPilot.Server.Domain.Knowledge.KnowledgeChunk", b =>
@@ -192,9 +154,6 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
                     b.Property<long>("FileSizeBytes")
                         .HasColumnType("bigint");
 
-                    b.Property<Guid?>("KnowledgeBaseId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("LastErrorJson")
                         .HasColumnType("jsonb");
 
@@ -225,8 +184,6 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("EnrichmentStatus");
-
-                    b.HasIndex("KnowledgeBaseId");
 
                     b.HasIndex("ProcessingStatus");
 
@@ -294,14 +251,6 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
                     b.Property<Guid>("DocumentId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("EnrichmentStatus")
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<string>("EntityCategory")
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
                     b.Property<string>("EntityText")
                         .IsRequired()
                         .HasMaxLength(300)
@@ -312,19 +261,11 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<DateTime?>("LastEnrichedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("ProductIntelligenceId")
-                        .HasColumnType("uuid");
-
                     b.HasKey("Id");
 
                     b.HasIndex("ChunkId");
 
                     b.HasIndex("DocumentId");
-
-                    b.HasIndex("ProductIntelligenceId");
 
                     b.HasIndex("EntityText", "EntityType");
 
@@ -498,10 +439,6 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
-                    b.Property<string>("CompanyName")
-                        .HasMaxLength(300)
-                        .HasColumnType("character varying(300)");
-
                     b.Property<double>("ConfidenceScore")
                         .HasColumnType("double precision");
 
@@ -526,9 +463,6 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
                     b.PrimitiveCollection<string>("KeySpecifications")
                         .IsRequired()
                         .HasColumnType("jsonb");
-
-                    b.Property<Guid?>("KnowledgeBaseId")
-                        .HasColumnType("uuid");
 
                     b.Property<DateTime?>("LastEnrichedAt")
                         .HasColumnType("timestamp with time zone");
@@ -575,16 +509,14 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CanonicalName")
+                        .IsUnique();
+
                     b.HasIndex("Category");
 
                     b.HasIndex("EnrichmentStatus");
 
-                    b.HasIndex("KnowledgeBaseId");
-
                     b.HasIndex("Manufacturer");
-
-                    b.HasIndex("CompanyName", "CanonicalName")
-                        .IsUnique();
 
                     b.ToTable("ProductIntelligences");
                 });
@@ -777,16 +709,6 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
                     b.Navigation("Document");
                 });
 
-            modelBuilder.Entity("CallPilot.Server.Domain.Knowledge.KnowledgeDocument", b =>
-                {
-                    b.HasOne("CallPilot.Server.Domain.Knowledge.KnowledgeBase", "KnowledgeBase")
-                        .WithMany("Documents")
-                        .HasForeignKey("KnowledgeBaseId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("KnowledgeBase");
-                });
-
             modelBuilder.Entity("CallPilot.Server.Domain.Meetings.DocumentEntity", b =>
                 {
                     b.HasOne("CallPilot.Server.Domain.Knowledge.KnowledgeChunk", "Chunk")
@@ -800,16 +722,9 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("CallPilot.Server.Domain.Products.ProductIntelligence", "ProductIntelligence")
-                        .WithMany()
-                        .HasForeignKey("ProductIntelligenceId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.Navigation("Chunk");
 
                     b.Navigation("Document");
-
-                    b.Navigation("ProductIntelligence");
                 });
 
             modelBuilder.Entity("CallPilot.Server.Domain.Meetings.TranscriptSegment", b =>
@@ -819,14 +734,6 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
                         .HasForeignKey("MeetingId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-                });
-
-            modelBuilder.Entity("CallPilot.Server.Domain.Products.ProductIntelligence", b =>
-                {
-                    b.HasOne("CallPilot.Server.Domain.Knowledge.KnowledgeBase", null)
-                        .WithMany()
-                        .HasForeignKey("KnowledgeBaseId")
-                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("CallPilot.Server.Domain.Products.ProductSource", b =>
@@ -860,11 +767,6 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("CallPilot.Server.Domain.Knowledge.KnowledgeBase", b =>
-                {
-                    b.Navigation("Documents");
                 });
 
             modelBuilder.Entity("CallPilot.Server.Domain.Knowledge.KnowledgeChunk", b =>

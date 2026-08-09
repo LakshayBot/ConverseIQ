@@ -68,7 +68,7 @@ public class KnowledgeUploadHandler
         string contentType,
         long fileSize,
         Stream fileStream)
-        => UploadAsync(userId, fileName, contentType, fileSize, fileStream, IngestMode.Fast);
+        => UploadAsync(userId, fileName, contentType, fileSize, fileStream, IngestMode.Fast, knowledgeBaseId: null);
 
     public async Task<KnowledgeDocument> UploadAsync(
         Guid userId,
@@ -76,7 +76,8 @@ public class KnowledgeUploadHandler
         string contentType,
         long fileSize,
         Stream fileStream,
-        IngestMode mode)
+        IngestMode mode,
+        Guid? knowledgeBaseId = null)
     {
         var document = new KnowledgeDocument(userId, fileName, contentType, fileSize);
         // Persist the ingest mode so the dashboard can show the right
@@ -85,6 +86,10 @@ public class KnowledgeUploadHandler
         // background enrichment so the GET /status endpoint returns it
         // immediately, even mid-pipeline.
         document.SetMode(mode.ToString().ToLowerInvariant());
+        if (knowledgeBaseId is Guid kbId)
+        {
+            document.SetKnowledgeBase(kbId);
+        }
 
         var uploadsDir = Path.Combine(Directory.GetCurrentDirectory(), "uploads");
         Directory.CreateDirectory(uploadsDir);
@@ -253,6 +258,7 @@ public class KnowledgeUploadHandler
         document.RecordStagePending("indexed", "Indexed");
         document.RecordStagePending("entityextraction", "Entity extraction");
         document.RecordStagePending("enriching", "LLM enrichment");
+        document.RecordStagePending("productresearch", "Product research");
     }
 
     /// <summary>
@@ -326,45 +332,34 @@ public class KnowledgeUploadHandler
                 "Document indexed: {FileName}, {ChunkCount} chunks, mode={Mode}",
                 document.FileName, chunks.Count, mode);
 
-            // ── Dynamic Entity Extraction (GLiNER, runs async - does not block) ──
-            if (rawTextForEntityExtraction is not null)
+            // ── Async post-Indexed background pass (sequential) ──────────────
+            // GLiNER entity extraction → (structured) LLM enrichment → product
+            // identification + research. Run as ONE chained task: every stage
+            // rewrites the shared jsonb stage log (StagesJson), and the
+            // concurrent writers would last-write-wins-clobber each other's
+            // final state. Sequencing guarantees the stage log settles with
+            // every step done/skipped. None of this blocks the upload response.
+            var docId = document.Id;
+            var postText = rawTextForEntityExtraction;
+            var hasKnowledgeBase = document.KnowledgeBaseId is not null;
+            _backgroundTasks.Add(Task.Run(async () =>
             {
-                var docId = document.Id;
-                var textForEntities = rawTextForEntityExtraction;
-                _backgroundTasks.Add(Task.Run(async () =>
+                if (postText is not null)
                 {
-                    try
-                    {
-                        await ExtractAndStoreEntitiesAsync(docId, textForEntities);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Entity extraction skipped for {DocId}: {Message}", docId, ex.Message);
-                    }
-                }));
-            }
-
-            // ── Async LLM enrichment pass (structured mode only) ─────────────
-            // Replaces thin Docling chunks with rich product cards for any
-            // page the LLM could parse.  Never blocks the upload response:
-            // the original Docling chunks + embeddings are already persisted
-            // and queryable, so a slow Ollama or network blip just leaves
-            // them in place.  Fast mode is intentionally not enriched.
-            if (mode == IngestMode.Structured)
-            {
-                var docId = document.Id;
-                _backgroundTasks.Add(Task.Run(async () =>
+                    try { await ExtractAndStoreEntitiesAsync(docId, postText); }
+                    catch (Exception ex) { _logger.LogWarning(ex, "Entity extraction skipped for {DocId}: {Message}", docId, ex.Message); }
+                }
+                if (mode == IngestMode.Structured)
                 {
-                    try
-                    {
-                        await RunBackgroundEnrichmentAsync(docId);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Background enrichment failed for {DocId}", docId);
-                    }
-                }));
-            }
+                    try { await RunBackgroundEnrichmentAsync(docId); }
+                    catch (Exception ex) { _logger.LogWarning(ex, "Background enrichment failed for {DocId}", docId); }
+                }
+                if (postText is not null && hasKnowledgeBase)
+                {
+                    try { await RunProductIdentificationAsync(docId, postText); }
+                    catch (Exception ex) { _logger.LogWarning(ex, "Product identification skipped for {DocId}: {Message}", docId, ex.Message); }
+                }
+            }));
         }
         catch (Exception ex)
         {
@@ -395,6 +390,204 @@ public class KnowledgeUploadHandler
                 _logger.LogWarning(saveEx, "Failed to persist error status for {FileName}", document.FileName);
             }
         }
+    }
+
+    /// <summary>
+    /// Identifies the products a company sells from an indexed document and
+    /// enqueues company-scoped web research for each. Runs on a dedicated
+    /// scope so the background path's DI lifetime is respected; never throws
+    /// into the ingest pipeline. Only runs for documents that belong to a
+    /// company knowledge base (that's what scopes the product intelligence).
+    /// </summary>
+    private async Task RunProductIdentificationAsync(Guid docId, string rawText)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CallPilotDbContext>();
+        var productIntelService = scope.ServiceProvider.GetRequiredService<CallPilot.Server.Infrastructure.Products.ProductIntelService>();
+        var http = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<KnowledgeUploadHandler>>();
+
+        var document = await db.KnowledgeDocuments.FirstOrDefaultAsync(d => d.Id == docId);
+        if (document is null || document.KnowledgeBaseId is null) return;
+
+        var kb = await db.KnowledgeBases.FirstOrDefaultAsync(k => k.Id == document.KnowledgeBaseId);
+        if (kb is null) return;
+
+        var rec = new IngestStageRecorder(document, db, logger);
+        rec.MarkRunning("productresearch", "Identifying products");
+        await db.SaveChangesAsync();
+
+        try
+        {
+            var identified = await CallProductIdentifyAsync(http, rawText, kb.CompanyName);
+            if (identified is null || identified.Count == 0)
+            {
+                rec.MarkDone("productresearch", detail: "0 entities identified");
+                await db.SaveChangesAsync();
+                return;
+            }
+
+            // Existing entities for THIS document (all categories) so we never
+            // re-create or merge across documents.
+            var existingEntities = await db.DocumentEntities
+                .Where(e => e.DocumentId == docId)
+                .Select(e => new { e.Id, e.EntityText, e.EntityType, e.EntityCategory })
+                .ToListAsync();
+
+            const double autoEnrichConfidence = 0.7;
+            const double productConfidenceFloor = 0.4;
+
+            int productCount = 0;
+            int enrichedCount = 0;
+            foreach (var ent in identified)
+            {
+                var displayName = (ent.Canonical ?? "").Trim();
+                var canonical = CallPilot.Server.Infrastructure.Products.ProductIntelService.NormalizeName(displayName);
+                if (string.IsNullOrWhiteSpace(canonical)) continue;
+
+                var entityType = string.IsNullOrWhiteSpace(ent.EntityType) ? "product" : ent.EntityType.Trim().ToLowerInvariant();
+                var isProduct = entityType == "product";
+                var category = entityType.ToUpperInvariant();
+                var confidence = Math.Clamp(ent.Confidence, 0, 1);
+
+                // Resolve the row this identified entity maps to:
+                //  1) an exact canonical match, or
+                //  2) the SHORTEST existing canonical that this name is a verbose
+                //     superset of (e.g. "sprint 210 modular meter" → "sprint 210").
+                // GLiNER rows (EntityCategory null) match too - they get upgraded
+                // in place rather than duplicated.
+                var matched = existingEntities
+                    .Select(e => new { e.Id, e.EntityText, e.EntityType, e.EntityCategory, Norm = CallPilot.Server.Infrastructure.Products.ProductIntelService.NormalizeName(e.EntityText) })
+                    .FirstOrDefault(e => e.Norm == canonical)
+                    ?? existingEntities
+                        .Select(e => new { e.Id, e.EntityText, e.EntityType, e.EntityCategory, Norm = CallPilot.Server.Infrastructure.Products.ProductIntelService.NormalizeName(e.EntityText) })
+                        .Where(e => canonical.Length > e.Norm.Length && canonical.Contains(e.Norm) && e.Norm.Length > 0)
+                        .OrderBy(e => e.Norm.Length)
+                        .FirstOrDefault();
+
+                if (matched is not null)
+                {
+                    // Reuse the (shorter) existing canonical as the product name.
+                    var effectiveName = matched.EntityText;
+
+                    if (isProduct && confidence >= productConfidenceFloor)
+                    {
+                        // Upgrade to a genuine product with its own status.
+                        var row = await db.DocumentEntities.FirstAsync(e => e.Id == matched.Id);
+                        row.SetEntityType("product");
+                        row.SetEntityCategory(DocumentEntity.Category.Product);
+                        if (confidence >= autoEnrichConfidence)
+                        {
+                            row.SetEnrichmentStatus("Pending");
+                            await db.SaveChangesAsync();
+                            var dto = await productIntelService.EnsureScopedAsync(kb.Id, kb.CompanyName, effectiveName, null, docId, autoEnrich: true);
+                            if (dto.EnrichmentStatus == "Completed") enrichedCount++;
+                        }
+                        else
+                        {
+                            row.SetEnrichmentStatus("Pending");
+                            await db.SaveChangesAsync();
+                        }
+                        productCount++;
+                    }
+                    else if (isProduct)
+                    {
+                        // Low confidence - demote the row so it never shows as a product.
+                        var row = await db.DocumentEntities.FirstAsync(e => e.Id == matched.Id);
+                        row.SetEntityType("concept");
+                        row.SetEntityCategory(DocumentEntity.Category.Other);
+                        row.SetEnrichmentStatus(null);
+                        await db.SaveChangesAsync();
+                    }
+                    else
+                    {
+                        // Identification says it is NOT a product - reclassify the
+                        // (possibly GLiNER-labeled) row so it stops appearing as one.
+                        var row = await db.DocumentEntities.FirstAsync(e => e.Id == matched.Id);
+                        row.SetEntityType(entityType);
+                        row.SetEntityCategory(category);
+                        await db.SaveChangesAsync();
+                    }
+                    continue;
+                }
+
+                // No existing row - create one with its classification.
+                if (isProduct && confidence >= autoEnrichConfidence)
+                {
+                    // Confident PRODUCT - persist + auto-enrich (scoped to the
+                    // document's knowledge base + this document).
+                    var entityRow = new DocumentEntity(document.Id, null, displayName, "product", confidence, DocumentEntity.Category.Product);
+                    entityRow.SetEnrichmentStatus("Pending");
+                    db.DocumentEntities.Add(entityRow);
+                    await db.SaveChangesAsync();
+                    var dto = await productIntelService.EnsureScopedAsync(kb.Id, kb.CompanyName, displayName, null, docId, autoEnrich: true);
+                    if (dto.EnrichmentStatus == "Completed") enrichedCount++;
+                    existingEntities.Add(new { entityRow.Id, entityRow.EntityText, entityRow.EntityType, entityRow.EntityCategory });
+                    productCount++;
+                }
+                else if (isProduct && confidence >= productConfidenceFloor)
+                {
+                    // Possible PRODUCT - store as Pending, do NOT auto-enrich.
+                    var entityRow = new DocumentEntity(document.Id, null, displayName, "product", confidence, DocumentEntity.Category.Product);
+                    entityRow.SetEnrichmentStatus("Pending");
+                    db.DocumentEntities.Add(entityRow);
+                    existingEntities.Add(new { entityRow.Id, entityRow.EntityText, entityRow.EntityType, entityRow.EntityCategory });
+                    productCount++;
+                }
+                else if (isProduct)
+                {
+                    // Low confidence - keep as a generic concept, never a product.
+                    db.DocumentEntities.Add(new DocumentEntity(document.Id, null, displayName, "concept", confidence, DocumentEntity.Category.Other));
+                }
+                else
+                {
+                    // Non-product entity - store with its category so the
+                    // information is not lost, but never enrich as a product.
+                    db.DocumentEntities.Add(new DocumentEntity(document.Id, null, displayName, entityType, confidence, category));
+                }
+            }
+
+            await db.SaveChangesAsync();
+            rec.MarkDone("productresearch", detail: $"{productCount} product(s) identified, {enrichedCount} already enriched");
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Product identification failed for document {DocId}", docId);
+            rec.MarkFailed("productresearch", new IngestStageError(
+                Stage: "productresearch", Source: "dotnet", HttpStatus: null,
+                Message: ex.Message ?? "", Model: null, At: DateTime.UtcNow));
+            await db.SaveChangesAsync();
+        }
+    }
+
+    private async Task<List<IdentifiedProduct>?> CallProductIdentifyAsync(
+        IHttpClientFactory httpClientFactory, string text, string companyName)
+    {
+        using var client = httpClientFactory.CreateClient("AiEngine");
+        var response = await client.PostAsJsonAsync("/internal/product-identify", new
+        {
+            text = text.Length > 8000 ? text[..8000] : text,
+            company = companyName,
+            meeting_id = "",
+        });
+        if (!response.IsSuccessStatusCode) return null;
+        var parsed = await response.Content.ReadFromJsonAsync<ProductIdentifyResponse>();
+        return parsed?.Products;
+    }
+
+    private sealed class ProductIdentifyResponse
+    {
+        public List<IdentifiedProduct> Products { get; set; } = [];
+    }
+
+    private sealed class IdentifiedProduct
+    {
+        public string? Canonical { get; set; }
+        public List<string>? Aliases { get; set; }
+        public string? EntityType { get; set; }
+        public double Confidence { get; set; }
+        public string? Evidence { get; set; }
     }
 
     /// <summary>
@@ -941,7 +1134,7 @@ public class KnowledgeUploadHandler
                 foreach (var name in missingNames)
                 {
                     db.DocumentEntities.Add(new DocumentEntity(
-                        documentId, null, name, "product", 0.95));
+                        documentId, null, name, "product", 0.95, DocumentEntity.Category.Product));
                 }
                 await db.SaveChangesAsync();
                 logger.LogInformation(

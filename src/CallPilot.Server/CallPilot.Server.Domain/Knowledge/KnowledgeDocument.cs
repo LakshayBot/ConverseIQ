@@ -8,6 +8,15 @@ public class KnowledgeDocument
 {
     public Guid Id { get; private set; }
     public Guid UserId { get; private set; }
+
+    /// <summary>
+    /// The company-scoped knowledge base this document belongs to (optional
+    /// for legacy rows). Product intelligence derived from this document is
+    /// scoped by the same knowledge base so different companies' products
+    /// never mix.
+    /// </summary>
+    public Guid? KnowledgeBaseId { get; private set; }
+
     public string FileName { get; private set; }
     public string ContentType { get; private set; }
     public long FileSizeBytes { get; private set; }
@@ -69,6 +78,7 @@ public class KnowledgeDocument
 
     public ICollection<KnowledgeChunk> Chunks { get; private set; } = new List<KnowledgeChunk>();
     public ICollection<DocumentEntity> DocumentEntities { get; private set; } = new List<DocumentEntity>();
+    public KnowledgeBase? KnowledgeBase { get; private set; }
 
     private KnowledgeDocument() { }
 
@@ -103,6 +113,11 @@ public class KnowledgeDocument
     public void SetMode(string mode)
     {
         Mode = mode;
+    }
+
+    public void SetKnowledgeBase(Guid knowledgeBaseId)
+    {
+        KnowledgeBaseId = knowledgeBaseId;
     }
 
     /// <summary>

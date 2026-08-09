@@ -16,11 +16,14 @@ public class CallPilotDbContext : DbContext
     public DbSet<Meeting> Meetings => Set<Meeting>();
     public DbSet<TranscriptSegment> TranscriptSegments => Set<TranscriptSegment>();
     public DbSet<KnowledgeDocument> KnowledgeDocuments => Set<KnowledgeDocument>();
+    public DbSet<CallPilot.Server.Domain.Knowledge.KnowledgeBase> KnowledgeBases => Set<CallPilot.Server.Domain.Knowledge.KnowledgeBase>();
     public DbSet<KnowledgeChunk> KnowledgeChunks => Set<KnowledgeChunk>();
     public DbSet<CallPilot.Server.Domain.Knowledge.Embedding> Embeddings => Set<CallPilot.Server.Domain.Knowledge.Embedding>();
     public DbSet<ConversationEvent> ConversationEvents => Set<ConversationEvent>();
     public DbSet<Recommendation> Recommendations => Set<Recommendation>();
     public DbSet<DocumentEntity> DocumentEntities => Set<DocumentEntity>();
+    public DbSet<CallPilot.Server.Domain.Products.ProductIntelligence> ProductIntelligences => Set<CallPilot.Server.Domain.Products.ProductIntelligence>();
+    public DbSet<CallPilot.Server.Domain.Products.ProductSource> ProductSources => Set<CallPilot.Server.Domain.Products.ProductSource>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -83,6 +86,17 @@ public class CallPilotDbContext : DbContext
                   .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<CallPilot.Server.Domain.Knowledge.KnowledgeBase>(entity =>
+        {
+            entity.HasKey(k => k.Id);
+            entity.HasIndex(k => k.UserId);
+            entity.HasIndex(k => k.CompanyName);
+            entity.Property(k => k.Name).HasMaxLength(300).IsRequired();
+            entity.Property(k => k.CompanyName).HasMaxLength(300).IsRequired();
+            entity.Property(k => k.Website).HasMaxLength(500);
+            entity.Property(k => k.Description).HasColumnType("text");
+        });
+
         modelBuilder.Entity<KnowledgeDocument>(entity =>
         {
             entity.HasKey(d => d.Id);
@@ -108,6 +122,10 @@ public class CallPilotDbContext : DbContext
             // "X/Y pages, Z failed" count on the stepper and the
             // per-page breakdown on the Enrichment pages tab.
             entity.Property(d => d.EnrichmentProgressJson).HasColumnType("jsonb");
+            entity.HasOne(d => d.KnowledgeBase)
+                  .WithMany(k => k.Documents)
+                  .HasForeignKey(d => d.KnowledgeBaseId)
+                  .OnDelete(DeleteBehavior.SetNull);
             entity.HasQueryFilter(d => d.DeletedAt == null);
         });
 
@@ -145,8 +163,11 @@ public class CallPilotDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.DocumentId);
             entity.HasIndex(e => new { e.EntityText, e.EntityType });
+            entity.HasIndex(e => e.ProductIntelligenceId);
             entity.Property(e => e.EntityText).HasMaxLength(300).IsRequired();
             entity.Property(e => e.EntityType).HasMaxLength(50).IsRequired();
+            entity.Property(e => e.EntityCategory).HasMaxLength(40);
+            entity.Property(e => e.EnrichmentStatus).HasMaxLength(30);
             entity.HasOne(e => e.Document)
                   .WithMany(d => d.DocumentEntities)
                   .HasForeignKey(e => e.DocumentId)
@@ -155,6 +176,10 @@ public class CallPilotDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(e => e.ChunkId)
                   .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.ProductIntelligence)
+                  .WithMany()
+                  .HasForeignKey(e => e.ProductIntelligenceId)
+                  .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<CallPilot.Server.Domain.Knowledge.Embedding>(entity =>
@@ -193,6 +218,57 @@ public class CallPilotDbContext : DbContext
             entity.Property(r => r.TriggerEvent).HasMaxLength(100);
             entity.Property(r => r.Provider).HasMaxLength(50);
             entity.Property(r => r.Model).HasMaxLength(100);
+        });
+
+        modelBuilder.Entity<CallPilot.Server.Domain.Products.ProductIntelligence>(entity =>
+        {
+            entity.HasKey(p => p.Id);
+            // Canonical identity scoped by company - the dedup/cache key.
+            // Two companies' "Sprint 210" are distinct rows. (PostgreSQL's
+            // unique index treats NULL CompanyName as distinct, so legacy
+            // global rows coexist with company-scoped ones.)
+            entity.HasIndex(p => new { p.CompanyName, p.CanonicalName }).IsUnique();
+            entity.HasIndex(p => p.KnowledgeBaseId);
+            entity.HasIndex(p => p.Manufacturer);
+            entity.HasIndex(p => p.Category);
+            entity.HasIndex(p => p.EnrichmentStatus);
+            entity.Property(p => p.CanonicalName).HasMaxLength(300).IsRequired();
+            entity.Property(p => p.DisplayName).HasMaxLength(300).IsRequired();
+            entity.Property(p => p.CompanyName).HasMaxLength(300);
+            entity.Property(p => p.Manufacturer).HasMaxLength(300);
+            entity.Property(p => p.Category).HasMaxLength(200);
+            entity.Property(p => p.Description).HasColumnType("text");
+            entity.Property(p => p.WhatItDoes).HasColumnType("text");
+            entity.Property(p => p.SearchQuery).HasMaxLength(500);
+            entity.Property(p => p.LastError).HasColumnType("text");
+            // Structured attributes as jsonb lists, matching the project's
+            // jsonb conventions (Recommendation.KeyFacts, Chunk.MetadataJson).
+            entity.Property(p => p.UseCases).HasColumnType("jsonb");
+            entity.Property(p => p.TargetIndustries).HasColumnType("jsonb");
+            entity.Property(p => p.KeyFeatures).HasColumnType("jsonb");
+            entity.Property(p => p.KeySpecifications).HasColumnType("jsonb");
+            entity.Property(p => p.StandoutPoints).HasColumnType("jsonb");
+            entity.Property(p => p.Variants).HasColumnType("jsonb");
+            entity.Property(p => p.Limitations).HasColumnType("jsonb");
+            entity.HasOne<CallPilot.Server.Domain.Knowledge.KnowledgeBase>()
+                  .WithMany()
+                  .HasForeignKey(p => p.KnowledgeBaseId)
+                  .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<CallPilot.Server.Domain.Products.ProductSource>(entity =>
+        {
+            entity.HasKey(s => s.Id);
+            entity.HasIndex(s => s.ProductIntelligenceId);
+            entity.Property(s => s.Title).HasMaxLength(500).IsRequired();
+            entity.Property(s => s.Url).HasMaxLength(1000).IsRequired();
+            entity.Property(s => s.Domain).HasMaxLength(300);
+            entity.Property(s => s.SourceType).HasMaxLength(50).IsRequired();
+            entity.Property(s => s.Snippet).HasColumnType("text");
+            entity.HasOne(s => s.ProductIntelligence)
+                  .WithMany(p => p.Sources)
+                  .HasForeignKey(s => s.ProductIntelligenceId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

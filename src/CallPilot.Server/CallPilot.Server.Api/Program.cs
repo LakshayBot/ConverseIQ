@@ -229,6 +229,10 @@ builder.Services.AddScoped<KnowledgeUploadHandler>();
 builder.Services.AddScoped<StructuredIngestClient>();
 builder.Services.AddScoped<EnrichmentClient>();
 
+builder.Services.AddSingleton<CallPilot.Server.Infrastructure.Products.ProductIntelQueue>();
+builder.Services.AddScoped<CallPilot.Server.Infrastructure.Products.ProductIntelService>();
+builder.Services.AddHostedService<CallPilot.Server.Infrastructure.AI.ProductIntelWorker>();
+
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<CacheService>();
 builder.Services.AddSingleton<MeetingDiagnosticsService>();
@@ -332,6 +336,7 @@ app.MapGet("/api/v1/diagnostics", (MeetingDiagnosticsService diag) =>
 
 app.MapAuthenticationEndpoints();
 app.MapKnowledgeEndpoints();
+app.MapKnowledgeBaseEndpoints();
 app.MapHub<DesktopAgentHub>("/hubs/desktop-agent");
 app.MapHub<DashboardHub>("/hubs/dashboard");
 
@@ -600,6 +605,7 @@ app.MapPost("/api/v1/meetings/{id:guid}/process", async (
     RecommendationEngine recommendationEngine,
     MeetingDiagnosticsService diagnostics,
     IHubContext<DesktopAgentHub> hubContext,
+    CallPilot.Server.Infrastructure.Products.ProductIntelQueue productIntelQueue,
     ProcessTextRequest body) =>
 {
     var userIdClaim = user.FindFirst("userId")?.Value;
@@ -631,6 +637,13 @@ app.MapPost("/api/v1/meetings/{id:guid}/process", async (
         db.ConversationEvents.Add(conversationEvent);
         await db.SaveChangesAsync();
         persistedEvents.Add(new { conversationEvent.Id, conversationEvent.EventType, conversationEvent.EntityName, conversationEvent.Confidence });
+
+        if (evt.EventType == "ProductMentioned" && !string.IsNullOrWhiteSpace(evt.EntityName))
+        {
+            productIntelQueue.Enqueue(
+                CallPilot.Server.Infrastructure.Products.ProductIntelService.NormalizeName(evt.EntityName),
+                conversationEvent.SupportingTranscript);
+        }
 
         await hubContext.Clients.Group(groupName).SendAsync("EventDetected", new
         {
@@ -669,6 +682,60 @@ app.MapPost("/api/v1/meetings/{id:guid}/process", async (
     }
 
     return Results.Ok(new { events = persistedEvents, recommendations });
+}).RequireAuthorization();
+
+// ── Product Intelligence (global, canonical product profiles) ───────────────
+// Read path returns the cached profile; when a product has never been
+// enriched (or its previous enrichment failed/expired) it creates the row
+// and enqueues background research, so the UI can show a loading state and
+// the result lands asynchronously. Enrichment itself lives in the AI engine
+// (Tavily + LLM) and is persisted here - never repeated for cached products.
+
+app.MapGet("/api/v1/products/intelligence/{name}", async (
+    string name,
+    ClaimsPrincipal user,
+    CallPilot.Server.Infrastructure.Products.ProductIntelService productIntelService) =>
+{
+    if (string.IsNullOrWhiteSpace(name))
+        return Results.BadRequest(new { error = "Product name is required" });
+
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
+
+    // READ-ONLY: retrieving a product never starts enrichment. Enrichment is
+    // only initiated by the background ingest pipeline or an explicit action.
+    var dto = await productIntelService.GetAsync(name, userId);
+    return Results.Ok(dto);
+}).RequireAuthorization();
+
+app.MapGet("/api/v1/products/intelligence/{name}/sources", async (
+    string name,
+    ClaimsPrincipal user,
+    CallPilot.Server.Infrastructure.Products.ProductIntelService productIntelService) =>
+{
+    if (string.IsNullOrWhiteSpace(name))
+        return Results.BadRequest(new { error = "Product name is required" });
+
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
+
+    var sources = await productIntelService.GetSourcesAsync(name, userId);
+    return Results.Ok(new { sources });
+}).RequireAuthorization();
+
+app.MapPost("/api/v1/products/intelligence/{name}/enrich", async (
+    string name,
+    ClaimsPrincipal user,
+    CallPilot.Server.Infrastructure.Products.ProductIntelService productIntelService) =>
+{
+    if (string.IsNullOrWhiteSpace(name))
+        return Results.BadRequest(new { error = "Product name is required" });
+
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
+
+    var dto = await productIntelService.ForceReenrichAsync(name, userId);
+    return Results.Ok(dto);
 }).RequireAuthorization();
 
 // ── Entity Admin (for trie sync) ──────────────────────────────────────────────

@@ -1,0 +1,698 @@
+using System.Net.Http.Json;
+using System.Text.RegularExpressions;
+using CallPilot.Server.Domain.Products;
+using CallPilot.Server.Infrastructure.Data;
+using CallPilot.Server.Infrastructure.Products;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+
+namespace CallPilot.Server.Infrastructure.Products;
+
+/// <summary>
+/// The Product Intelligence read + enrichment service.
+///
+/// Read path: resolves a product mention to its canonical
+/// <see cref="ProductIntelligence"/> row, creating the row and enqueuing
+/// background research when the product has never been enriched. Cached
+/// profiles (Completed) are returned without touching Tavily/LLM.
+///
+/// Write path: the background worker calls <see cref="ResearchAndPersistAsync"/>
+/// which asks the AI engine for a researched profile (Tavily discovery + LLM
+/// structured extraction), persists it with its sources, and links matching
+/// meeting mentions back to the canonical product.
+///
+/// Everything is fail-open: a failed/partial research marks the row Failed or
+/// NeedsReview and never throws into the transcript/detection pipeline.
+/// </summary>
+public class ProductIntelService
+{
+    private static readonly TimeSpan ReenrichCooldown = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan StaleEnrichingWindow = TimeSpan.FromMinutes(10);
+
+    private readonly CallPilotDbContext _db;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ProductIntelQueue _queue;
+    private readonly ILogger<ProductIntelService> _logger;
+
+    public ProductIntelService(
+        CallPilotDbContext db,
+        IHttpClientFactory httpClientFactory,
+        ProductIntelQueue queue,
+        ILogger<ProductIntelService> logger)
+    {
+        _db = db;
+        _httpClientFactory = httpClientFactory;
+        _queue = queue;
+        _logger = logger;
+    }
+
+    /// <summary>Lowercase, trimmed, whitespace-collapsed canonical identity.</summary>
+    public static string NormalizeName(string name)
+    {
+        return Regex.Replace((name ?? "").Trim().ToLowerInvariant(), @"\s+", " ");
+    }
+
+    public async Task<ProductIntelligence?> FindByCanonicalAsync(string canonicalName)
+    {
+        return await _db.ProductIntelligences
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.CanonicalName == canonicalName);
+    }
+
+    /// <summary>Scoped lookup: resolve a product to the row that belongs to
+    /// this user's knowledge base company (or a legacy/global row). Company
+    /// identity comes from the user's KnowledgeBase, so two companies'
+    /// identically-named products never collide. Company-scoped rows are
+    /// preferred over legacy/global ones so the live call reads the user's
+    /// own prepared intelligence rather than a stale global profile.</summary>
+    private IQueryable<ProductIntelligence> ScopedQuery(Guid userId)
+    {
+        var userKbIds = _db.KnowledgeBases
+            .Where(k => k.UserId == userId)
+            .Select(k => k.Id);
+        // Prefer the user's company-scoped row, then any legacy/global row.
+        return _db.ProductIntelligences
+            .Where(p => (p.KnowledgeBaseId != null && userKbIds.Contains(p.KnowledgeBaseId.Value))
+                        || p.KnowledgeBaseId == null)
+            .OrderByDescending(p => p.KnowledgeBaseId != null);
+    }
+
+    /// <summary>
+    /// GET-path entry point: READ-ONLY. Returns the existing company-scoped
+    /// profile, or a synthetic Pending placeholder when the product has never
+    /// been researched. NEVER creates rows, NEVER enqueues research - opening
+    /// a product must not have side effects. Enrichment is only started by the
+    /// background ingest pipeline or an explicit Reprocess/Retry/Start action.
+    /// </summary>
+    public async Task<ProductIntelligenceDto> GetAsync(string name, Guid userId)
+    {
+        var canonical = NormalizeName(name);
+        var row = await ScopedQuery(userId).FirstOrDefaultAsync(p => p.CanonicalName == canonical);
+        if (row is null)
+        {
+            return new ProductIntelligenceDto(
+                Name: string.IsNullOrWhiteSpace(name) ? canonical : name.Trim(),
+                CanonicalName: canonical,
+                Manufacturer: null, Category: null, Description: null, WhatItDoes: null,
+                UseCases: [], TargetIndustries: [], KeyFeatures: [], KeySpecifications: [],
+                StandoutPoints: [], Variants: [], Limitations: [],
+                SearchQuery: null, SearchStatus: "Pending", EnrichmentStatus: "Pending",
+                ConfidenceScore: 0, SourceCount: 0, LastEnrichedAt: null, LastError: null);
+        }
+        var sourceCount = await SourceCountAsync(row.Id);
+        return ToDto(row, sourceCount);
+    }
+
+    /// <summary>
+    /// Explicit enrichment action (Reprocess / Retry / Start enrichment).
+    /// Marks the shared profile Enriching and, when a document is known, the
+    /// document's own product entity Enriching too, then queues research.
+    /// Duplicate-trigger protection: if the profile is already Enriching (and
+    /// not stale) or the same request is already in flight, this is a no-op.
+    /// When <paramref name="documentId"/> is given the shared row is scoped to
+    /// that document's knowledge base company.
+    /// </summary>
+    public async Task<ProductIntelligenceDto> ForceReenrichAsync(string name, Guid userId, Guid? documentId = null)
+    {
+        var canonical = NormalizeName(name);
+        Guid? kbId = null;
+        string? companyName = null;
+        if (documentId is Guid docId)
+        {
+            var docScope = await _db.KnowledgeDocuments
+                .Where(d => d.Id == docId && d.UserId == userId)
+                .Select(d => new { d.KnowledgeBaseId, CompanyName = d.KnowledgeBase != null ? d.KnowledgeBase.CompanyName : null })
+                .FirstOrDefaultAsync();
+            if (docScope?.KnowledgeBaseId is Guid kbOfDoc)
+            {
+                kbId = kbOfDoc;
+                companyName = docScope.CompanyName;
+            }
+        }
+
+        var row = kbId is Guid scopedKb
+            ? await _db.ProductIntelligences.FirstOrDefaultAsync(p => p.KnowledgeBaseId == scopedKb && p.CanonicalName == canonical)
+            : await ScopedQuery(userId).FirstOrDefaultAsync(p => p.CanonicalName == canonical);
+
+        if (row is null)
+        {
+            row = new ProductIntelligence(canonical,
+                string.IsNullOrWhiteSpace(name) ? canonical : name.Trim(),
+                kbId, companyName);
+            _db.ProductIntelligences.Add(row);
+            await _db.SaveChangesAsync();
+        }
+
+        if (row.EnrichmentStatus == ProductIntelligence.EnrichmentState.Enriching && !IsStaleEnriching(row))
+        {
+            // Already processing - do not create a duplicate job.
+            var already = await SourceCountAsync(row.Id);
+            return ToDto(row, already);
+        }
+
+        row.MarkEnriching(null);
+        await _db.SaveChangesAsync();
+        if (documentId is Guid targetDoc)
+        {
+            await MarkDocumentEntityEnrichingAsync(canonical, targetDoc, row.Id);
+        }
+        _queue.Enqueue(canonical, force: true, knowledgeBaseId: row.KnowledgeBaseId, companyName: row.CompanyName, documentId: documentId);
+
+        var sourceCount = await SourceCountAsync(row.Id);
+        return ToDto(row, sourceCount);
+    }
+
+    /// <summary>
+    /// Ingest-time entry point: get-or-create the company-scoped product row
+    /// for a product identified in an uploaded document, link + mark the
+    /// document's own product entity, and queue research for that document.
+    /// Used by the Knowledge Bank pipeline so product intelligence is prepared
+    /// once at ingestion and never re-researched on a live-call mention.
+    /// Duplicate-trigger safe: Completed/active-Enriching profiles are not
+    /// re-queued.
+    /// </summary>
+    public async Task<ProductIntelligenceDto> EnsureScopedAsync(
+        Guid knowledgeBaseId,
+        string companyName,
+        string name,
+        string? context,
+        Guid? documentId = null,
+        bool autoEnrich = true)
+    {
+        var canonical = NormalizeName(name);
+        var row = await _db.ProductIntelligences.FirstOrDefaultAsync(p =>
+            p.CompanyName == companyName && p.CanonicalName == canonical);
+
+        if (row is null)
+        {
+            row = new ProductIntelligence(
+                canonical,
+                string.IsNullOrWhiteSpace(name) ? canonical : name.Trim(),
+                knowledgeBaseId,
+                companyName);
+            _db.ProductIntelligences.Add(row);
+            try
+            {
+                await _db.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                await _db.Entry(row).ReloadAsync();
+                row = await _db.ProductIntelligences.AsNoTracking().FirstOrDefaultAsync(p =>
+                    p.CompanyName == companyName && p.CanonicalName == canonical)
+                    ?? row;
+            }
+        }
+
+        // Link + mark the document's own product entity.
+        if (documentId is Guid docId)
+        {
+            await MarkDocumentEntityEnrichingAsync(canonical, docId, row.Id);
+        }
+
+        // Background enrichment: enqueue unless already settled/processing.
+        if (autoEnrich)
+        {
+            switch (row.EnrichmentStatus)
+            {
+                case ProductIntelligence.EnrichmentState.Completed:
+                    break; // already researched - reuse
+                case ProductIntelligence.EnrichmentState.Enriching:
+                    if (!IsStaleEnriching(row))
+                    {
+                        break; // active job - no duplicate
+                    }
+                    _queue.Enqueue(canonical, context, knowledgeBaseId: row.KnowledgeBaseId, companyName: row.CompanyName, documentId: documentId);
+                    break;
+                case ProductIntelligence.EnrichmentState.Failed:
+                case ProductIntelligence.EnrichmentState.NeedsReview:
+                    if (row.LastEnrichedAt is null || DateTime.UtcNow - row.LastEnrichedAt.Value > ReenrichCooldown)
+                    {
+                        _queue.Enqueue(canonical, context, knowledgeBaseId: row.KnowledgeBaseId, companyName: row.CompanyName, documentId: documentId);
+                    }
+                    break;
+                default: // Pending
+                    _queue.Enqueue(canonical, context, knowledgeBaseId: row.KnowledgeBaseId, companyName: row.CompanyName, documentId: documentId);
+                    break;
+            }
+        }
+
+        var sourceCount = await SourceCountAsync(row.Id);
+        return ToDto(row, sourceCount);
+    }
+
+    private static bool IsStaleEnriching(ProductIntelligence row)
+        => row.UpdatedAt is null || DateTime.UtcNow - row.UpdatedAt.Value > StaleEnrichingWindow;
+
+    /// <summary>Marks the document's own product entity (if it exists) as
+    /// Enriching and links it to the shared profile.</summary>
+    private async Task MarkDocumentEntityEnrichingAsync(string canonical, Guid documentId, Guid productIntelligenceId)
+    {
+        var entities = await _db.DocumentEntities
+            .Where(e => e.DocumentId == documentId
+                        && e.EntityType == "product"
+                        && e.EntityText.ToLower() == canonical)
+            .ToListAsync();
+        foreach (var entity in entities)
+        {
+            entity.SetEnrichmentStatus("Enriching", productIntelligenceId: productIntelligenceId);
+        }
+        if (entities.Count > 0)
+        {
+            await _db.SaveChangesAsync();
+        }
+    }
+
+    private async Task<int> SourceCountAsync(Guid productIntelligenceId)
+    {
+        return await _db.ProductSources.CountAsync(s => s.ProductIntelligenceId == productIntelligenceId);
+    }
+
+    /// <summary>
+    /// Bulk enrichment for a document's selected products. Reuses the exact
+    /// individual enrich path (<see cref="ForceReenrichAsync"/>) per product -
+    /// no separate pipeline. Products already Processing are left untouched
+    /// (no duplicate jobs); Pending/Failed/Ready are queued (Ready re-researches
+    /// exactly like the individual Reprocess action). Operates ONLY on
+    /// product records belonging to <paramref name="documentId"/>.
+    /// </summary>
+    public async Task<BulkProductResult> BulkEnrichAsync(Guid documentId, Guid userId, IReadOnlyList<Guid> productIds)
+    {
+        var doc = await _db.KnowledgeDocuments.FirstOrDefaultAsync(d => d.Id == documentId && d.UserId == userId);
+        if (doc is null) return new BulkProductResult();
+
+        var ids = (productIds ?? []).Distinct().ToList();
+        var entities = await _db.DocumentEntities
+            .Where(e => e.DocumentId == documentId && ids.Contains(e.Id) && e.EntityType == "product")
+            .ToListAsync();
+
+        var result = new BulkProductResult();
+        foreach (var entity in entities)
+        {
+            var canonical = NormalizeName(entity.EntityText);
+            if (string.IsNullOrWhiteSpace(canonical)) { result.Skipped++; continue; }
+            try
+            {
+                // Already Processing (healthy) - never create a duplicate job.
+                if (entity.EnrichmentStatus == "Enriching" && doc.KnowledgeBaseId is Guid kbId)
+                {
+                    var row = await _db.ProductIntelligences.FirstOrDefaultAsync(p => p.KnowledgeBaseId == kbId && p.CanonicalName == canonical);
+                    if (row is not null && row.EnrichmentStatus == ProductIntelligence.EnrichmentState.Enriching && !IsStaleEnriching(row))
+                    {
+                        result.Processing++;
+                        continue;
+                    }
+                }
+                await ForceReenrichAsync(canonical, userId, documentId);
+                result.Queued++;
+            }
+            catch
+            {
+                result.Skipped++;
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Bulk delete for a document's selected products. Reuses the individual
+    /// <see cref="RemoveDocumentProductAsync"/> rules (per-document entity is
+    /// removed; the shared KB intelligence is removed only when no other
+    /// document still references it). Never touches the source document.
+    /// </summary>
+    public async Task<BulkProductResult> BulkDeleteAsync(Guid documentId, Guid userId, IReadOnlyList<Guid> productIds)
+    {
+        var doc = await _db.KnowledgeDocuments.FirstOrDefaultAsync(d => d.Id == documentId && d.UserId == userId);
+        if (doc is null) return new BulkProductResult();
+
+        var ids = (productIds ?? []).Distinct().ToList();
+        var texts = await _db.DocumentEntities
+            .Where(e => e.DocumentId == documentId && ids.Contains(e.Id) && e.EntityType == "product")
+            .Select(e => e.EntityText)
+            .ToListAsync();
+
+        var result = new BulkProductResult();
+        await using var tx = await _db.Database.BeginTransactionAsync();
+        foreach (var text in texts)
+        {
+            var canonical = NormalizeName(text);
+            if (string.IsNullOrWhiteSpace(canonical)) continue;
+            try
+            {
+                if (await RemoveDocumentProductAsync(documentId, userId, canonical)) result.Deleted++;
+            }
+            catch
+            {
+                // one failure should not abort the rest
+            }
+        }
+        await tx.CommitAsync();
+        return result;
+    }
+
+    /// <summary>
+    /// Removes an extracted product from a document's product intelligence.
+    /// Deletes the document's product entity record (so it disappears from the
+    /// list) and, only when NO other document in the same knowledge base still
+    /// references the product, the shared company-scoped intelligence row too.
+    /// The source document itself is never touched.
+    /// </summary>
+    public async Task<bool> RemoveDocumentProductAsync(Guid documentId, Guid userId, string name)
+    {
+        var doc = await _db.KnowledgeDocuments.FirstOrDefaultAsync(d => d.Id == documentId && d.UserId == userId);
+        if (doc is null) return false;
+
+        var canonical = NormalizeName(name);
+
+        var entities = await _db.DocumentEntities
+            .Where(e => e.DocumentId == documentId
+                        && (e.EntityType == "product")
+                        && e.EntityText.ToLower() == canonical)
+            .ToListAsync();
+        _db.DocumentEntities.RemoveRange(entities);
+        await _db.SaveChangesAsync();
+
+        if (doc.KnowledgeBaseId is Guid kbId)
+        {
+            var otherDocIdsInKb = _db.KnowledgeDocuments
+                .Where(d => d.KnowledgeBaseId == kbId && d.Id != documentId)
+                .Select(d => d.Id);
+            var stillReferenced = await _db.DocumentEntities.AnyAsync(e =>
+                otherDocIdsInKb.Contains(e.DocumentId)
+                && e.EntityType == "product"
+                && e.EntityText.ToLower() == canonical);
+            if (!stillReferenced)
+            {
+                var intelligence = await _db.ProductIntelligences
+                    .FirstOrDefaultAsync(p => p.KnowledgeBaseId == kbId && p.CanonicalName == canonical);
+                if (intelligence is not null)
+                {
+                    _db.ProductIntelligences.Remove(intelligence);
+                }
+            }
+        }
+
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task<IReadOnlyList<ProductSourceDto>> GetSourcesAsync(string name, Guid userId)
+    {
+        var canonical = NormalizeName(name);
+        var id = await ScopedQuery(userId)
+            .Where(p => p.CanonicalName == canonical)
+            .Select(p => p.Id)
+            .FirstOrDefaultAsync();
+        if (id == Guid.Empty) return [];
+
+        return await _db.ProductSources
+            .Where(s => s.ProductIntelligenceId == id)
+            .OrderByDescending(s => s.SourceType == "official")
+            .ThenByDescending(s => s.RelevanceScore)
+            .Select(s => new ProductSourceDto(s.Title, s.Url, s.Domain, s.SourceType, s.Snippet, s.RelevanceScore))
+            .ToListAsync();
+    }
+
+    /// <summary>Background-worker entry point: research + persist + link mentions.</summary>
+    public async Task ResearchAndPersistAsync(ProductIntelRequest request)
+    {
+        try
+        {
+            // Resolve the scoped row - the ingest pipeline pre-creates it with
+            // (company, canonical), so this lookup keys on the request scope.
+            var row = await _db.ProductIntelligences.FirstOrDefaultAsync(p =>
+                p.CanonicalName == request.CanonicalName
+                && p.CompanyName == request.CompanyName);
+            if (row is null) return;
+
+            // Cache hit - skip unless explicitly forced.
+            if (row.EnrichmentStatus == ProductIntelligence.EnrichmentState.Completed && !request.Force) return;
+
+            row.MarkEnriching(null);
+            await _db.SaveChangesAsync();
+
+            var response = await CallEngineAsync(row, request.Context);
+            if (response is null)
+            {
+                row.MarkFailed("AI engine research unavailable");
+                await _db.SaveChangesAsync();
+                await UpdateDocumentEntitiesAsync(request.CanonicalName, request.DocumentId, "Failed", row.Id);
+                return;
+            }
+
+            if (response.Product is null || response.Product.IsEmpty)
+            {
+                row.MarkFailed(string.IsNullOrWhiteSpace(response.Error) ? "research produced no usable data" : response.Error);
+                await _db.SaveChangesAsync();
+                await UpdateDocumentEntitiesAsync(request.CanonicalName, request.DocumentId, "Failed", row.Id);
+                return;
+            }
+
+            var result = ToResult(response, row);
+            row.MarkCompleted(result);
+
+            foreach (var source in result.Sources)
+            {
+                _db.ProductSources.Add(new ProductSource(
+                    row.Id, source.Title, source.Url, source.Domain, source.SourceType, source.Snippet, source.RelevanceScore));
+            }
+
+            await _db.SaveChangesAsync();
+            await LinkMentionsAsync(request.CanonicalName, row.Id);
+            await UpdateDocumentEntitiesAsync(request.CanonicalName, request.DocumentId,
+                result.NeedsReview ? "NeedsReview" : "Completed", row.Id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Product enrichment failed for {Product} ({Company})", request.CanonicalName, request.CompanyName);
+            try
+            {
+                var row = await _db.ProductIntelligences.FirstOrDefaultAsync(p =>
+                    p.CanonicalName == request.CanonicalName && p.CompanyName == request.CompanyName);
+                if (row is not null)
+                {
+                    row.MarkFailed(ex.Message);
+                    await _db.SaveChangesAsync();
+                }
+                await UpdateDocumentEntitiesAsync(request.CanonicalName, request.DocumentId, "Failed", row?.Id);
+            }
+            catch (Exception inner)
+            {
+                _logger.LogError(inner, "Failed to record product enrichment error for {Product}", request.CanonicalName);
+            }
+        }
+    }
+
+    /// <summary>Propagates the enrichment outcome to the source document's own
+    /// product entity so each document's status stays independent.</summary>
+    private async Task UpdateDocumentEntitiesAsync(string canonical, Guid? documentId, string status, Guid? productIntelligenceId)
+    {
+        if (documentId is not Guid docId) return;
+        var entities = await _db.DocumentEntities
+            .Where(e => e.DocumentId == docId
+                        && e.EntityType == "product"
+                        && e.EntityText.ToLower() == canonical)
+            .ToListAsync();
+        foreach (var entity in entities)
+        {
+            entity.SetEnrichmentStatus(status, DateTime.UtcNow, productIntelligenceId);
+        }
+        if (entities.Count > 0)
+        {
+            await _db.SaveChangesAsync();
+        }
+    }
+
+    /// <summary>Links every unlinked ProductMentioned mention to the canonical product.</summary>
+    private async Task LinkMentionsAsync(string canonicalName, Guid productIntelligenceId)
+    {
+        var linked = await _db.ConversationEvents
+            .Where(e => e.EventType == "ProductMentioned"
+                        && e.EntityName != null
+                        && e.EntityName.ToLower() == canonicalName
+                        && e.ProductIntelligenceId == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(e => e.ProductIntelligenceId, productIntelligenceId));
+        if (linked > 0)
+        {
+            _logger.LogDebug("Linked {Count} mentions of {Product} to product profile", linked, canonicalName);
+        }
+    }
+
+    private async Task<EngineProductResearchResponse?> CallEngineAsync(ProductIntelligence row, string? context)
+    {
+        using var client = _httpClientFactory.CreateClient("AiEngine");
+
+        // The owning knowledge base provides the company + website used to
+        // disambiguate the web research ("Secure Meters Sprint 210").
+        string? website = null;
+        if (row.KnowledgeBaseId is Guid kbId)
+        {
+            website = await _db.KnowledgeBases
+                .Where(k => k.Id == kbId)
+                .Select(k => k.Website)
+                .FirstOrDefaultAsync();
+        }
+
+        var response = await client.PostAsJsonAsync("/internal/product-intel", new
+        {
+            name = row.DisplayName,
+            manufacturer = row.Manufacturer,
+            category = row.Category,
+            company = row.CompanyName,
+            website = website ?? "",
+            context = context ?? "",
+            meeting_id = "",
+        });
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Product research returned {StatusCode} for {Product}", response.StatusCode, row.CanonicalName);
+            return null;
+        }
+        return await response.Content.ReadFromJsonAsync<EngineProductResearchResponse>();
+    }
+
+    private static ProductEnrichmentResult ToResult(EngineProductResearchResponse response, ProductIntelligence row)
+    {
+        var product = response.Product!;
+        return new ProductEnrichmentResult(
+            DisplayName: string.IsNullOrWhiteSpace(product.CanonicalName) ? row.DisplayName : product.CanonicalName,
+            Manufacturer: product.Manufacturer,
+            Category: product.Category,
+            Description: product.Description,
+            WhatItDoes: product.WhatItDoes,
+            UseCases: product.UseCases,
+            TargetIndustries: product.TargetIndustries,
+            KeyFeatures: product.KeyFeatures,
+            KeySpecifications: product.KeySpecifications,
+            StandoutPoints: product.StandoutPoints,
+            Variants: product.Variants,
+            Limitations: product.Limitations,
+            ConfidenceScore: product.ConfidenceScore,
+            Sources: response.Sources
+                .Select(s => new ProductSourceDraft(s.Title, s.Url, s.Domain, s.SourceType, s.Snippet, s.RelevanceScore))
+                .ToList(),
+            NeedsReview: response.Status == "partial",
+            SearchQuery: response.SearchQuery);
+    }
+
+    private static ProductIntelligenceDto ToDto(ProductIntelligence p, int sourceCount)
+    {
+        return new ProductIntelligenceDto(
+            Name: p.DisplayName,
+            CanonicalName: p.CanonicalName,
+            Manufacturer: p.Manufacturer,
+            Category: p.Category,
+            Description: p.Description,
+            WhatItDoes: p.WhatItDoes,
+            UseCases: p.UseCases,
+            TargetIndustries: p.TargetIndustries,
+            KeyFeatures: p.KeyFeatures,
+            KeySpecifications: p.KeySpecifications,
+            StandoutPoints: p.StandoutPoints,
+            Variants: p.Variants,
+            Limitations: p.Limitations,
+            SearchQuery: p.SearchQuery,
+            SearchStatus: StatusText(p.SearchStatus),
+            EnrichmentStatus: StatusText(p.EnrichmentStatus),
+            ConfidenceScore: p.ConfidenceScore,
+            SourceCount: sourceCount,
+            LastEnrichedAt: p.LastEnrichedAt,
+            LastError: p.LastError,
+            CompanyName: p.CompanyName,
+            KnowledgeBaseId: p.KnowledgeBaseId);
+    }
+
+    private static string StatusText(ProductIntelligence.EnrichmentState state) => state switch
+    {
+        ProductIntelligence.EnrichmentState.Pending => "Pending",
+        ProductIntelligence.EnrichmentState.Enriching => "Enriching",
+        ProductIntelligence.EnrichmentState.Completed => "Completed",
+        ProductIntelligence.EnrichmentState.Failed => "Failed",
+        ProductIntelligence.EnrichmentState.NeedsReview => "NeedsReview",
+        _ => "Pending",
+    };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// DTOs + engine response contracts (camelCase via System.Text.Json defaults)
+// ────────────────────────────────────────────────────────────────────────────
+
+public record ProductIntelligenceDto(
+    string Name,
+    string CanonicalName,
+    string? Manufacturer,
+    string? Category,
+    string? Description,
+    string? WhatItDoes,
+    List<string> UseCases,
+    List<string> TargetIndustries,
+    List<string> KeyFeatures,
+    List<string> KeySpecifications,
+    List<string> StandoutPoints,
+    List<string> Variants,
+    List<string> Limitations,
+    string? SearchQuery,
+    string SearchStatus,
+    string EnrichmentStatus,
+    double ConfidenceScore,
+    int SourceCount,
+    DateTime? LastEnrichedAt,
+    string? LastError,
+    string? CompanyName = null,
+    Guid? KnowledgeBaseId = null);
+
+public record ProductSourceDto(string Title, string Url, string? Domain, string SourceType, string? Snippet, double RelevanceScore);
+
+/// <summary>Outcome of a bulk product operation (enrich or delete).</summary>
+public record BulkProductResult
+{
+    public int Queued { get; set; }
+    public int Processing { get; set; }
+    public int Skipped { get; set; }
+    public int Deleted { get; set; }
+}
+
+public class EngineProductResearchResponse
+{
+    public string Name { get; set; } = string.Empty;
+    public string Status { get; set; } = "failed";
+    public string? SearchQuery { get; set; }
+    public EngineProduct? Product { get; set; }
+    public List<EngineSource> Sources { get; set; } = [];
+    public string? Error { get; set; }
+}
+
+public class EngineProduct
+{
+    public string? CanonicalName { get; set; }
+    public string? Manufacturer { get; set; }
+    public string? Category { get; set; }
+    public string? Description { get; set; }
+    public string? WhatItDoes { get; set; }
+    public List<string> UseCases { get; set; } = [];
+    public List<string> TargetIndustries { get; set; } = [];
+    public List<string> KeyFeatures { get; set; } = [];
+    public List<string> KeySpecifications { get; set; } = [];
+    public List<string> StandoutPoints { get; set; } = [];
+    public List<string> Variants { get; set; } = [];
+    public List<string> Limitations { get; set; } = [];
+    public double ConfidenceScore { get; set; }
+
+    public bool IsEmpty =>
+        string.IsNullOrWhiteSpace(Description) &&
+        string.IsNullOrWhiteSpace(WhatItDoes) &&
+        KeyFeatures.Count == 0 &&
+        KeySpecifications.Count == 0 &&
+        UseCases.Count == 0 &&
+        string.IsNullOrWhiteSpace(Manufacturer);
+}
+
+public class EngineSource
+{
+    public string Title { get; set; } = string.Empty;
+    public string Url { get; set; } = string.Empty;
+    public string? Domain { get; set; }
+    public string SourceType { get; set; } = "search";
+    public string? Snippet { get; set; }
+    public double RelevanceScore { get; set; }
+}

@@ -610,6 +610,119 @@ async def competitor_intel(request: dict):
     return result
 
 
+@app.post("/internal/product-intel")
+async def product_intel(request: dict):
+    """Research a detected product: Tavily discovery + LLM structured extraction.
+
+    Called by the .NET ProductIntelEnrichmentService (background worker) when a
+    product mention cannot be served from the cached ProductIntelligence row.
+    The response is a validated product profile + sources that .NET persists;
+    research happens once per canonical product.
+    """
+    name = (request.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+
+    manufacturer = (request.get("manufacturer") or "").strip()
+    category = (request.get("category") or "").strip()
+    context = (request.get("context") or "")[:2000]
+    company = (request.get("company") or "").strip()
+    website = (request.get("website") or "").strip()
+    meeting_id = request.get("meeting_id", "unknown")
+
+    # Disambiguation hint from the knowledge base / seed data: the trie
+    # entities carry product descriptions whose distinctive terms disambiguate
+    # generic names in web search ("Prodigy" → "prodigy three-phase CT meter").
+    # Request-level hints (company/website) win over inferred ones.
+    description_terms = ""
+    if not manufacturer or not category:
+        from engine.services.seed_entities import get_seed_entities
+        import re as _re
+        _STOP = {"the", "and", "with", "for", "from", "into", "are", "is", "its", "a", "an"}
+        for ent in get_seed_entities():
+            if ent.get("entity_text") == name.lower():
+                desc = ent.get("description") or ""
+                m = _re.search(r"\b(Secure Meters)\b", desc, _re.IGNORECASE)
+                if not manufacturer and m:
+                    manufacturer = m.group(1)
+                words = [w for w in _re.split(r"[^a-z0-9-]+", desc.lower()) if len(w) >= 4 and w not in _STOP]
+                description_terms = " ".join(list(dict.fromkeys(words))[:6])
+                break
+
+    from engine.services.product_intel import research_product
+
+    # ── LLM client factory (lazy, uses .NET-configured provider) ──────
+    async def _llm_client(prompt: str) -> str:
+        """Proxy to the .NET LlmService via internal HTTP call."""
+        import os
+        import httpx
+        server_url = os.getenv("CALLPILOT_SERVER_URL", "http://server:5001")
+        async with httpx.AsyncClient(timeout=45) as client:
+            resp = await client.post(
+                f"{server_url}/internal/llm/generate",
+                json={"prompt": prompt, "meeting_id": meeting_id},
+            )
+            if resp.status_code == 200:
+                return resp.json().get("response", "")
+            return ""
+
+    result = await research_product(
+        name=name,
+        manufacturer=manufacturer,
+        category=category,
+        context=context,
+        llm_client=_llm_client,
+        boost=description_terms,
+        company=company,
+        website=website,
+    )
+    return {
+        "name": name,
+        **result,
+    }
+
+
+@app.post("/internal/product-identify")
+async def product_identify(request: dict):
+    """Identify the products a company sells from uploaded documentation.
+
+    Called by the .NET KnowledgeUploadHandler after the document has been
+    indexed. The LLM distinguishes actual named products from generic
+    metering vocabulary and returns canonical names + aliases, which .NET
+    persists as product entities and uses to enqueue per-product research.
+    """
+    text = (request.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+
+    company = (request.get("company") or "").strip()
+    meeting_id = request.get("meeting_id", "unknown")
+
+    from engine.services.product_intel import identify_products
+
+    # ── LLM client factory (lazy, uses .NET-configured provider) ──────
+    async def _llm_client(prompt: str) -> str:
+        """Proxy to the .NET LlmService via internal HTTP call."""
+        import os
+        import httpx
+        server_url = os.getenv("CALLPILOT_SERVER_URL", "http://server:5001")
+        async with httpx.AsyncClient(timeout=45) as client:
+            resp = await client.post(
+                f"{server_url}/internal/llm/generate",
+                json={"prompt": prompt, "meeting_id": meeting_id},
+            )
+            if resp.status_code == 200:
+                return resp.json().get("response", "")
+            return ""
+
+    products = await identify_products(text, company_name=company, llm_client=_llm_client)
+    return {
+        "company": company,
+        "products": products,
+        "count": len(products),
+    }
+
+
 @app.delete("/internal/competitor-cache/{competitor_name}")
 async def invalidate_competitor_cache(competitor_name: str):
     """Invalidate the Redis cache for a specific competitor."""

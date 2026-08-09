@@ -3,6 +3,7 @@ using System;
 using CallPilot.Server.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CallPilot.Server.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(CallPilotDbContext))]
-    partial class CallPilotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260809124802_AddKnowledgeBaseAndProductScope")]
+    partial class AddKnowledgeBaseAndProductScope
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -294,14 +297,6 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
                     b.Property<Guid>("DocumentId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("EnrichmentStatus")
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<string>("EntityCategory")
-                        .HasMaxLength(40)
-                        .HasColumnType("character varying(40)");
-
                     b.Property<string>("EntityText")
                         .IsRequired()
                         .HasMaxLength(300)
@@ -312,19 +307,11 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<DateTime?>("LastEnrichedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("ProductIntelligenceId")
-                        .HasColumnType("uuid");
-
                     b.HasKey("Id");
 
                     b.HasIndex("ChunkId");
 
                     b.HasIndex("DocumentId");
-
-                    b.HasIndex("ProductIntelligenceId");
 
                     b.HasIndex("EntityText", "EntityType");
 
@@ -800,16 +787,9 @@ namespace CallPilot.Server.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("CallPilot.Server.Domain.Products.ProductIntelligence", "ProductIntelligence")
-                        .WithMany()
-                        .HasForeignKey("ProductIntelligenceId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.Navigation("Chunk");
 
                     b.Navigation("Document");
-
-                    b.Navigation("ProductIntelligence");
                 });
 
             modelBuilder.Entity("CallPilot.Server.Domain.Meetings.TranscriptSegment", b =>

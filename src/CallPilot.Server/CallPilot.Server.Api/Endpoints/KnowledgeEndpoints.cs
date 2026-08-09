@@ -15,10 +15,13 @@ public static class KnowledgeEndpoints
             HttpRequest request,
             ClaimsPrincipal user,
             string? mode,
-            KnowledgeUploadHandler handler) =>
+            string? knowledgeBaseId,
+            KnowledgeUploadHandler handler,
+            CallPilotDbContext db) =>
         {
             var userIdClaim = user.FindFirst("userId")?.Value;
-            if (userIdClaim is null) return Results.Unauthorized();
+            if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId))
+                return Results.Unauthorized();
 
             if (!request.HasFormContentType || request.Form.Files.Count == 0)
                 return Results.BadRequest(new { error = "No file provided" });
@@ -27,16 +30,26 @@ public static class KnowledgeEndpoints
             if (ingestMode is null)
                 return Results.BadRequest(new { error = $"Unknown mode '{mode}'. Use 'fast' or 'structured'." });
 
+            Guid? kbId = null;
+            if (!string.IsNullOrWhiteSpace(knowledgeBaseId) && Guid.TryParse(knowledgeBaseId, out var parsedKb))
+            {
+                var kbExists = await db.KnowledgeBases.AnyAsync(k => k.Id == parsedKb && k.UserId == userId);
+                if (!kbExists)
+                    return Results.BadRequest(new { error = "Knowledge base not found." });
+                kbId = parsedKb;
+            }
+
             var file = request.Form.Files[0];
 
             using var stream = file.OpenReadStream();
             var document = await handler.UploadAsync(
-                Guid.Parse(userIdClaim),
+                userId,
                 file.FileName,
                 file.ContentType,
                 file.Length,
                 stream,
-                ingestMode.Value);
+                ingestMode.Value,
+                kbId);
 
             return Results.Created($"/api/v1/knowledge/{document.Id}", new
             {
@@ -49,6 +62,7 @@ public static class KnowledgeEndpoints
                 createdAt = document.CreatedAt,
                 chunkCount = 0,
                 mode = ingestMode.Value.ToString().ToLowerInvariant(),
+                knowledgeBaseId = document.KnowledgeBaseId,
             });
         }).DisableAntiforgery();
 
@@ -63,6 +77,7 @@ public static class KnowledgeEndpoints
             return Results.Ok(documents.Select(d => new
             {
                 id = d.Id,
+                knowledgeBaseId = d.KnowledgeBaseId,
                 fileName = d.FileName,
                 contentType = d.ContentType,
                 fileSizeBytes = d.FileSizeBytes,
@@ -258,6 +273,7 @@ public static class KnowledgeEndpoints
                 {
                     d.Id,
                     d.Mode,
+                    d.KnowledgeBaseId,
                     d.ProcessingStatus,
                     d.EnrichmentStatus,
                     d.StagesJson,
@@ -309,6 +325,65 @@ public static class KnowledgeEndpoints
                 catch (System.Text.Json.JsonException) { /* leave null */ }
             }
 
+            // Per-document product enrichment progress: the products
+            // extracted from THIS document. Product entities are the
+            // document-scoped "extracted product" records - each carries its
+            // OWN enrichment status (DocumentEntity.EnrichmentStatus), so two
+            // documents never share processing state. Only entities classified
+            // as PRODUCT appear here (never FEATURE/COMPONENT/etc). Legacy
+            // rows predating the EntityCategory field (EntityCategory IS NULL)
+            // are still genuine product entities and remain visible.
+            var productEntities = await db.DocumentEntities
+                .Where(e => e.DocumentId == id
+                            && e.EntityType == "product"
+                            && (e.EntityCategory == "PRODUCT" || e.EntityCategory == null))
+                .Select(e => new
+                {
+                    e.Id,
+                    e.EntityText,
+                    e.EnrichmentStatus,
+                    e.LastEnrichedAt,
+                    e.ProductIntelligenceId,
+                    SourcePage = e.Chunk != null ? e.Chunk.PageHint : (int?)null,
+                    SourceChunk = e.Chunk != null ? e.Chunk.ChunkIndex : (int?)null,
+                })
+                .ToListAsync();
+            var canonicalNames = productEntities
+                .Select(e => CallPilot.Server.Infrastructure.Products.ProductIntelService.NormalizeName(e.EntityText))
+                .Distinct()
+                .ToList();
+            // Lookup profiles scoped to the document's own knowledge base so a
+            // doc never inherits another company/legacy row's display name.
+            var productRows = await db.ProductIntelligences
+                .Where(p => p.KnowledgeBaseId == doc.KnowledgeBaseId && canonicalNames.Contains(p.CanonicalName))
+                .Select(p => new { p.CanonicalName, p.DisplayName, p.Id, Status = p.EnrichmentStatus.ToString(), p.LastEnrichedAt })
+                .ToListAsync();
+
+            var products = new List<object>();
+            var productsEnriched = 0;
+            foreach (var entity in productEntities)
+            {
+                var canonical = CallPilot.Server.Infrastructure.Products.ProductIntelService.NormalizeName(entity.EntityText);
+                var match = productRows.FirstOrDefault(r =>
+                    string.Equals(r.CanonicalName, canonical, StringComparison.OrdinalIgnoreCase));
+                // Per-document status is the source of truth; fall back to the
+                // shared profile's status only for rows that predate the
+                // per-document status field.
+                var status = entity.EnrichmentStatus ?? match?.Status ?? "Pending";
+                if (status == "Completed") productsEnriched++;
+                products.Add(new
+                {
+                    id = entity.Id,
+                    name = entity.EntityText,
+                    canonical,
+                    displayName = match?.DisplayName ?? entity.EntityText,
+                    enrichmentStatus = status,
+                    lastEnrichedAt = entity.LastEnrichedAt ?? match?.LastEnrichedAt,
+                    sourcePage = entity.SourcePage,
+                    sourceChunk = entity.SourceChunk,
+                });
+            }
+
             return Results.Ok(new
             {
                 doc.Id,
@@ -321,7 +396,79 @@ public static class KnowledgeEndpoints
                 stages,
                 lastError,
                 enrichmentProgress,
+                products,
+                productsTotal = products.Count,
+                productsEnriched,
             });
+        });
+
+        // Bulk enrichment for a document's selected products. Reuses the same
+        // enrichment pipeline as the individual action (no duplicate jobs for
+        // already-Processing products). Operates only on this document's rows.
+        group.MapPost("/{id:guid}/products/bulk-enrich", async (
+            Guid id,
+            ClaimsPrincipal user,
+            CallPilot.Server.Infrastructure.Products.ProductIntelService productIntelService,
+            BulkProductRequest body) =>
+        {
+            var userIdClaim = user.FindFirst("userId")?.Value;
+            if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
+
+            var result = await productIntelService.BulkEnrichAsync(id, userId, body?.Ids ?? []);
+            return Results.Ok(result);
+        });
+
+        // Bulk delete for a document's selected products. Follows the same
+        // relationship rules as individual deletion - never removes the source
+        // document, never touches other documents' products.
+        group.MapPost("/{id:guid}/products/bulk-delete", async (
+            Guid id,
+            ClaimsPrincipal user,
+            CallPilot.Server.Infrastructure.Products.ProductIntelService productIntelService,
+            BulkProductRequest body) =>
+        {
+            var userIdClaim = user.FindFirst("userId")?.Value;
+            if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
+
+            var result = await productIntelService.BulkDeleteAsync(id, userId, body?.Ids ?? []);
+            return Results.Ok(result);
+        });
+
+        // Explicit product enrichment action, scoped to a document (used by
+        // the product detail drawer's Start enrichment / Reprocess / Retry).
+        // The shared profile + this document's own product entity are marked
+        // Enriching; duplicate-trigger protection lives in the service.
+        group.MapPost("/{id:guid}/products/{name}/enrich", async (
+            Guid id,
+            string name,
+            ClaimsPrincipal user,
+            CallPilot.Server.Infrastructure.Products.ProductIntelService productIntelService) =>
+        {
+            var userIdClaim = user.FindFirst("userId")?.Value;
+            if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
+            if (string.IsNullOrWhiteSpace(name)) return Results.BadRequest(new { error = "Product name is required" });
+
+            var dto = await productIntelService.ForceReenrichAsync(name, userId, id);
+            return Results.Ok(dto);
+        });
+
+        // Removes an extracted product from a document's product intelligence.
+        // Deletes the per-document product entity; the shared KB-level
+        // intelligence row is removed only when no other document in the
+        // knowledge base still references the product. Never touches the
+        // source document or unrelated products.
+        group.MapDelete("/{id:guid}/products/{name}", async (
+            Guid id,
+            string name,
+            ClaimsPrincipal user,
+            CallPilot.Server.Infrastructure.Products.ProductIntelService productIntelService) =>
+        {
+            var userIdClaim = user.FindFirst("userId")?.Value;
+            if (userIdClaim is null || !Guid.TryParse(userIdClaim, out var userId)) return Results.Unauthorized();
+            if (string.IsNullOrWhiteSpace(name)) return Results.BadRequest(new { error = "Product name is required" });
+
+            var ok = await productIntelService.RemoveDocumentProductAsync(id, userId, name);
+            return ok ? Results.NoContent() : Results.NotFound();
         });
 
         // Powers the dashboard's "View raw" tab.  Returns the last
@@ -410,3 +557,5 @@ public static class KnowledgeEndpoints
         return null;
     }
 }
+
+public record BulkProductRequest(Guid[]? Ids);

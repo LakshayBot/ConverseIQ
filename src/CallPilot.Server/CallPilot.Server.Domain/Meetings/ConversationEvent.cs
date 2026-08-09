@@ -10,6 +10,14 @@ public class ConversationEvent
     public string SupportingTranscript { get; private set; }
     public DateTime DetectedAt { get; private set; }
 
+    /// <summary>
+    /// Set when this mention resolves to a canonical
+    /// <see cref="CallPilot.Server.Domain.Products.ProductIntelligence"/> row
+    /// (backfilled when enrichment completes). Links the meeting-specific
+    /// mention to the global product profile.
+    /// </summary>
+    public Guid? ProductIntelligenceId { get; private set; }
+
     private ConversationEvent()
     {
         SupportingTranscript = string.Empty;
@@ -29,5 +37,11 @@ public class ConversationEvent
         Confidence = confidence;
         SupportingTranscript = supportingTranscript;
         DetectedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>Associates this meeting mention with a canonical product profile.</summary>
+    public void LinkToProduct(Guid productIntelligenceId)
+    {
+        ProductIntelligenceId = productIntelligenceId;
     }
 }

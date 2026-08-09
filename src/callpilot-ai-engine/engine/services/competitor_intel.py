@@ -43,7 +43,7 @@ class CompetitorIntel:
     cached: bool = False
 
 
-async def _tavily_search(query: str, max_results: int = 3) -> list[dict]:
+async def _tavily_search(query: str, max_results: int = 3, search_depth: str = "basic") -> list[dict]:
     """Run a Tavily search and return raw results."""
     if not TAVILY_API_KEY:
         logger.warning("TAVILY_API_KEY not set - web search disabled")
@@ -55,7 +55,7 @@ async def _tavily_search(query: str, max_results: int = 3) -> list[dict]:
         response = await client.search(
             query=query,
             max_results=max_results,
-            search_depth="basic",
+            search_depth=search_depth,
         )
         return response.get("results", [])
     except ImportError:

@@ -49,6 +49,7 @@ public class DesktopAgentHub : Hub
     private readonly EventDetectionService _eventDetector;
     private readonly RecommendationEngine _recommendationEngine;
     private readonly MeetingDiagnosticsService _diagnostics;
+    private readonly CallPilot.Server.Infrastructure.Products.ProductIntelQueue _productIntelQueue;
     private readonly IServiceProvider _serviceProvider;
 
     public DesktopAgentHub(
@@ -57,6 +58,7 @@ public class DesktopAgentHub : Hub
         EventDetectionService eventDetector,
         RecommendationEngine recommendationEngine,
         MeetingDiagnosticsService diagnostics,
+        CallPilot.Server.Infrastructure.Products.ProductIntelQueue productIntelQueue,
         IServiceProvider serviceProvider)
     {
         _logger = logger;
@@ -64,6 +66,7 @@ public class DesktopAgentHub : Hub
         _eventDetector = eventDetector;
         _recommendationEngine = recommendationEngine;
         _diagnostics = diagnostics;
+        _productIntelQueue = productIntelQueue;
         _serviceProvider = serviceProvider;
     }
 
@@ -194,6 +197,17 @@ public class DesktopAgentHub : Hub
 
             dbContext.ConversationEvents.Add(conversationEvent);
             await dbContext.SaveChangesAsync();
+
+            // Kick off product intelligence research for detected products.
+            // The background worker dedupes (canonical name + in-flight guard)
+            // and skips already-Completed profiles, so this is cheap and
+            // never blocks the transcript pipeline.
+            if (evt.EventType == "ProductMentioned" && !string.IsNullOrWhiteSpace(evt.EntityName))
+            {
+                _productIntelQueue.Enqueue(
+                    CallPilot.Server.Infrastructure.Products.ProductIntelService.NormalizeName(evt.EntityName),
+                    conversationEvent.SupportingTranscript);
+            }
 
             var eventPayload = new
             {
