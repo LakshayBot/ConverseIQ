@@ -309,6 +309,7 @@ mod tests {
         assert_eq!(high_tier, PerformanceTier::Ultra);
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn hardware_detector_finds_windows_vulkan_loader_in_system32() {
         let temp_dir = tempfile::tempdir().unwrap();
@@ -319,6 +320,7 @@ mod tests {
         assert!(HardwareProfile::has_windows_vulkan_loader(temp_dir.path()));
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn hardware_detector_rejects_missing_windows_vulkan_loader() {
         let temp_dir = tempfile::tempdir().unwrap();

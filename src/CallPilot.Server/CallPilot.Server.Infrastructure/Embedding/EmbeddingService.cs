@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.Http.Json;
 using CallPilot.Server.Domain.Knowledge;
 using Microsoft.Extensions.Logging;
@@ -6,6 +7,17 @@ namespace CallPilot.Server.Infrastructure.Embedding;
 
 public class EmbeddingService
 {
+    /// <summary>
+    /// Bounded warm cache for real-model embeddings.  The live
+    /// recommendation path re-uses a handful of static query strings
+    /// (e.g. "pricing plans cost licensing enterprise") every event
+    /// debounce window, so serving those from memory avoids a redundant
+    /// HTTP round-trip to the AI engine on the real-time path.
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, (float[] Vector, DateTime ExpiresAt)> Cache = new();
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
+    private const int CacheCapacity = 256;
+
     private readonly HttpClient _httpClient;
     private readonly ILogger<EmbeddingService> _logger;
 
@@ -15,8 +27,14 @@ public class EmbeddingService
         _logger = logger;
     }
 
-    public async Task<float[]?> GenerateEmbeddingAsync(string text, string model = "all-MiniLM-L6-v2")
+    public virtual async Task<float[]?> GenerateEmbeddingAsync(string text, string model = "all-MiniLM-L6-v2")
     {
+        var cacheKey = $"{model}:{text}";
+        if (Cache.TryGetValue(cacheKey, out var hit) && hit.ExpiresAt > DateTime.UtcNow)
+        {
+            return hit.Vector;
+        }
+
         try
         {
             var response = await _httpClient.PostAsJsonAsync("/api/v1/ai/embeddings", new
@@ -32,7 +50,14 @@ public class EmbeddingService
             }
 
             var result = await response.Content.ReadFromJsonAsync<EmbeddingResponse>();
-            return result?.Embedding;
+            if (result?.Embedding is { Length: > 0 } vector)
+            {
+                TrimCache();
+                Cache[cacheKey] = (vector, DateTime.UtcNow.Add(CacheTtl));
+                return vector;
+            }
+
+            return null;
         }
         catch (Exception ex)
         {
@@ -41,7 +66,32 @@ public class EmbeddingService
         }
     }
 
-    public float[] GenerateLocalEmbedding(string text, int dimensions = 384)
+    private static void TrimCache()
+    {
+        if (Cache.Count < CacheCapacity) return;
+
+        foreach (var entry in Cache)
+        {
+            if (entry.Value.ExpiresAt <= DateTime.UtcNow)
+            {
+                Cache.TryRemove(entry.Key, out _);
+            }
+        }
+
+        // Working set is tiny (a handful of static query strings); a
+        // wholesale clear on overflow is acceptable and race-safe enough.
+        if (Cache.Count >= CacheCapacity) Cache.Clear();
+    }
+
+    /// <summary>
+    /// Deterministic hash-based pseudo-embedding.  FALLBACK ONLY — this is
+    /// not a semantic model, and vectors produced here are NOT comparable
+    /// to the real all-MiniLM-L6-v2 vectors stored at ingest time (cosine
+    /// against them is token-overlap, not meaning).  Keep only for the
+    /// degraded "engine unreachable" path; never use it when the real
+    /// embedding endpoint is available.
+    /// </summary>
+    public virtual float[] GenerateLocalEmbedding(string text, int dimensions = 384)
     {
         var tokens = text.ToLowerInvariant()
             .Split([' ', '\n', '\r', '\t', '.', ',', '!', '?', ';', ':'], StringSplitOptions.RemoveEmptyEntries);

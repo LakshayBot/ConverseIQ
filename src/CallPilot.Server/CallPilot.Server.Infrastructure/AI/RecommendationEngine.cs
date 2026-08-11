@@ -47,7 +47,12 @@ public class RecommendationEngine
         try
         {
             var queryText = BuildSearchQuery(conversationEvent);
-            var queryVector = _embeddingService.GenerateLocalEmbedding(queryText);
+            // Live query MUST embed with the same real model the ingest
+            // pipeline used (all-MiniLM-L6-v2 via the AI engine) so cosine
+            // similarity is semantic.  The hash pseudo-vector is a degraded
+            // last-resort fallback only (e.g. engine unreachable mid-call).
+            var queryVector = await _embeddingService.GenerateEmbeddingAsync(queryText)
+                ?? _embeddingService.GenerateLocalEmbedding(queryText);
             var relevantChunks = await _vectorSearch.SearchAsync(queryVector, topK: 3, userId: userId);
 
             string summary;
