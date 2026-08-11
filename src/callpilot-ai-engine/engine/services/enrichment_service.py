@@ -139,6 +139,11 @@ class EnrichedProduct:
     differentiators: List[str] = field(default_factory=list)
     raw_claims: List[str] = field(default_factory=list)
     page_type: str = "other"
+    # ── Merged entity classification (previously a separate /internal/product-identify pass) ──
+    entity_type: str = "product"
+    confidence: float = 0.0
+    aliases: List[str] = field(default_factory=list)
+    evidence: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -183,9 +188,79 @@ class EnrichedProduct:
         return " ".join(parts).strip()
 
 
+@dataclass
+class EnrichedEntity:
+    """A non-product entity the merged LLM pass classified.
+
+    Products live in :class:`EnrichedProduct` (with the same classification
+    fields); this carries everything else the trie can use
+    (integrations, features, pricing tiers, components, ...).
+    """
+    canonical: str
+    aliases: List[str] = field(default_factory=list)
+    entity_type: str = "other"
+    confidence: float = 0.0
+    evidence: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 # ── Prompt ─────────────────────────────────────────────────────────────────
 
-_PROMPT_TEMPLATE = """You are a product intelligence extractor. Given text from a product brochure page, extract all products and their details.
+# Confidence thresholds for automatic product enrichment (precision > recall):
+#   >= 0.7  → confident PRODUCT, auto-enrich at ingest
+#   0.4-0.69 → possible PRODUCT, stored but NOT auto-enriched (user can Start)
+#   < 0.4   → treated as non-product for Product Intelligence
+AUTO_ENRICH_CONFIDENCE = 0.7
+PRODUCT_CONFIDENCE_FLOOR = 0.4
+
+_VALID_ENTITY_TYPES = {
+    "product", "product_category", "feature", "component", "accessory",
+    "application", "technical_specification", "other",
+}
+
+# Terms that routinely appear in product documentation but are NOT products.
+# The LLM does the real filtering; this is a hard backstop so generic
+# metering vocabulary never becomes a "product".
+_GENERIC_TERMS = {
+    "ami", "dlms", "dlms cosem", "cosem", "accuracy", "smart metering", "smart meter",
+    "three phase", "three-phase", "three phase meter", "single phase", "single-phase",
+    "communication", "meter", "electricity meter", "energy meter", "metering",
+    "metering solution", "metering solutions", "technology", "solution", "solutions",
+    "gprs", "gsm", "rf", "zigbee", "wifi", "bluetooth", "ct", "current transformer",
+    "sensor", "sensors", "software", "app", "platform", "system", "product", "products",
+    "feature", "features", "module", "modules", "communications module", "communication module",
+    "connection", "connectivity", "reading", "billing", "tariff", "tariffs", "metering",
+    "load", "supply", "voltage", "current", "power", "energy", "consumption",
+}
+
+
+def _is_generic(canonical: str) -> bool:
+    c = canonical.strip().lower()
+    if not c or len(c) < 3:
+        return True
+    if c in _GENERIC_TERMS:
+        return True
+    if len(c.split()) == 1 and len(c) <= 4:
+        return True  # "meter", "lib", "api" style single short tokens
+    return False
+
+
+def _clamp_confidence(value: Any) -> float:
+    try:
+        c = float(value)
+        return round(min(max(c, 0.0), 1.0), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _normalize_entity_type(raw: Any) -> str:
+    t = str(raw or "product").strip().lower()
+    return t if t in _VALID_ENTITY_TYPES else "other"
+
+
+_PROMPT_TEMPLATE = """You are a product intelligence extractor. Given text from a product brochure page, extract all products and their details, and classify EVERY notable entity on the page.
 
 Return ONLY valid JSON. No preamble, no explanation, no markdown backticks.
 
@@ -200,13 +275,33 @@ Schema:
       "pricing": string or null,
       "best_for": string or null,
       "differentiators": [string],
-      "raw_claims": [string]
+      "raw_claims": [string],
+      "entityType": "product",
+      "confidence": number (0.0-1.0, how confident you are it is a genuine named product),
+      "aliases": [string],
+      "evidence": string (short verbatim quote supporting the classification)
+    }}
+  ],
+  "entities": [
+    {{
+      "canonical": string,
+      "aliases": [string],
+      "entityType": "product_category | feature | component | accessory | application | technical_specification | other",
+      "confidence": number (0.0-1.0),
+      "evidence": string
     }}
   ],
   "page_type": "product_listing | comparison | overview | pricing | contact | other"
 }}
 
-If no products found return: {{"products": [], "page_type": "other"}}
+RULES:
+- PRODUCT rules: only classify as a product if the page clearly presents it as a named, sellable offering of the company - not a component, feature, capability, industry, application, spec, or generic category. Be conservative.
+- "Prodigy", "PRODIGY" and "Prodigy meter" are the SAME product - keep one canonical name in "name" and collect alternate spellings as "aliases".
+- "canonical"/"name" is the clean primary name, title-cased, WITHOUT generic trailing words when the document brands it shorter (e.g. "Sprint 210" not "Sprint 210 modular meter").
+- "entities" must include every notable NON-product entity (features like "DLMS support", components, accessories, applications, technical specs) so nothing is lost.
+- "evidence" is a short verbatim quote from the text that supports the classification.
+
+If no products found return: {{"products": [], "entities": [], "page_type": "other"}}
 
 Page text:
 {page_text}
@@ -289,6 +384,12 @@ def _parse_enrichment_response(raw: str) -> list[EnrichedProduct]:
         if not name:
             continue  # skip nameless entries - the LLM occasionally emits
                       # stray "no name" rows
+        entity_type = _normalize_entity_type(item.get("entityType") or item.get("entity_type") or "product")
+        confidence = _clamp_confidence(item.get("confidence"))
+        # Hard backstop: generic metering vocabulary is never a product.
+        if entity_type == "product" and _is_generic(name):
+            entity_type = "other"
+            confidence = min(confidence, 0.3)
         out.append(EnrichedProduct(
             name=name,
             category=(item.get("category") or None) or None,
@@ -299,6 +400,54 @@ def _parse_enrichment_response(raw: str) -> list[EnrichedProduct]:
             differentiators=_as_str_list(item.get("differentiators")),
             raw_claims=_as_str_list(item.get("raw_claims")),
             page_type=page_type,
+            entity_type=entity_type,
+            confidence=confidence,
+            aliases=_as_str_list(item.get("aliases")),
+            evidence=(item.get("evidence") or None),
+        ))
+    return out
+
+
+def _parse_entities(raw: str) -> list[EnrichedEntity]:
+    """Parse the ``entities[]`` array of a merged enrichment response.
+
+    Returns ``[]`` on any failure (missing field, malformed JSON, wrong
+    shape).  The caller keeps going - entities are best-effort.
+    """
+    if not raw:
+        return []
+
+    stripped = _strip_markdown_fences(raw)
+    try:
+        data = json.loads(stripped)
+    except json.JSONDecodeError:
+        return []
+
+    if not isinstance(data, dict):
+        return []
+
+    entities = data.get("entities") or []
+    if not isinstance(entities, list):
+        return []
+
+    out: list[EnrichedEntity] = []
+    for item in entities:
+        if not isinstance(item, dict):
+            continue
+        canonical = (item.get("canonical") or item.get("name") or "").strip()
+        if not canonical:
+            continue
+        entity_type = _normalize_entity_type(item.get("entityType") or item.get("entity_type") or "other")
+        confidence = _clamp_confidence(item.get("confidence"))
+        if entity_type == "product" and _is_generic(canonical):
+            entity_type = "other"
+            confidence = min(confidence, 0.3)
+        out.append(EnrichedEntity(
+            canonical=canonical,
+            aliases=_as_str_list(item.get("aliases")),
+            entity_type=entity_type,
+            confidence=confidence,
+            evidence=(item.get("evidence") or None),
         ))
     return out
 
@@ -521,12 +670,13 @@ async def _call_groq_with_retry(prompt: str) -> _GroqResult:
 class _PageResult:
     """Internal transport from :func:`enrich_page` to :func:`enrich_pages`.
 
-    Carries the parsed products (possibly empty) plus the outcome metadata
-    so the bulk helper can attach it to each per-page response without
-    re-running the call.
+    Carries the parsed products + entities (possibly empty) plus the
+    outcome metadata so the bulk helper can attach it to each per-page
+    response without re-running the call.
     """
     products: list[EnrichedProduct]
-    outcome: dict
+    entities: list[EnrichedEntity] = field(default_factory=list)
+    outcome: dict = field(default_factory=dict)
 
 
 async def enrich_page(page_text: str) -> _PageResult:
@@ -536,6 +686,10 @@ async def enrich_page(page_text: str) -> _PageResult:
     and an outcome dict the caller can attach to the per-page response so
     the dashboard can distinguish "no products found" (LLM was fine) from
     "enrichment failed" (auth / network / parse error).
+
+    The merged pass also returns classified non-product entities
+    (features, components, applications, ...) which the .NET handler
+    persists as DocumentEntity rows for the live-call trie.
 
     Fail-open: every failure path returns an empty products list with a
     classified outcome status.  The caller keeps the original Docling
@@ -607,6 +761,7 @@ async def enrich_page(page_text: str) -> _PageResult:
 
     try:
         products = _parse_enrichment_response(groq_result.content)
+        entities = _parse_entities(groq_result.content)
     except Exception as exc:  # noqa: BLE001 - fail-open
         logger.warning("enrich_page: parse failure: %s", exc)
         return _PageResult(
@@ -616,7 +771,7 @@ async def enrich_page(page_text: str) -> _PageResult:
                      "retry_count": groq_result.retry_count},
         )
 
-    if not products:
+    if not products and not entities:
         # Valid JSON, valid schema, but LLM said no products on this page.
         return _PageResult(
             products=[],
@@ -627,6 +782,7 @@ async def enrich_page(page_text: str) -> _PageResult:
 
     return _PageResult(
         products=products,
+        entities=entities,
         outcome={"status": "ok", "model": _get_model(),
                  "duration_ms": groq_result.duration_ms, "error": None,
                  "retry_count": groq_result.retry_count},
@@ -701,6 +857,7 @@ async def enrich_pages(pages: list[dict]) -> list[dict]:
                     enrich_page(text), timeout=PAGE_TIMEOUT_S
                 )
                 products = result.products
+                entities = result.entities
                 outcome = result.outcome
             except asyncio.TimeoutError:
                 # Per-page cap hit - skip just this page, keep the original
@@ -712,6 +869,7 @@ async def enrich_pages(pages: list[dict]) -> list[dict]:
                     PAGE_TIMEOUT_S, page_no,
                 )
                 products = []
+                entities = []
                 outcome = {"status": "timeout", "model": _get_model(),
                            "duration_ms": int(PAGE_TIMEOUT_S * 1000),
                            "error": f"per-page timeout of {PAGE_TIMEOUT_S:.0f}s exceeded"}
@@ -722,11 +880,13 @@ async def enrich_pages(pages: list[dict]) -> list[dict]:
                     page_no, exc,
                 )
                 products = []
+                entities = []
                 outcome = {"status": "unknown", "model": _get_model(),
                            "duration_ms": 0, "error": str(exc)[:500]}
             return {
                 "page": page_no,
                 "products": [prod.to_dict() for prod in products],
+                "entities": [ent.to_dict() for ent in entities],
                 "page_type": products[0].page_type if products else "other",
                 "outcome": outcome,
             }
@@ -800,6 +960,7 @@ async def enrich_pages_streaming(pages: list[dict]):
                     enrich_page(text), timeout=PAGE_TIMEOUT_S
                 )
                 products = result.products
+                entities = result.entities
                 outcome = result.outcome
             except asyncio.TimeoutError:
                 logger.warning(
@@ -807,6 +968,7 @@ async def enrich_pages_streaming(pages: list[dict]):
                     PAGE_TIMEOUT_S, page_no,
                 )
                 products = []
+                entities = []
                 outcome = {"status": "timeout", "model": _get_model(),
                            "duration_ms": int(PAGE_TIMEOUT_S * 1000),
                            "error": f"per-page timeout of {PAGE_TIMEOUT_S:.0f}s exceeded"}
@@ -816,11 +978,13 @@ async def enrich_pages_streaming(pages: list[dict]):
                     page_no, exc,
                 )
                 products = []
+                entities = []
                 outcome = {"status": "unknown", "model": _get_model(),
                            "duration_ms": 0, "error": str(exc)[:500]}
             return {
                 "page": page_no,
                 "products": [prod.to_dict() for prod in products],
+                "entities": [ent.to_dict() for ent in entities],
                 "page_type": products[0].page_type if products else "other",
                 "outcome": outcome,
             }

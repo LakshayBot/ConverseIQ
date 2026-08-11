@@ -30,10 +30,24 @@ class StructuredChunk:
     """JSON-friendly chunk consumed by the .NET upload handler."""
     text: str
     section_heading: str | None
-    chunk_type: str                # "paragraph" | "bullet_group" | "list_item" | "table" | "heading"
+    chunk_type: str                # "paragraph" | "bullet_group" | "list_item" | "table" | "heading" | "figure_caption"
     page: int                       # 1-based; 0 if unknown
     pages: list[int] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class PagePicture:
+    """A product/table image crop from a page, ready for the vision LLM.
+
+    ``data_url`` is a data:image/jpeg;base64,... URL the Groq vision model
+    can consume directly.  ``caption`` is filled in by the vision pass
+    (empty if the pass failed or was skipped).
+    """
+    page: int
+    index: int
+    data_url: str
+    caption: str = ""
 
 
 @dataclass
@@ -51,6 +65,7 @@ class DoclingResult:
     chunk_ms: int
     model_load_ms: int | None     # None after the first call has been made
     warnings: list[str] = field(default_factory=list)
+    pictures: list[PagePicture] = field(default_factory=list)
 
     def to_meta_dict(self) -> dict[str, Any]:
         return {
@@ -109,15 +124,20 @@ class DoclingIngestService:
 
         from docling.datamodel.base_models import InputFormat
         from docling.datamodel.document import DocumentStream
-        from docling.datamodel.pipeline_options import PdfPipelineOptions
+        from docling.datamodel.pipeline_options import PdfPipelineOptions, TesseractOcrOptions
         from docling.document_converter import DocumentConverter, PdfFormatOption
 
-        # For text PDFs we don't need OCR. Disabling it cuts ~30% off the
-        # per-page latency. (If a future deployment hits scanned PDFs, flip
-        # do_ocr=True here.)
+        # Quality-first extraction: complex brochures contain scanned pages
+        # and image-only spec sheets.  OCR is ON so scanned text enters the
+        # pipeline; table structure + figure structure keep layout-aware
+        # chunks; picture crops feed the vision-LLM caption pass.
         opts = PdfPipelineOptions()
-        opts.do_ocr = False
+        opts.do_ocr = True
+        opts.ocr_options = TesseractOcrOptions(lang=["en"])
         opts.do_table_structure = True
+        opts.do_figure_structure = True
+        opts.do_picture_classification = True
+        opts.do_reading_order = True
         converter = DocumentConverter(
             format_options={
                 InputFormat.PDF: PdfFormatOption(pipeline_options=opts),
@@ -152,6 +172,8 @@ class DoclingIngestService:
         if page_count > 0 and len(chunks_raw) == 0:
             warnings.append("PDF had pages but no chunks were produced")
 
+        pictures = self._extract_pictures(result.document)
+
         return DoclingResult(
             chunks=[self._to_structured(c) for c in chunks_raw],
             page_count=page_count,
@@ -159,7 +181,85 @@ class DoclingIngestService:
             chunk_ms=chunk_ms,
             model_load_ms=self._model_load_ms,
             warnings=warnings,
+            pictures=pictures,
         )
+
+    # Cap on pictures per page (and per document) that go to the vision
+    # LLM.  Decorative graphics and tiny icons are filtered by size; this
+    # caps the LLM spend on a single brochure.
+    MAX_PICTURES_PER_PAGE = 3
+    MAX_PICTURES_TOTAL = 24
+    # Min rendered width/height in px for a picture to count as content.
+    MIN_PICTURE_SIDE_PX = 96
+    # Max long side for the JPEG sent to the vision model (keeps payloads
+    # small; vision models don't need more than ~1k px).
+    PICTURE_MAX_SIDE_PX = 1024
+
+    def _extract_pictures(self, document) -> list[PagePicture]:
+        """Harvest picture crops from the Docling doc as compact base64 JPEGs.
+
+        Pictures are attributed to the page of their first provenance item.
+        Returns at most ``MAX_PICTURES_PER_PAGE`` per page and
+        ``MAX_PICTURES_TOTAL`` overall, sorted by area (biggest first).
+        """
+        try:
+            import base64
+            from io import BytesIO
+        except Exception:  # noqa: BLE001
+            return []
+
+        pictures = document.pictures if hasattr(document, "pictures") else []
+        if not pictures:
+            return []
+
+        per_page: dict[int, list[PagePicture]] = {}
+        for pic in pictures:
+            try:
+                image = getattr(pic, "image", None)
+                if image is None:
+                    continue
+                width, height = image.size
+                if width < self.MIN_PICTURE_SIDE_PX or height < self.MIN_PICTURE_SIDE_PX:
+                    continue
+
+                page = 0
+                for p in (getattr(pic, "prov", None) or []):
+                    pn = getattr(p, "page_no", None)
+                    if isinstance(pn, int) and pn > 0:
+                        page = pn
+                        break
+
+                # Downscale + JPEG-encode so the payload stays small.
+                scale = min(1.0, self.PICTURE_MAX_SIDE_PX / max(width, height))
+                if scale < 1.0:
+                    image = image.resize((max(1, int(width * scale)), max(1, int(height * scale))))
+                if image.mode != "RGB":
+                    image = image.convert("RGB")
+                buf = BytesIO()
+                image.save(buf, format="JPEG", quality=70)
+                data_url = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+                per_page.setdefault(page, []).append(PagePicture(
+                    page=page,
+                    index=len(per_page.get(page, [])),
+                    data_url=data_url,
+                ))
+            except Exception:  # noqa: BLE001 - a bad picture never kills ingest
+                continue
+
+        out: list[PagePicture] = []
+        for page_no in sorted(per_page):
+            # Largest first within a page (the hero product shot > a logo).
+            page_pics = sorted(
+                per_page[page_no], key=lambda p: len(p.data_url), reverse=True
+            )[: self.MAX_PICTURES_PER_PAGE]
+            for pic in page_pics:
+                if len(out) >= self.MAX_PICTURES_TOTAL:
+                    break
+                out.append(pic)
+            if len(out) >= self.MAX_PICTURES_TOTAL:
+                break
+        return out
 
     def _to_structured(self, c) -> StructuredChunk:
         # Headings (most recent first) - the last one in the list is the

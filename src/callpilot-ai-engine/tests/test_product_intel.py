@@ -6,12 +6,10 @@ from engine.services.product_intel import (
     _build_search_query,
     _classify_source_type,
     _compute_confidence,
-    _is_generic,
     _sanitize_product,
     _sanitize_sources,
     _strip_json_fence,
     _website_host,
-    identify_products,
     research_product,
 )
 
@@ -101,18 +99,10 @@ def test_research_product_no_tavily_key(monkeypatch):
     assert result["sources"] == []
 
 
-# ── Product identification (ingest-time) ────────────────────────────────────
-
-def test_is_generic():
-    assert _is_generic("ami")
-    assert _is_generic("smart metering")
-    assert _is_generic("three phase")
-    assert _is_generic("meter")
-    assert _is_generic("dlms")
-    assert not _is_generic("prodigy")
-    assert not _is_generic("sprint 210")
-    assert not _is_generic("i-credit 510")
-
+# ── Product identification (merged into the enrichment pass) ───────────────
+# The generic-term backstop and entity classification formerly in
+# identify_products() now live in enrichment_service (see
+# test_enrichment_service.py::TestMergedEntityClassification).
 
 def test_website_host():
     assert _website_host("https://secure-meters.com/products") == "secure-meters.com"
@@ -120,41 +110,11 @@ def test_website_host():
     assert _website_host("") == ""
 
 
-def test_identify_products_llm_filters_generics():
-    async def run():
-        text = "We make the Prodigy, PRODIGY meter, Apex 100 and Sprint 210. AMI and DLMS compliance."
-        async def llm(prompt):
-            return json.dumps({
-                "entities": [
-                    {"canonical": "Prodigy", "aliases": ["prodigy meter"], "entityType": "PRODUCT", "confidence": 0.96, "evidence": "We make the Prodigy"},
-                    {"canonical": "Apex 100", "aliases": [], "entityType": "PRODUCT", "confidence": 0.94, "evidence": "Apex 100"},
-                    {"canonical": "AMI", "aliases": [], "entityType": "FEATURE", "confidence": 0.8, "evidence": "AMI compliance"},
-                    {"canonical": "meter", "aliases": [], "entityType": "PRODUCT", "confidence": 0.5, "evidence": "meter"},
-                ]
-            })
-        return await identify_products(text, company_name="Secure Meters", llm_client=llm)
-
-    import asyncio
-    entities = asyncio.run(run())
-    by_name = {e["canonical"]: e for e in entities}
-    assert by_name["Prodigy"]["entityType"] == "product"
-    assert by_name["Prodigy"]["confidence"] == 0.96
-    assert by_name["Prodigy"]["aliases"] == ["prodigy meter"]
-    assert by_name["Apex 100"]["entityType"] == "product"
-    # Generic backstop: "meter" mislabeled PRODUCT is demoted to OTHER.
-    assert by_name["meter"]["entityType"] == "other"
-    # Non-product entities are kept with their category.
-    assert by_name["AMI"]["entityType"] == "feature"
-
-
-def test_identify_products_fail_open():
-    async def run():
-        async def llm(prompt):
-            raise RuntimeError("boom")
-        return await identify_products("Prodigy is a meter.", company_name="X", llm_client=llm)
-
-    import asyncio
-    assert asyncio.run(run()) == []
+def test_identify_products_fail_open_removed():
+    # identify_products was merged into the enrichment pass; entity
+    # classification is now tested in test_enrichment_service.py.
+    import engine.services.product_intel as pi
+    assert not hasattr(pi, "identify_products")
 
 
 def test_build_search_query_with_company():

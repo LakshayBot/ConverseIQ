@@ -75,23 +75,73 @@ async def ingest_structured(file: UploadFile = File(...)) -> dict[str, Any]:
         logger.exception("Docling ingest failed for %s", file.filename)
         raise HTTPException(status_code=500, detail=f"Ingest failed: {exc}") from exc
 
+    # Vision pass: caption the extracted picture crops (product shots,
+    # spec tables-as-images).  Captions become figure_caption chunks AND
+    # a per-page map the .NET side appends to the enrichment page text so
+    # product-card extraction can cite image content.
+    page_captions: dict[int, list[str]] = {}
+    vision_ms = 0
+    if result.pictures:
+        t0 = time.time()
+        try:
+            from engine.services.vision_service import describe_pictures
+            page_captions = await describe_pictures(
+                [{"page": p.page, "data_url": p.data_url} for p in result.pictures]
+            )
+        except Exception as exc:  # noqa: BLE001 - fail-open
+            logger.warning("ingest-structured: vision caption pass failed: %s", exc)
+            page_captions = {}
+        vision_ms = int((time.time() - t0) * 1000)
+        logger.info(
+            "ingest-structured: vision captioned %d page(s) with %d captions in %dms",
+            len(page_captions), sum(len(v) for v in page_captions.values()), vision_ms,
+        )
+
+    chunks = [
+        {
+            "text": c.text,
+            "section_heading": c.section_heading,
+            "chunk_type": c.chunk_type,
+            "page": c.page,
+            "pages": c.pages,
+            "metadata": c.metadata,
+        }
+        for c in result.chunks
+    ]
+
+    # Caption chunks (embedded + retrievable like any other chunk).
+    if page_captions:
+        from engine.services.vision_service import caption_chunk_text
+        for page in sorted(page_captions):
+            captions = page_captions[page]
+            if not captions:
+                continue
+            chunks.append({
+                "text": caption_chunk_text(page, captions),
+                "section_heading": None,
+                "chunk_type": "figure_caption",
+                "page": page,
+                "pages": [page],
+                "metadata": {
+                    "source_mode": "structured",
+                    "doc_item_labels": ["figure_caption"],
+                    "vision_model": "llama-3.2-11b-vision-preview",
+                },
+            })
+
     return {
         "filename": file.filename,
         "size_bytes": len(pdf_bytes),
-        "chunk_count": len(result.chunks),
+        "chunk_count": len(chunks),
         "extraction_ms": int((time.time() - t0) * 1000),
         "docling": result.to_meta_dict(),
-        "chunks": [
-            {
-                "text": c.text,
-                "section_heading": c.section_heading,
-                "chunk_type": c.chunk_type,
-                "page": c.page,
-                "pages": c.pages,
-                "metadata": c.metadata,
-            }
-            for c in result.chunks
-        ],
+        "vision": {
+            "picture_count": len(result.pictures),
+            "caption_count": sum(len(v) for v in page_captions.values()),
+            "captions_ms": vision_ms,
+        },
+        "page_captions": page_captions,
+        "chunks": chunks,
     }
 
 
@@ -112,13 +162,17 @@ async def enrich_document(payload: dict = Body(...)) -> StreamingResponse:
 
     Response (newline-delimited JSON, one object per line)::
 
-        {"kind": "page", "page": 1, "products": [...], "page_type": "...",
-         "outcome": {"status": "ok", "model": "...", "duration_ms": 1234}}
-        {"kind": "page", "page": 2, "products": [], "page_type": "other",
+        {"kind": "page", "page": 1, "products": [...], "entities": [...],
+         "page_type": "...", "outcome": {"status": "ok", "model": "...", "duration_ms": 1234}}
+        {"kind": "page", "page": 2, "products": [], "entities": [], "page_type": "other",
          "outcome": {"status": "no_products", ...}}
         ...
         {"kind": "summary", "page_count": N, "products_total": M,
          "failure_count": K, "enrichment_ms": 12345}
+
+    Each page carries a ``products`` array (product cards) AND an
+    ``entities`` array (classified non-product entities for the live-call
+    trie) - the merged single-LLM-pass contract.
 
     Per-page failures (Groq auth, rate limit, timeout, parse error) are
     surfaced in the per-page ``outcome.status`` field; the response

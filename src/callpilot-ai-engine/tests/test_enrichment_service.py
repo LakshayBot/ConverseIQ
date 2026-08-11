@@ -27,11 +27,14 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from engine.services.enrichment_service import (
+    EnrichedEntity,
     EnrichedProduct,
     PAGE_TYPES,
     _GroqResult,
     _call_groq_with_retry,
     _classify_groq_exception,
+    _is_generic,
+    _parse_entities,
     _parse_enrichment_response,
     _parse_retry_after_seconds,
     enrich_page,
@@ -212,6 +215,116 @@ class TestParseEnrichmentResponse:
         out = _parse_enrichment_response(raw)
         assert len(out) == 1
         assert out[0].name == "Apex 100"
+
+
+# ── Merged entity classification (the old /internal/product-identify pass) ─
+
+class TestMergedEntityClassification:
+    def test_is_generic_backstop(self):
+        assert _is_generic("ami")
+        assert _is_generic("smart metering")
+        assert _is_generic("three phase")
+        assert _is_generic("meter")
+        assert _is_generic("dlms")
+        assert not _is_generic("prodigy")
+        assert not _is_generic("sprint 210")
+        assert not _is_generic("i-credit 510")
+
+    def test_product_parsed_with_classification(self):
+        raw = json.dumps({
+            "products": [
+                {
+                    "name": "Prodigy",
+                    "category": "CT Meter",
+                    "entityType": "PRODUCT",
+                    "confidence": 0.96,
+                    "aliases": ["prodigy meter", "PRODIGY"],
+                    "evidence": "We make the Prodigy",
+                }
+            ],
+            "entities": [],
+            "page_type": "product_listing",
+        })
+        out = _parse_enrichment_response(raw)
+        assert len(out) == 1
+        p = out[0]
+        assert p.name == "Prodigy"
+        assert p.entity_type == "product"
+        assert p.confidence == 0.96
+        assert p.aliases == ["prodigy meter", "PRODIGY"]
+        assert p.evidence == "We make the Prodigy"
+
+    def test_product_mislabeled_generic_demoted(self):
+        raw = json.dumps({
+            "products": [{"name": "meter", "entityType": "PRODUCT", "confidence": 0.5}],
+            "entities": [],
+            "page_type": "other",
+        })
+        out = _parse_enrichment_response(raw)
+        assert out[0].entity_type == "other"
+        assert out[0].confidence == 0.3  # capped below the product floor
+
+    def test_entities_parsed_with_categories(self):
+        raw = json.dumps({
+            "products": [{"name": "Apex 100"}],
+            "entities": [
+                {"canonical": "AMI", "entityType": "FEATURE", "confidence": 0.8, "evidence": "AMI compliance"},
+                {"canonical": "CT transformer", "entityType": "COMPONENT", "confidence": 0.7},
+                {"canonical": "industrial metering", "entityType": "APPLICATION", "confidence": 0.6},
+            ],
+            "page_type": "overview",
+        })
+        entities = _parse_entities(raw)
+        by_name = {e.canonical: e for e in entities}
+        assert by_name["AMI"].entity_type == "feature"
+        assert by_name["AMI"].confidence == 0.8
+        assert by_name["CT transformer"].entity_type == "component"
+        assert by_name["industrial metering"].entity_type == "application"
+
+    def test_entities_garbage_returns_empty(self):
+        assert _parse_entities("not json") == []
+        assert _parse_entities("") == []
+        assert _parse_entities(json.dumps({"entities": "nope"})) == []
+        assert _parse_entities(json.dumps({"products": [{"name": "X"}]})) == []
+
+    def test_unknown_entity_type_normalized_to_other(self):
+        raw = json.dumps({
+            "entities": [{"canonical": "weird thing", "entityType": "WIZARD_STUFF", "confidence": 0.9}],
+        })
+        out = _parse_entities(raw)
+        assert out[0].entity_type == "other"
+
+    @pytest.mark.asyncio
+    async def test_enrich_page_returns_products_and_entities(self):
+        raw = json.dumps({
+            "products": [{"name": "Apex 100", "entityType": "PRODUCT", "confidence": 0.94}],
+            "entities": [
+                {"canonical": "DLMS", "entityType": "FEATURE", "confidence": 0.9},
+            ],
+            "page_type": "product_listing",
+        })
+        ok_result = _GroqResult(content=raw, outcome_status="ok", duration_ms=42)
+        with patch("engine.services.enrichment_service._call_groq",
+                   new_callable=AsyncMock, return_value=ok_result):
+            result = await enrich_page("Apex 100 supports DLMS.")
+        assert [p.name for p in result.products] == ["Apex 100"]
+        assert [e.canonical for e in result.entities] == ["DLMS"]
+        assert result.outcome["status"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_enrich_pages_emits_entities_field(self):
+        raw = json.dumps({
+            "products": [{"name": "A"}],
+            "entities": [{"canonical": "Feature X", "entityType": "FEATURE", "confidence": 0.8}],
+            "page_type": "overview",
+        })
+        ok_result = _GroqResult(content=raw, outcome_status="ok", duration_ms=15)
+        with patch("engine.services.enrichment_service._call_groq",
+                   new_callable=AsyncMock, return_value=ok_result):
+            results = await enrich_pages([{"page": 1, "text": "..."}])
+        assert results[0]["entities"][0]["canonical"] == "Feature X"
+        assert results[0]["entities"][0]["entityType"] == "feature"
+        assert "chunk_text" in results[0]["products"][0]
 
 
 # ── to_chunk_text (stable format - .NET persists this verbatim) ────────────

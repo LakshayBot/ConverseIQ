@@ -494,28 +494,11 @@ async def generate_embedding(request: dict):
 # Dynamic Entity Extraction + Trie Management
 # ═══════════════════════════════════════════════════════════════════════════
 
-
-@app.post("/api/v1/ai/extract-entities")
-async def extract_entities_from_text(request: dict):
-    """Run GLiNER entity extraction on *text* and return deduplicated entities.
-
-    Called by the .NET knowledge upload pipeline after text extraction,
-    before chunking/embedding. GLiNER runs only here (ingest time), never
-    during live calls.
-    """
-    text = request.get("text", "")
-    if not text:
-        raise HTTPException(status_code=400, detail="No text provided")
-
-    threshold = float(request.get("confidence_threshold", 0.3))
-
-    try:
-        from engine.services.entity_extractor import extract_entities as _extract
-        entities = await _extract(text, confidence_threshold=threshold)
-        return {"entities": entities, "count": len(entities)}
-    except Exception as exc:
-        logger.exception("Entity extraction failed")
-        raise HTTPException(status_code=500, detail=str(exc))
+# Note: entity extraction no longer has its own endpoint. The merged LLM
+# enrichment pass (/api/v1/documents/enrich) returns BOTH product cards and
+# classified entities (product/feature/component/...), and the .NET upload
+# handler persists those as DocumentEntity rows. GLiNER was removed - the
+# LLM pass is the single entity authority.
 
 
 @app.post("/api/v1/ai/trie/rebuild")
@@ -679,47 +662,6 @@ async def product_intel(request: dict):
     return {
         "name": name,
         **result,
-    }
-
-
-@app.post("/internal/product-identify")
-async def product_identify(request: dict):
-    """Identify the products a company sells from uploaded documentation.
-
-    Called by the .NET KnowledgeUploadHandler after the document has been
-    indexed. The LLM distinguishes actual named products from generic
-    metering vocabulary and returns canonical names + aliases, which .NET
-    persists as product entities and uses to enqueue per-product research.
-    """
-    text = (request.get("text") or "").strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="text is required")
-
-    company = (request.get("company") or "").strip()
-    meeting_id = request.get("meeting_id", "unknown")
-
-    from engine.services.product_intel import identify_products
-
-    # ── LLM client factory (lazy, uses .NET-configured provider) ──────
-    async def _llm_client(prompt: str) -> str:
-        """Proxy to the .NET LlmService via internal HTTP call."""
-        import os
-        import httpx
-        server_url = os.getenv("CALLPILOT_SERVER_URL", "http://server:5001")
-        async with httpx.AsyncClient(timeout=45) as client:
-            resp = await client.post(
-                f"{server_url}/internal/llm/generate",
-                json={"prompt": prompt, "meeting_id": meeting_id},
-            )
-            if resp.status_code == 200:
-                return resp.json().get("response", "")
-            return ""
-
-    products = await identify_products(text, company_name=company, llm_client=_llm_client)
-    return {
-        "company": company,
-        "products": products,
-        "count": len(products),
     }
 
 
