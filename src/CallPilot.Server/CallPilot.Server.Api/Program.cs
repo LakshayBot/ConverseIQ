@@ -430,8 +430,17 @@ app.MapGet("/api/v1/meetings/{id:guid}/summary", async (
 
     try
     {
+        // The stored envelope is { "status": "...", "data": ... } - return the
+        // REAL stored status so the UI can distinguish completed vs failed or
+        // a locally-generated summary that hasn't been saved yet.
         var parsed = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(meeting.SummaryJson);
-        return Results.Ok(new { status = "completed", data = parsed });
+        var storedStatus = parsed.TryGetProperty("status", out var statusProp)
+            ? statusProp.GetString()
+            : "completed";
+        var data = parsed.TryGetProperty("data", out var dataProp) && dataProp.ValueKind != System.Text.Json.JsonValueKind.Null
+            ? dataProp
+            : (System.Text.Json.JsonElement?)null;
+        return Results.Ok(new { status = storedStatus ?? "completed", data });
     }
     catch
     {

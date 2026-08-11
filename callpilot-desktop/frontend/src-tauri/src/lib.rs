@@ -33,6 +33,7 @@ pub mod auth;
 pub mod audio;
 pub mod config;
 pub mod console_utils;
+pub mod llm_engine;
 pub mod notifications;
 pub mod onboarding;
 pub mod parakeet_engine;
@@ -583,6 +584,14 @@ pub fn run() {
             parakeet_engine::commands::parakeet_cancel_download,
             parakeet_engine::commands::parakeet_delete_corrupted_model,
             parakeet_engine::commands::open_parakeet_models_folder,
+            // Local LLM (meeting summarization) commands
+            llm_engine::commands::llm_get_config,
+            llm_engine::commands::llm_set_config,
+            llm_engine::commands::llm_get_models,
+            llm_engine::commands::llm_pull_model,
+            llm_engine::commands::llm_cancel_download,
+            llm_engine::commands::llm_delete_model,
+            llm_engine::commands::llm_generate_summary,
             // Parallel processing commands
             whisper_engine::parallel_commands::initialize_parallel_processor,
             whisper_engine::parallel_commands::start_parallel_processing,

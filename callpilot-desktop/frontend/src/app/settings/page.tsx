@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
 import { motion } from 'framer-motion';
 import { TranscriptSettings } from '@/components/TranscriptSettings';
+import { SummarizationModelSettings } from '@/components/SummarizationModelSettings';
 import { RecordingSettings } from '@/components/RecordingSettings';
 import { PreferenceSettings } from '@/components/PreferenceSettings';
 import { BetaSettings } from '@/components/BetaSettings';
@@ -133,6 +134,9 @@ export default function SettingsPage() {
                 transcriptModelConfig={transcriptModelConfig}
                 setTranscriptModelConfig={setTranscriptModelConfig}
               />
+              <div className="mt-6">
+                <SummarizationModelSettings />
+              </div>
             </TabsContent>
             <TabsContent value="knowledge" className="mt-6">
               <KnowledgeUpload />

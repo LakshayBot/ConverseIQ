@@ -76,6 +76,10 @@ interface ConfigContextType {
   isAutoSummary: boolean;
   toggleIsAutoSummary: (checked: boolean) => void;
 
+  // Local summarization model (desktop-local, like transcriptModelConfig)
+  summarizationModel: string | null;
+  setSummarizationModel: (modelId: string | null) => void;
+
   // Provider-specific API keys
   providerApiKeys: {
     claude: string | null;
@@ -154,13 +158,14 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     return true;
   });
 
-  // Summary configs
+  // Summary configs - default ON so every meeting gets a local summary out of
+  // the box (the built-in summarizer needs no model or runtime).
   const [isAutoSummary, setisAutoSummary] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('isAutoSummary');
-      return saved !== null ? saved === 'true' : false
+      return saved !== null ? saved === 'true' : true
     }
-    return false;
+    return true;
   });
 
   // Beta features state (localStorage)
@@ -389,6 +394,24 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // Selected local summarization model id (persisted desktop-local).
+  const [summarizationModel, setSummarizationModelState] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('summarizationModel');
+    }
+    return null;
+  });
+
+  const setSummarizationModel = useCallback((modelId: string | null) => {
+    setSummarizationModelState(modelId);
+    if (typeof window !== 'undefined') {
+      if (modelId) localStorage.setItem('summarizationModel', modelId);
+      else localStorage.removeItem('summarizationModel');
+    }
+    // Also persist to the Rust store so the meeting-end flow can read it.
+    import('@/lib/llm').then(({ setLlmConfig }) => setLlmConfig(modelId, undefined)).catch(() => {});
+  }, []);
+
   // Toggle beta feature with localStorage persistence and analytics
   const toggleBetaFeature = useCallback((featureKey: BetaFeatureKey, enabled: boolean) => {
     setBetaFeatures(prev => {
@@ -487,6 +510,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setModelConfig,
     isAutoSummary,
     toggleIsAutoSummary,
+    summarizationModel,
+    setSummarizationModel,
     providerApiKeys,
     updateProviderApiKey,
     transcriptModelConfig,
@@ -511,6 +536,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     modelConfig,
     isAutoSummary,
     toggleIsAutoSummary,
+    summarizationModel,
+    setSummarizationModel,
     providerApiKeys,
     updateProviderApiKey,
     transcriptModelConfig,

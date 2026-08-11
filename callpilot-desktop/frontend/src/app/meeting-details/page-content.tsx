@@ -27,6 +27,7 @@ import { CollapsibleRail } from '@/components/CollapsibleRail';
 import { IntelligenceSelectionProvider } from '@/contexts/IntelligenceSelectionContext';
 import { buildTranscriptEntityMap } from '@/lib/transcriptEntities';
 import type { ProductMention } from '@/components/ProductIntelligenceCard';
+import { LocalSummaryView } from '@/components/MeetingDetails/LocalSummaryView';
 import { TranscriptSegmentData } from '@/types';
 import Analytics from '@/lib/analytics';
 import {
@@ -49,8 +50,11 @@ interface PageContentProps {
   onMeetingUpdated?: () => void;
   onRefetchTranscripts?: () => void;
   summaryData?: any;
-  shouldAutoGenerate?: boolean;
-  onAutoGenerateComplete?: () => void;
+  localSummaryState?: import('@/hooks/useLocalSummarization').LocalSummaryState;
+  localSummaryProgress?: import('@/lib/llm').SummaryProgressEvent | null;
+  localSummaryError?: string | null;
+  onRegenerateSummary?: () => void;
+  onRetrySaveSummary?: () => void;
   [key: string]: any;
 }
 
@@ -62,6 +66,12 @@ const PageContent: React.FC<PageContentProps> = ({
   hasMore,
   isLoadingMore,
   onLoadMore,
+  summaryData,
+  localSummaryState,
+  localSummaryProgress,
+  localSummaryError,
+  onRegenerateSummary,
+  onRetrySaveSummary,
 }) => {
   const router = useRouter();
   const segmentCount = segments?.length ?? 0;
@@ -206,30 +216,40 @@ const PageContent: React.FC<PageContentProps> = ({
 
       <main className="flex-1 overflow-hidden">
         <div className="relative flex h-full">
-          {/* Transcript column - fed by the page-level paginated hook, not
-             by the empty live TranscriptContext. disableAutoScroll prevents
-             the live-stream auto-scroll behaviour from fighting the user
-             when they're just reading past content. */}
+          {/* Left column - Summary tab shows the local summary, otherwise the
+             transcript. Fed by the page-level paginated hook, not the empty
+             live TranscriptContext. */}
           <div className="custom-scrollbar flex-1 min-w-0 overflow-y-auto">
             <div className="max-w-3xl mx-auto p-6">
-              <div className="bg-[var(--opaline-surface-container-lowest)] border border-[var(--opaline-outline-variant)] rounded-xl shadow-xs p-4">
-                <VirtualizedTranscriptView
-                  segments={segments ?? []}
-                  isRecording={false}
-                  isPaused={false}
-                  isProcessing={false}
-                  isStopping={false}
-                  enableStreaming={false}
-                  showConfidence={true}
-                  disableAutoScroll={true}
-                  hasMore={hasMore}
-                  isLoadingMore={isLoadingMore}
-                  totalCount={totalCount}
-                  loadedCount={loadedCount}
-                  onLoadMore={onLoadMore}
-                  products={productNames}
+              {activeTab === 'summary' ? (
+                <LocalSummaryView
+                  summary={summaryData}
+                  state={localSummaryState}
+                  progress={localSummaryProgress}
+                  error={localSummaryError}
+                  onRegenerate={onRegenerateSummary}
+                  onRetrySave={onRetrySaveSummary}
                 />
-              </div>
+              ) : (
+                <div className="bg-[var(--opaline-surface-container-lowest)] border border-[var(--opaline-outline-variant)] rounded-xl shadow-xs p-4">
+                  <VirtualizedTranscriptView
+                    segments={segments ?? []}
+                    isRecording={false}
+                    isPaused={false}
+                    isProcessing={false}
+                    isStopping={false}
+                    enableStreaming={false}
+                    showConfidence={true}
+                    disableAutoScroll={true}
+                    hasMore={hasMore}
+                    isLoadingMore={isLoadingMore}
+                    totalCount={totalCount}
+                    loadedCount={loadedCount}
+                    onLoadMore={onLoadMore}
+                    products={productNames}
+                  />
+                </div>
+              )}
             </div>
           </div>
 
