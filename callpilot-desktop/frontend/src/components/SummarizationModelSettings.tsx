@@ -107,9 +107,8 @@ export const SummarizationModelSettings: React.FC = () => {
           <div className="flex items-start gap-2 text-caption text-[var(--opaline-on-surface-variant)]">
             <ServerOff className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--opaline-warning)]" aria-hidden />
             <span>
-              Meetings already get a built-in summary automatically — no installs, no API key. The bundled local
-              inference engine (llama-helper) is unavailable, so LLM summaries are not possible in this build.
-              Reinstall or rebuild the application to restore them.
+              The bundled local inference engine (llama-helper) is unavailable, so LLM summaries are not possible
+              in this build. Reinstall or rebuild the application to restore them.
             </span>
           </div>
           <div className="flex items-center gap-2">

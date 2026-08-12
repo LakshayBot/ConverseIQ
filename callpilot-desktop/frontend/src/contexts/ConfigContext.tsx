@@ -158,8 +158,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     return true;
   });
 
-  // Summary configs - default ON so every meeting gets a local summary out of
-  // the box (the built-in summarizer needs no model or runtime).
+  // Summary configs - default ON so every meeting gets a local summary when a
+  // GGUF model is selected (summarization requires a downloaded model).
   const [isAutoSummary, setisAutoSummary] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('isAutoSummary');

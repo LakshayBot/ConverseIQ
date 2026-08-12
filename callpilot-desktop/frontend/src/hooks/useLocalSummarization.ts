@@ -3,10 +3,12 @@
 // useLocalSummarization - runs local LLM meeting summarization and persists
 // the result to the backend.
 //
-// The transcript is summarized entirely on the user's machine (Ollama) - it
-// is never sent to a server LLM. Only the finished structured summary is PUT
-// to the backend. If the save fails the generated summary is retained locally
-// (keyed by meeting id) so it can be retried without re-running inference.
+// The transcript is summarized entirely on the user's machine through the
+// bundled llama-helper (llama.cpp) sidecar against the selected GGUF model -
+// it is never sent to a server LLM. Only the finished structured summary is
+// PUT to the backend. If the save fails the generated summary is retained
+// locally (keyed by meeting id) so it can be retried without re-running
+// inference.
 
 import { useCallback, useEffect, useState } from 'react';
 import { authedApiCall } from '@/lib/auth';
@@ -81,6 +83,12 @@ export function useLocalSummarization(meetingId: string | null) {
   const generate = useCallback(
     async (transcriptText: string) => {
       if (!meetingId || !transcriptText.trim()) return;
+      if (!summarizationModel) {
+        setState('failed');
+        setError('No summarization model selected. Pick one in Settings → Transcription, then try again.');
+        return;
+      }
+
       setState('summarizing');
       setError(null);
       setProgress({ stage: 'preparing', percent: 2 });
@@ -93,16 +101,11 @@ export function useLocalSummarization(meetingId: string | null) {
       }
 
       try {
-        // The Rust side uses the selected Ollama model when available and
-        // otherwise falls back to the built-in extractive summarizer - a
-        // useful summary is always produced with zero setup.
         const summary = await generateLocalSummary(transcriptText, summarizationModel);
         const payload: Record<string, unknown> = {
           ...summary,
-          model: summarizationModel ?? 'builtin',
-          modelName: summarizationModel
-            ? SUMMARIZATION_MODEL_NAMES[summarizationModel] ?? summarizationModel
-            : 'Built-in summary',
+          model: summarizationModel,
+          modelName: SUMMARIZATION_MODEL_NAMES[summarizationModel] ?? summarizationModel,
           generatedLocally: true,
           generatedAt: new Date().toISOString(),
         };

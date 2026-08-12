@@ -174,15 +174,15 @@ function MeetingDetailsContent() {
   }, [meetingId]);
 
   // Auto-generate a summary when: the meeting has no summary yet, the user
-  // has auto-summary on, and there is transcript text. Uses the built-in
-  // extractive summarizer out of the box (zero setup); upgrades to the local
-  // Ollama model automatically when one is selected and running. Runs once
-  // (guarded by localSummaryState).
+  // has auto-summary on, a local model is selected, and there is transcript
+  // text. Summarization runs on-device through the selected GGUF model. Runs
+  // once (guarded by localSummaryState).
   useEffect(() => {
     if (
       meetingId &&
       meetingSummary === null &&
       isAutoSummary &&
+      summarizationModel &&
       localSummaryState === 'idle' &&
       segments &&
       segments.length > 0 &&
@@ -191,7 +191,7 @@ function MeetingDetailsContent() {
       void generateLocal(transcriptText);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meetingId, meetingSummary, isAutoSummary, localSummaryState, segments?.length]);
+  }, [meetingId, meetingSummary, isAutoSummary, summarizationModel, localSummaryState, segments?.length]);
 
   // When local summarization completes, refresh the summary from the backend.
   useEffect(() => {
