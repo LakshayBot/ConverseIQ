@@ -3,7 +3,7 @@
 Sits between Docling extraction and the embedding/GLiNER pass.  Brochure copy
 is semantically thin ("enterprise-grade security", "blazing fast performance")
 and RAG cannot work with it.  This service hands each page to Groq's
-chat-completions API (llama-3.1-8b-instant by default) with
+chat-completions API (openai/gpt-oss-20b by default) with
 ``response_format={"type": "json_object"}`` so we always get valid JSON back,
 and asks the model to extract structured product intelligence cards.  The
 .NET handler replaces the thin Docling chunks with rich product-card chunks
@@ -84,11 +84,13 @@ def _get_groq_api_key() -> str:
 
 
 def _get_model() -> str:
-    # llama-3.1-8b-instant is Groq's free-tier default; fast, supports
+    # openai/gpt-oss-20b is Groq's current free-tier default (llama-3.1-8b-instant
+    # was deprecated - shutdown 2026-08-16).  Fast, supports
     # response_format={"type": "json_object"}, and good enough for the
     # product-card extraction prompt.  Override via ENRICHMENT_MODEL
-    # (e.g. llama-3.3-70b-versatile for higher quality on dev keys).
-    return os.getenv("ENRICHMENT_MODEL", "llama-3.1-8b-instant")
+    # (e.g. qwen/qwen3.6-27b or openai/gpt-oss-120b for higher quality
+    # on dev keys).
+    return os.getenv("ENRICHMENT_MODEL", "openai/gpt-oss-20b")
 
 
 # ── Data shape ─────────────────────────────────────────────────────────────

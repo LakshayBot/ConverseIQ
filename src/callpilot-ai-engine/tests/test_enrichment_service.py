@@ -416,7 +416,7 @@ class TestEnrichPageMocked:
             result = await enrich_page("Apex 100 and Prodigy are great.")
         assert [p.name for p in result.products] == ["Apex 100", "Prodigy"]
         assert result.outcome["status"] == "ok"
-        assert result.outcome["model"] == "llama-3.1-8b-instant"
+        assert result.outcome["model"] == "openai/gpt-oss-20b"
         assert result.outcome["duration_ms"] == 42
         assert result.outcome["error"] is None
 
@@ -569,7 +569,7 @@ class TestEnrichPages:
         with patch("engine.services.enrichment_service._call_groq",
                    new_callable=AsyncMock, return_value=ok_result):
             results = await enrich_pages([{"page": 7, "text": "..."}])
-        assert results[0]["outcome"]["model"] == "llama-3.1-8b-instant"
+        assert results[0]["outcome"]["model"] == "openai/gpt-oss-20b"
         assert results[0]["outcome"]["duration_ms"] == 5
 
 
