@@ -1,0 +1,63 @@
+# CallPilot e2e regression stack - fully isolated from any dev/production
+# stack: its own postgres instance (host port 5433, database callpilot_e2e),
+# its own server (host port 5002) and ai-engine (host port 8002). Runs the
+# REAL server + engine + postgres images with a dedicated database - never
+# touches the production DB, recordings, models, or config.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml \
+#                  -f tests/e2e/docker-compose.e2e.yml up -d
+# (the run_e2e.py orchestrator does this automatically)
+
+services:
+  postgres:
+    container_name: callpilot-e2e-postgres
+    environment:
+      POSTGRES_DB: callpilot_e2e
+      POSTGRES_USER: callpilot
+      POSTGRES_PASSWORD: callpilot_e2e
+    ports:
+      - "5433:5432"
+    # Own data volume - the base compose volume is initialized with the
+    # dev password and POSTGRES_* env vars only apply on first init.
+    volumes:
+      - postgres_data_e2e:/var/lib/postgresql/data
+
+  redis:
+    container_name: callpilot-e2e-redis
+    volumes:
+      - redis_data_e2e:/data
+
+  server:
+    container_name: callpilot-e2e-server
+    ports:
+      - "5002:5001"
+    environment:
+      ConnectionStrings__DefaultConnection: >-
+        Host=postgres;Database=callpilot_e2e;
+        Username=callpilot;Password=callpilot_e2e
+      Jwt__Secret: e2e-regression-secret-key-that-is-long-enough-1234567890
+      Jwt__Issuer: CallPilotE2E
+      Jwt__Audience: CallPilotE2E
+      Jwt__AccessTokenExpiryMinutes: "60"
+      Jwt__RefreshTokenExpiryDays: "7"
+      Encryption__Key: ZTJlLXNlY3JldC1rZXktMzJiYTUzY2I5MGZmZDEyMzQ1
+      AiEngine__BaseUrl: http://ai-engine:8001
+      NEMOTRON_ENABLED: "false"
+      ASPNETCORE_ENVIRONMENT: Production
+      GROQ_API_KEY: ""
+    volumes:
+      - server_uploads_e2e:/app/uploads
+
+  ai-engine:
+    container_name: callpilot-e2e-ai-engine
+    ports:
+      - "8002:8001"
+
+  dashboard:
+    container_name: callpilot-e2e-dashboard
+    profiles: ["e2e-dashboard"]
+
+volumes:
+  postgres_data_e2e:
+  redis_data_e2e:
+  server_uploads_e2e:

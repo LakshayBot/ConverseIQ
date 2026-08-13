@@ -580,6 +580,7 @@ app.MapGet("/api/v1/meetings/{id:guid}/transcripts", async (Guid id, CallPilotDb
         .OrderBy(ts => ts.Sequence)
         .Select(ts => new
         {
+            ts.Id,
             ts.Speaker,
             ts.SpeakerId,
             ts.Text,

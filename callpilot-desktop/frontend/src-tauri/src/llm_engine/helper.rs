@@ -5,7 +5,7 @@
 //! newline-delimited JSON: we write `generate` requests to stdin and read
 //! `response` frames from stdout. llama-helper's stderr is drained and logged.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -82,6 +82,12 @@ pub struct LlamaHelper {
 impl LlamaHelper {
     pub async fn spawn<R: Runtime>(app: &AppHandle<R>) -> Result<Self, String> {
         let binary = resolve_helper_binary(app)?;
+        Self::spawn_with_binary(binary).await
+    }
+
+    /// Spawns the sidecar from an explicit binary path (used by the e2e
+    /// regression harness, which runs outside the Tauri runtime).
+    pub async fn spawn_with_binary(binary: PathBuf) -> Result<Self, String> {
         let mut child = Command::new(&binary)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

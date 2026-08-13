@@ -1,0 +1,19 @@
+[package]
+name = "e2e-harness"
+version = "0.1.0"
+edition = "2021"
+description = "CallPilot e2e regression harness - drives the real audio/STT/diarization pipeline"
+
+[[bin]]
+name = "e2e-harness"
+path = "src/main.rs"
+
+[dependencies]
+app_lib = { path = "..", package = "callpilot-audio" }
+anyhow = "1.0"
+clap = { version = "4.3", features = ["derive"] }
+env_logger = "0.11"
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.32.0", features = ["full"] }

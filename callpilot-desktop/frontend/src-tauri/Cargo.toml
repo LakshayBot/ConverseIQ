@@ -18,7 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # / `cargo test` targeting the app by default (the sidecars are built
 # explicitly by scripts/build-llama-helper.sh and scripts/build-diar-helper.sh).
 [workspace]
-members = [".", "llama-helper", "diar-helper"]
+members = [".", "llama-helper", "diar-helper", "e2e-harness"]
 default-members = ["."]
 resolver = "2"
 

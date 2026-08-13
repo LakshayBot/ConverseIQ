@@ -19,7 +19,7 @@ use tokio::time::timeout;
 use super::models::DiarModelDef;
 
 /// A speaker turn from offline diarization (seconds within the recording).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DiarSegment {
     pub start: f32,
     pub end: f32,
@@ -98,6 +98,12 @@ pub struct DiarHelper {
 impl DiarHelper {
     pub async fn spawn<R: Runtime>(app: &AppHandle<R>) -> Result<Self, String> {
         let binary = resolve_helper_binary(app)?;
+        Self::spawn_with_binary(binary).await
+    }
+
+    /// Spawns the sidecar from an explicit binary path (used by the e2e
+    /// regression harness, which runs outside the Tauri runtime).
+    pub async fn spawn_with_binary(binary: PathBuf) -> Result<Self, String> {
         let mut child = Command::new(&binary)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

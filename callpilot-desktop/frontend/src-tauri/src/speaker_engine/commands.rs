@@ -251,8 +251,9 @@ async fn api_call<R: Runtime>(
 }
 
 /// Decodes the meeting's saved recording to a 16 kHz mono WAV via the bundled
-/// ffmpeg (the diarization sidecar requires 16 kHz mono WAV input).
-fn decode_to_16k_wav(recording_path: &PathBuf, out_wav: &PathBuf) -> Result<(), String> {
+/// ffmpeg (the diarization sidecar requires 16 kHz mono WAV input). Public so
+/// the e2e regression harness can reuse the exact production decode path.
+pub fn decode_to_16k_wav(recording_path: &PathBuf, out_wav: &PathBuf) -> Result<(), String> {
     let ffmpeg = crate::audio::ffmpeg::find_ffmpeg_path()
         .ok_or_else(|| "ffmpeg binary not found".to_string())?;
     let output = std::process::Command::new(&ffmpeg)
@@ -281,7 +282,9 @@ fn decode_to_16k_wav(recording_path: &PathBuf, out_wav: &PathBuf) -> Result<(), 
 
 /// Aligns diarization turns to the existing transcript segments by timestamp
 /// overlap (never re-transcribes). Returns (segmentIdx -> cluster index).
-fn align_turns(
+/// Public so the e2e regression harness exercises the exact production
+/// alignment used by `diar_identify_meeting`.
+pub fn align_turns(
     segments: &[(f64, f64)],
     turns: &[super::helper::DiarSegment],
 ) -> Vec<Option<u32>> {

@@ -1,0 +1,148 @@
+{
+  "meta": {
+    "sampleAudio": "samples/audio_files_samples/sales-call-secure.mp3",
+    "fixtureDoc": "tests/e2e/sample/secure-meters-product-guide.md",
+    "defaultEngine": "parakeet-tdt-0.6b-v3-int8",
+    "diarizationTier": "fast",
+    "expectedSpeakers": 2,
+    "description": "Secure Meters / Tata Power sales call (337s, 2 voices, 17 scripted turns). Expectations are intentionally tolerant where the real models are probabilistic; they tighten when the pipeline is stable. Objection/CompetitorMentioned are documented zero in the keyless e2e environment (the engine's objection patterns are SaaS-tuned and competitor LLM fallback needs GROQ_API_KEY) - if either fires after a detection or key change, review + re-baseline intentionally.",
+    "notes": {
+      "engine": "parakeet-tdt-0.6b-v3-int8 (default), whisper ggml-tiny smoke path",
+      "env": "keyless: no GROQ_API_KEY in the e2e stack; competitor/objection LLM paths disabled",
+      "baselinedAt": "2026-08-13"
+    }
+  },
+  "transcript": {
+    "minSegments": 10,
+    "maxSegments": 40,
+    "minTotalCharacters": 3000,
+    "maxTotalCharacters": 12000,
+    "maxSegmentGapSecs": 25.0,
+    "timestampRangeToleranceSecs": 2.0,
+    "requiredPhrases": [
+      {
+        "phrase": "tata power",
+        "minOccurrences": 1
+      },
+      {
+        "phrase": "prodigy",
+        "minOccurrences": 1
+      },
+      {
+        "phrase": "apex 100",
+        "minOccurrences": 1
+      },
+      {
+        "phrase": "sprint 210",
+        "minOccurrences": 1
+      },
+      {
+        "phrase": "liberty",
+        "minOccurrences": 1
+      },
+      {
+        "phrase": "landis",
+        "minOccurrences": 1
+      },
+      {
+        "phrase": "three phase",
+        "minOccurrences": 1
+      },
+      {
+        "phrase": "dlms",
+        "minOccurrences": 1
+      }
+    ],
+    "forbiddenGarbage": [
+      "hics",
+      "zjx",
+      "xxx"
+    ],
+    "engineOverrides": {
+      "whisper": {
+        "requiredPhrases": [
+          {
+            "phrase": "tata power",
+            "minOccurrences": 1
+          },
+          {
+            "phrase": "prodigy",
+            "minOccurrences": 1
+          },
+          {
+            "phrase": "apex 100",
+            "minOccurrences": 1
+          },
+          {
+            "phrase": "sprint 210",
+            "minOccurrences": 1
+          },
+          {
+            "phrase": "liberty",
+            "minOccurrences": 1
+          }
+        ],
+        "notes": "ggml-tiny is a smoke-quality fallback - core product phrases only; landis/dlms/three-phase may be mis-heard"
+      }
+    }
+  },
+  "events": {
+    "expectedProductEvents": [
+      "Prodigy",
+      "Apex 100",
+      "Sprint 210",
+      "i-Credit 510",
+      "Liberty+"
+    ],
+    "minProductEvents": 3,
+    "minEventTotal": 4,
+    "requiredEventTypes": [
+      "TechnicalQuestion",
+      "PricingQuestion"
+    ],
+    "minByType": {
+      "TechnicalQuestion": 1,
+      "PricingQuestion": 1
+    },
+    "documentedZero": [
+      "Objection",
+      "CompetitorMentioned"
+    ],
+    "forbiddenProductTerms": [
+      "meter",
+      "the",
+      "a ",
+      "class",
+      "accuracy",
+      "phase",
+      "token",
+      "metering"
+    ]
+  },
+  "recommendations": {
+    "minCount": 3,
+    "maxCount": 30,
+    "validTypes": [
+      "ProductMentioned",
+      "Objection",
+      "TechnicalQuestion",
+      "PricingQuestion",
+      "CompetitorMentioned"
+    ],
+    "minTitleLength": 3,
+    "minSummaryLength": 10,
+    "maxConfidence": 1.05
+  },
+  "speakers": {
+    "expectedCount": 2,
+    "tolerance": 1,
+    "minAssignmentCoverage": 0.6,
+    "minSegmentsPerSpeaker": 3,
+    "reopenStable": true,
+    "idempotentRerun": true
+  },
+  "meeting": {
+    "reloadPreservesTranscript": true,
+    "reloadPreservesEvents": true
+  }
+}

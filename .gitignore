@@ -68,3 +68,7 @@ uploads/
 .claude/
 .agents/
 skills-lock.json
+
+# e2e regression artifacts + model downloads (never committed)
+tests/e2e/artifacts/
+tests/e2e/models/
