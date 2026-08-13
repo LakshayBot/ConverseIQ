@@ -1,0 +1,25 @@
+[package]
+name = "diar-helper"
+version = "0.1.0"
+edition = "2021"
+description = "CallPilot bundled speaker diarization sidecar - sherpa-onnx over JSON stdin/stdout"
+
+[dependencies]
+anyhow = "1.0"
+base64 = "0.22"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# Static prebuilt onnxruntime libs are downloaded + checksum-verified at build
+# time (sherpa-rs-sys download-binaries), so the helper is a self-contained
+# binary that ships via Tauri externalBin - no user installs.
+sherpa-rs = { version = "0.6.8", default-features = false, features = ["download-binaries", "static"] }
+
+[features]
+default = []
+cuda = ["sherpa-rs/cuda"]
+directml = ["sherpa-rs/directml"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"

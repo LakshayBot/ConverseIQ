@@ -37,6 +37,7 @@ pub mod llm_engine;
 pub mod notifications;
 pub mod onboarding;
 pub mod parakeet_engine;
+pub mod speaker_engine;
 pub mod state;
 pub mod tray;
 pub mod utils;
@@ -592,6 +593,16 @@ pub fn run() {
             llm_engine::commands::llm_cancel_download,
             llm_engine::commands::llm_delete_model,
             llm_engine::commands::llm_generate_summary,
+            // Speaker diarization commands
+            speaker_engine::commands::diar_get_config,
+            speaker_engine::commands::diar_set_config,
+            speaker_engine::commands::diar_get_models,
+            speaker_engine::commands::diar_pull_model,
+            speaker_engine::commands::diar_cancel_download,
+            speaker_engine::commands::diar_delete_model,
+            speaker_engine::commands::diar_identify_meeting,
+            speaker_engine::commands::diar_get_meeting_status,
+            speaker_engine::commands::diar_cancel_identify,
             // Parallel processing commands
             whisper_engine::parallel_commands::initialize_parallel_processor,
             whisper_engine::parallel_commands::start_parallel_processing,

@@ -13,12 +13,12 @@ rust-version = "1.77"
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
-# Cargo workspace: the main app crate + the bundled llama-helper sidecar.
-# `default-members` keeps `cargo build` / `cargo check` / `cargo test`
-# targeting the app by default (llama-helper is built explicitly by
-# scripts/build-llama-helper.sh).
+# Cargo workspace: the main app crate + the bundled llama-helper and
+# diar-helper sidecars. `default-members` keeps `cargo build` / `cargo check`
+# / `cargo test` targeting the app by default (the sidecars are built
+# explicitly by scripts/build-llama-helper.sh and scripts/build-diar-helper.sh).
 [workspace]
-members = [".", "llama-helper"]
+members = [".", "llama-helper", "diar-helper"]
 default-members = ["."]
 resolver = "2"
 
@@ -68,7 +68,6 @@ zip = "2.2"           # ZIP extraction (Windows, macOS)
 tar = "0.4"           # TAR extraction (Linux)
 xz2 = "0.1"           # XZ decompression (Linux)
 
-
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
@@ -76,6 +75,12 @@ anyhow = "1.0"
 once_cell = "1.17.1"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 posthog-rs = "0.3.7"
+
+# Speaker diarization model management - the pyannote segmentation model
+# ships as a tar.bz2 that is downloaded and extracted at runtime.
+tar = "0.4"
+bzip2 = { version = "0.4", features = ["static"] }
+base64 = "0.22"
 
 # Cross-platform audio capture
 cpal = "0.15.3"

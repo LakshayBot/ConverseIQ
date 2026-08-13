@@ -7,6 +7,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { motion } from 'framer-motion';
 import { TranscriptSettings } from '@/components/TranscriptSettings';
 import { SummarizationModelSettings } from '@/components/SummarizationModelSettings';
+import { SpeakerDiarizationSettings } from '@/components/SpeakerDiarizationSettings';
 import { RecordingSettings } from '@/components/RecordingSettings';
 import { PreferenceSettings } from '@/components/PreferenceSettings';
 import { BetaSettings } from '@/components/BetaSettings';
@@ -136,6 +137,9 @@ export default function SettingsPage() {
               />
               <div className="mt-6">
                 <SummarizationModelSettings />
+              </div>
+              <div className="mt-6">
+                <SpeakerDiarizationSettings />
               </div>
             </TabsContent>
             <TabsContent value="knowledge" className="mt-6">

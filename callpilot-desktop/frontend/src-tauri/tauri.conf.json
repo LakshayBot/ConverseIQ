@@ -7,7 +7,7 @@
         "frontendDist": "../out",
         "devUrl": "http://localhost:3118",
         "beforeDevCommand": "pnpm dev:warm",
-        "beforeBuildCommand": "bash scripts/build-llama-helper.sh && pnpm build"
+        "beforeBuildCommand": "bash scripts/build-llama-helper.sh && bash scripts/build-diar-helper.sh && pnpm build"
     },
     "app": {
         "windows": [
@@ -101,7 +101,8 @@
         ],
         "externalBin": [
             "binaries/ffmpeg",
-            "binaries/llama-helper"
+            "binaries/llama-helper",
+            "binaries/diar-helper"
         ],
         "macOS": {
             "entitlements": "entitlements.plist",
