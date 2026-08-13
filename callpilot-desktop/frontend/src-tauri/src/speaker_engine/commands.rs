@@ -628,3 +628,49 @@ static LIVE_SESSIONS: OnceLock<RwLock<HashMap<String, SpeakerSession>>> = OnceLo
 pub(crate) fn live_sessions() -> &'static RwLock<HashMap<String, SpeakerSession>> {
     LIVE_SESSIONS.get_or_init(|| RwLock::new(HashMap::new()))
 }
+
+/// Builds the live diarization runtime for a new recording when enabled +
+/// configured; None otherwise (transcription never depends on diarization).
+pub(crate) async fn live_runtime<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Option<super::live::LiveDiarization> {
+    let config = load_config(app);
+    super::live::LiveDiarization::try_new(app, &config).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::align_turns;
+    use crate::speaker_engine::helper::DiarSegment;
+
+    fn turn(start: f32, end: f32, speaker: u32) -> DiarSegment {
+        DiarSegment { start, end, speaker }
+    }
+
+    #[test]
+    fn aligns_by_overlap() {
+        let segments = vec![(0.0, 4.0), (5.0, 9.0), (10.0, 14.0), (20.0, 24.0)];
+        let turns = vec![
+            turn(0.5, 4.5, 0),
+            turn(5.2, 8.8, 1),
+            turn(10.1, 14.2, 0),
+        ];
+        let aligned = align_turns(&segments, &turns);
+        assert_eq!(aligned, vec![Some(0), Some(1), Some(0), None]);
+    }
+
+    #[test]
+    fn no_speech_means_no_assignment() {
+        let segments = vec![(0.0, 4.0)];
+        let aligned = align_turns(&segments, &[]);
+        assert_eq!(aligned, vec![None]);
+    }
+
+    #[test]
+    fn tiny_overlap_is_not_enough() {
+        let segments = vec![(0.0, 4.0)];
+        let turns = vec![turn(3.85, 8.0, 2)];
+        let aligned = align_turns(&segments, &turns);
+        assert_eq!(aligned, vec![None]);
+    }
+}
