@@ -15,6 +15,7 @@ public class CallPilotDbContext : DbContext
     public DbSet<ProviderConfiguration> ProviderConfigurations => Set<ProviderConfiguration>();
     public DbSet<Meeting> Meetings => Set<Meeting>();
     public DbSet<TranscriptSegment> TranscriptSegments => Set<TranscriptSegment>();
+    public DbSet<Speaker> Speakers => Set<Speaker>();
     public DbSet<KnowledgeDocument> KnowledgeDocuments => Set<KnowledgeDocument>();
     public DbSet<CallPilot.Server.Domain.Knowledge.KnowledgeBase> KnowledgeBases => Set<CallPilot.Server.Domain.Knowledge.KnowledgeBase>();
     public DbSet<KnowledgeChunk> KnowledgeChunks => Set<KnowledgeChunk>();
@@ -83,6 +84,21 @@ public class CallPilotDbContext : DbContext
             entity.HasOne<Meeting>()
                   .WithMany(m => m.TranscriptSegments)
                   .HasForeignKey(ts => ts.MeetingId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Speaker>()
+                  .WithMany(s => s.TranscriptSegments)
+                  .HasForeignKey(ts => ts.SpeakerId)
+                  .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<Speaker>(entity =>
+        {
+            entity.HasKey(s => s.Id);
+            entity.HasIndex(s => s.MeetingId);
+            entity.Property(s => s.DisplayName).HasMaxLength(100).IsRequired();
+            entity.HasOne<Meeting>()
+                  .WithMany()
+                  .HasForeignKey(s => s.MeetingId)
                   .OnDelete(DeleteBehavior.Cascade);
         });
 

@@ -5,6 +5,8 @@ public class TranscriptSegment
     public Guid Id { get; private set; }
     public Guid MeetingId { get; private set; }
     public string Speaker { get; private set; }
+    /// <summary>Stable per-meeting speaker reference (nullable = speaker not identified).</summary>
+    public Guid? SpeakerId { get; private set; }
     public string Text { get; private set; }
     public double Confidence { get; private set; }
     public double StartOffset { get; private set; }
@@ -23,11 +25,13 @@ public class TranscriptSegment
         double startOffset,
         double endOffset,
         bool isFinal,
-        int sequence)
+        int sequence,
+        Guid? speakerId = null)
     {
         Id = Guid.NewGuid();
         MeetingId = meetingId;
         Speaker = speaker;
+        SpeakerId = speakerId;
         Text = text;
         Confidence = confidence;
         StartOffset = startOffset;
@@ -35,5 +39,11 @@ public class TranscriptSegment
         IsFinal = isFinal;
         Sequence = sequence;
         CreatedAt = DateTime.UtcNow;
+    }
+
+    public void AssignSpeaker(Guid? speakerId, string speakerLabel)
+    {
+        SpeakerId = speakerId;
+        Speaker = speakerLabel;
     }
 }

@@ -522,22 +522,46 @@ app.MapPost("/api/v1/meetings/{id:guid}/transcripts", async (
         .FirstOrDefaultAsync(m => m.Id == id && m.UserId == Guid.Parse(userIdClaim));
     if (meeting is null) return Results.NotFound(new { error = "Meeting not found" });
 
+    // Upsert speakers first (client-supplied ids, meeting-scoped) so the
+    // segments below can reference them. Idempotent across re-saves.
+    var speakerLabels = new Dictionary<Guid, string>();
+    if (body.Speakers is { Count: > 0 } speakers)
+    {
+        foreach (var sp in speakers)
+        {
+            var existing = await db.Speakers.FirstOrDefaultAsync(s => s.Id == sp.Id && s.MeetingId == id);
+            if (existing is null)
+            {
+                var created = new CallPilot.Server.Domain.Meetings.Speaker(sp.Id, id, sp.DisplayName, sp.SortOrder);
+                db.Speakers.Add(created);
+                speakerLabels[sp.Id] = sp.DisplayName;
+            }
+            else
+            {
+                if (existing.DisplayName != sp.DisplayName) existing.Rename(sp.DisplayName);
+                speakerLabels[sp.Id] = existing.DisplayName;
+            }
+        }
+        await db.SaveChangesAsync();
+    }
+
     // Existing segments get deleted first so re-saves (e.g., retranscription)
     // are idempotent. Idempotent saves keep desktop retry logic simple.
-    var existing = db.TranscriptSegments.Where(ts => ts.MeetingId == id);
-    db.TranscriptSegments.RemoveRange(existing);
+    var existingSegments = db.TranscriptSegments.Where(ts => ts.MeetingId == id);
+    db.TranscriptSegments.RemoveRange(existingSegments);
 
     if (body.Segments is { Count: > 0 } segments)
     {
         var entities = segments.Select(s => new TranscriptSegment(
             id,
-            s.Speaker ?? string.Empty,
+            s.Speaker ?? (s.SpeakerId is { } sid && speakerLabels.TryGetValue(sid, out var label) ? label : string.Empty),
             s.Text,
             s.Confidence,
             s.StartOffset,
             s.EndOffset,
             s.IsFinal,
-            s.Sequence)).ToList();
+            s.Sequence,
+            s.SpeakerId)).ToList();
         db.TranscriptSegments.AddRange(entities);
     }
 
@@ -557,6 +581,7 @@ app.MapGet("/api/v1/meetings/{id:guid}/transcripts", async (Guid id, CallPilotDb
         .Select(ts => new
         {
             ts.Speaker,
+            ts.SpeakerId,
             ts.Text,
             ts.Confidence,
             ts.IsFinal,
@@ -571,6 +596,190 @@ app.MapGet("/api/v1/meetings/{id:guid}/transcripts", async (Guid id, CallPilotDb
 
     return Results.Ok(segments);
 });
+
+// ── Speaker management (per-meeting speaker diarization). Speakers are
+//    upserted by client-supplied id so the desktop can reuse them across
+//    idempotent saves; renames and merges update every referencing segment.
+app.MapGet("/api/v1/meetings/{id:guid}/speakers", async (Guid id, CallPilotDbContext db) =>
+{
+    var speakers = await db.Speakers
+        .Where(s => s.MeetingId == id)
+        .OrderBy(s => s.SortOrder)
+        .Select(s => new
+        {
+            s.Id,
+            s.DisplayName,
+            s.SortOrder,
+            s.CreatedAt,
+            s.UpdatedAt,
+            segmentCount = db.TranscriptSegments.Count(ts => ts.SpeakerId == s.Id),
+            totalSpeakingTime = db.TranscriptSegments
+                .Where(ts => ts.SpeakerId == s.Id)
+                .Sum(ts => ts.EndOffset - ts.StartOffset)
+        })
+        .ToListAsync();
+
+    return Results.Ok(speakers);
+}).RequireAuthorization();
+
+app.MapPost("/api/v1/meetings/{id:guid}/speakers", async (
+    Guid id,
+    CallPilotDbContext db,
+    ClaimsPrincipal user,
+    List<BulkSpeaker> body) =>
+{
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null) return Results.Unauthorized();
+
+    var meeting = await db.Meetings
+        .FirstOrDefaultAsync(m => m.Id == id && m.UserId == Guid.Parse(userIdClaim));
+    if (meeting is null) return Results.NotFound(new { error = "Meeting not found" });
+
+    if (body is { Count: > 0 })
+    {
+        foreach (var sp in body)
+        {
+            var existing = await db.Speakers.FirstOrDefaultAsync(s => s.Id == sp.Id && s.MeetingId == id);
+            if (existing is null)
+            {
+                db.Speakers.Add(new CallPilot.Server.Domain.Meetings.Speaker(sp.Id, id, sp.DisplayName, sp.SortOrder));
+            }
+            else if (existing.DisplayName != sp.DisplayName)
+            {
+                existing.Rename(sp.DisplayName);
+            }
+        }
+        await db.SaveChangesAsync();
+    }
+
+    var saved = await db.Speakers
+        .Where(s => s.MeetingId == id)
+        .OrderBy(s => s.SortOrder)
+        .Select(s => new { s.Id, s.DisplayName, s.SortOrder })
+        .ToListAsync();
+    return Results.Ok(saved);
+}).RequireAuthorization();
+
+app.MapPatch("/api/v1/meetings/{id:guid}/speakers/{speakerId:guid}", async (
+    Guid id,
+    Guid speakerId,
+    CallPilotDbContext db,
+    ClaimsPrincipal user,
+    SpeakerRenameRequest body) =>
+{
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null) return Results.Unauthorized();
+
+    var speaker = await db.Speakers
+        .FirstOrDefaultAsync(s => s.Id == speakerId && s.MeetingId == id);
+    if (speaker is null) return Results.NotFound(new { error = "Speaker not found" });
+
+    speaker.Rename(body.DisplayName);
+    // Keep the denormalized per-segment label in sync so legacy clients
+    // reading the Speaker string still see the renamed name.
+    var segments = await db.TranscriptSegments
+        .Where(ts => ts.SpeakerId == speakerId)
+        .ToListAsync();
+    foreach (var segment in segments) segment.AssignSpeaker(speakerId, speaker.DisplayName);
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new { id = speaker.Id, displayName = speaker.DisplayName, sortOrder = speaker.SortOrder });
+}).RequireAuthorization();
+
+app.MapPost("/api/v1/meetings/{id:guid}/speakers/{speakerId:guid}/merge", async (
+    Guid id,
+    Guid speakerId,
+    CallPilotDbContext db,
+    ClaimsPrincipal user,
+    SpeakerMergeRequest body) =>
+{
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null) return Results.Unauthorized();
+    if (body.TargetSpeakerId == speakerId) return Results.BadRequest(new { error = "Cannot merge a speaker into itself" });
+
+    var source = await db.Speakers
+        .FirstOrDefaultAsync(s => s.Id == speakerId && s.MeetingId == id);
+    var target = await db.Speakers
+        .FirstOrDefaultAsync(s => s.Id == body.TargetSpeakerId && s.MeetingId == id);
+    if (source is null || target is null) return Results.NotFound(new { error = "Speaker not found" });
+
+    var segments = await db.TranscriptSegments
+        .Where(ts => ts.SpeakerId == speakerId)
+        .ToListAsync();
+    foreach (var segment in segments) segment.AssignSpeaker(target.Id, target.DisplayName);
+
+    db.Speakers.Remove(source);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { merged = source.Id, into = target.Id, reassignedSegments = segments.Count });
+}).RequireAuthorization();
+
+app.MapDelete("/api/v1/meetings/{id:guid}/speakers/{speakerId:guid}", async (
+    Guid id,
+    Guid speakerId,
+    CallPilotDbContext db,
+    ClaimsPrincipal user) =>
+{
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null) return Results.Unauthorized();
+
+    var speaker = await db.Speakers
+        .FirstOrDefaultAsync(s => s.Id == speakerId && s.MeetingId == id);
+    if (speaker is null) return Results.NotFound(new { error = "Speaker not found" });
+
+    var segments = await db.TranscriptSegments
+        .Where(ts => ts.SpeakerId == speakerId)
+        .ToListAsync();
+    foreach (var segment in segments) segment.AssignSpeaker(null, string.Empty);
+
+    db.Speakers.Remove(speaker);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { deleted = speakerId });
+}).RequireAuthorization();
+
+// ── Bulk speaker assignments (post-hoc diarization of existing meetings).
+//    Each assignment validates that both the segment and the speaker belong
+//    to the meeting, and refreshes the denormalized Speaker label.
+app.MapPost("/api/v1/meetings/{id:guid}/transcripts/speaker-assignments", async (
+    Guid id,
+    CallPilotDbContext db,
+    ClaimsPrincipal user,
+    SpeakerAssignmentsRequest body) =>
+{
+    var userIdClaim = user.FindFirst("userId")?.Value;
+    if (userIdClaim is null) return Results.Unauthorized();
+
+    var meeting = await db.Meetings
+        .FirstOrDefaultAsync(m => m.Id == id && m.UserId == Guid.Parse(userIdClaim));
+    if (meeting is null) return Results.NotFound(new { error = "Meeting not found" });
+
+    var assignments = body.Assignments ?? new List<SpeakerAssignmentRequest>();
+    if (assignments.Count == 0) return Results.Ok(new { updated = 0 });
+
+    var assignmentMap = assignments.ToDictionary(a => a.SegmentId, a => a.SpeakerId);
+    var segmentIds = assignmentMap.Keys.ToList();
+    var speakerIds = assignmentMap.Values.Distinct().ToList();
+
+    var segments = await db.TranscriptSegments
+        .Where(ts => ts.MeetingId == id && segmentIds.Contains(ts.Id))
+        .ToListAsync();
+    var speakers = await db.Speakers
+        .Where(s => s.MeetingId == id && speakerIds.Contains(s.Id))
+        .ToDictionaryAsync(s => s.Id);
+
+    var updated = 0;
+    foreach (var segment in segments)
+    {
+        if (assignmentMap.TryGetValue(segment.Id, out var speakerId) &&
+            speakers.TryGetValue(speakerId, out var speaker))
+        {
+            segment.AssignSpeaker(speakerId, speaker.DisplayName);
+            updated++;
+        }
+    }
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new { updated });
+}).RequireAuthorization();
 
 app.MapGet("/api/v1/meetings/{id:guid}/recommendations", async (Guid id, CallPilotDbContext db) =>
 {
@@ -1000,7 +1209,8 @@ public record BulkTranscriptRequest(
     string? Title,
     string? FolderPath,
     bool? MarkEnded,
-    List<BulkTranscriptSegment>? Segments);
+    List<BulkTranscriptSegment>? Segments,
+    List<BulkSpeaker>? Speakers);
 
 public record BulkTranscriptSegment(
     string Text,
@@ -1009,7 +1219,24 @@ public record BulkTranscriptSegment(
     double StartOffset,
     double EndOffset,
     bool IsFinal,
-    int Sequence);
+    int Sequence,
+    Guid? SpeakerId = null);
+
+// Speakers are upserted by client-supplied id (the desktop mints stable
+// per-meeting speaker ids at diarization time) so idempotent bulk saves
+// reuse the same rows instead of duplicating them.
+public record BulkSpeaker(
+    Guid Id,
+    string DisplayName,
+    int SortOrder);
+
+public record SpeakerRenameRequest(string DisplayName);
+
+public record SpeakerMergeRequest(Guid TargetSpeakerId);
+
+public record SpeakerAssignmentRequest(Guid SegmentId, Guid SpeakerId);
+
+public record SpeakerAssignmentsRequest(List<SpeakerAssignmentRequest>? Assignments);
 
 public record SummaryUpsertRequest(
     string Status,
