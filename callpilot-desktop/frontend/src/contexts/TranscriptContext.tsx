@@ -21,6 +21,15 @@ interface TranscriptContextType {
   clearTranscripts: () => void;
   currentMeetingId: string | null;
   markMeetingAsSaved: () => Promise<void>;
+  /** Live speaker identification results, ready for the end-of-recording save. */
+  speakers: SpeakerSave[];
+}
+
+/** A speaker to persist with a meeting (id is client-minted per label). */
+export interface SpeakerSave {
+  id: string;
+  displayName: string;
+  sortOrder: number;
 }
 
 const TranscriptContext = createContext<TranscriptContextType | undefined>(undefined);
@@ -29,6 +38,11 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
   const [transcripts, setTranscripts] = useState<Transcript[]>([]);
   const [meetingTitle, setMeetingTitle] = useState('+ New Call');
   const [currentMeetingId, setCurrentMeetingId] = useState<string | null>(null);
+  // Live speaker assignments keyed by transcript sequence id. Arrives
+  // asynchronously after the matching transcript-update (diarization never
+  // blocks transcription) and is applied to the segment in place.
+  const [speakerAssignments, setSpeakerAssignments] = useState<Record<number, { speakerId: string; label: string }>>({});
+  const [speakers, setSpeakers] = useState<SpeakerSave[]>([]);
   // Mirror of currentMeetingId so the engine-ingest fire-and-forget call
   // inside addTranscript sees the latest value without re-creating the
   // callback on every state change.
@@ -37,11 +51,27 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
   // Recording state context - provides backend-synced state
   const recordingState = useRecordingState();
 
+  // Derive the ordered speaker list from the assignment set (uuid -> label,
+  // stable across the meeting; used by the end-of-recording save).
+  useEffect(() => {
+    const byId = new Map<string, string>();
+    for (const a of Object.values(speakerAssignments)) {
+      if (!byId.has(a.speakerId)) byId.set(a.speakerId, a.label);
+    }
+    const list: SpeakerSave[] = Array.from(byId.entries()).map(([id, label], idx) => ({
+      id,
+      displayName: label,
+      sortOrder: idx + 1,
+    }));
+    setSpeakers(list);
+  }, [speakerAssignments]);
+
   // Refs for transcript management
   const transcriptsRef = useRef<Transcript[]>(transcripts);
   const isUserAtBottomRef = useRef<boolean>(true);
   const transcriptContainerRef = useRef<HTMLDivElement>(null);
   const finalFlushRef = useRef<(() => void) | null>(null);
+  const speakerAssignmentUnlistenRef = useRef<(() => void) | null>(null);
 
   // Keep ref updated with current transcripts
   useEffect(() => {
@@ -445,6 +475,32 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
           // will succeed.
           addTranscript(update);
         });
+
+        // Live speaker assignments: applied to the segment by sequence id
+        // as soon as the diarization task has a confident match. May trail
+        // the transcript-update by a few seconds - that's by design.
+        let speakerUnlisten: (() => void) | undefined;
+        try {
+          speakerUnlisten = await transcriptService.onSpeakerAssignment(({ sequenceId, speakerId, label }) => {
+            setSpeakerAssignments((prev) => {
+              if (prev[sequenceId]?.speakerId === speakerId) return prev;
+              const next = { ...prev, [sequenceId]: { speakerId, label } };
+              const buffered = transcriptBuffer.get(sequenceId);
+              if (buffered) {
+                transcriptBuffer.set(sequenceId, { ...buffered, speaker: label, speakerId });
+              }
+              setTranscripts((current) =>
+                current.map((t) =>
+                  t.sequence_id === sequenceId ? { ...t, speaker: label, speakerId } : t,
+                ),
+              );
+              return next;
+            });
+          });
+        } catch {
+          speakerUnlisten = undefined;
+        }
+        speakerAssignmentUnlistenRef.current = speakerUnlisten ?? null;
         console.log('✅ MAIN transcript listener setup complete');
       } catch (error) {
         console.error('❌ Failed to setup MAIN transcript listener:', error);
@@ -475,6 +531,14 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
         } catch (e) {
           console.warn('🧹 CLEANUP: unlisten threw (stale eventId, harmless):', e);
         }
+      }
+      if (speakerAssignmentUnlistenRef.current) {
+        try {
+          speakerAssignmentUnlistenRef.current();
+        } catch {
+          // Harmless stale eventId (same as above).
+        }
+        speakerAssignmentUnlistenRef.current = null;
       }
     };
   }, [currentMeetingId]); // Add currentMeetingId dependency
@@ -669,6 +733,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
     clearTranscripts,
     currentMeetingId,
     markMeetingAsSaved,
+    speakers,
   };
 
   return (

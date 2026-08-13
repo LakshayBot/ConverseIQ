@@ -21,6 +21,13 @@ export interface SaveMeetingRequest {
   meetingId?: string | null;
 }
 
+/** A meeting-scoped speaker row (id is client-minted, stable across saves). */
+export interface SpeakerSave {
+  id: string;
+  displayName: string;
+  sortOrder: number;
+}
+
 export interface SaveMeetingResponse {
   meeting_id: string;
 }
@@ -61,6 +68,7 @@ export class StorageService {
     transcripts: Transcript[],
     folderPath: string | null,
     meetingId?: string | null,
+    speakers?: SpeakerSave[],
   ): Promise<SaveMeetingResponse> {
     if (!meetingId) {
       throw new Error('saveMeeting requires meetingId - every meeting must be created via createMeeting() first');
@@ -70,7 +78,8 @@ export class StorageService {
       .filter((t) => !t.is_partial && t.text && t.text.trim().length > 0)
       .map((t, idx) => ({
         text: t.text,
-        speaker: null,
+        speaker: t.speaker ?? null,
+        speakerId: t.speakerId ?? null,
         confidence: typeof t.confidence === 'number' ? t.confidence : 0,
         startOffset: typeof t.audio_start_time === 'number' ? t.audio_start_time : idx,
         endOffset: typeof t.audio_end_time === 'number' ? t.audio_end_time : idx,
@@ -86,6 +95,7 @@ export class StorageService {
         folderPath,
         markEnded: true,
         segments,
+        speakers: speakers && speakers.length > 0 ? speakers : undefined,
       },
     );
 

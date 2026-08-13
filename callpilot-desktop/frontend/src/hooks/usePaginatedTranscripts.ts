@@ -38,6 +38,7 @@ function convertTranscriptsToSegments(transcripts: Transcript[]): TranscriptSegm
         endTime: t.audio_end_time,
         text: t.text,
         confidence: t.confidence,
+        speakerLabel: t.speaker,
     }));
 }
 
@@ -115,7 +116,9 @@ export function usePaginatedTranscripts({
 
         try {
             const rawSegments = await authedApiCall<Array<{
+                id?: string;
                 speaker: string;
+                speakerId?: string | null;
                 text: string;
                 confidence: number;
                 isFinal: boolean;
@@ -139,6 +142,7 @@ export function usePaginatedTranscripts({
                 audio_end_time: s.endOffset,
                 duration: s.endOffset - s.startOffset,
                 speaker: s.speaker,
+                speakerId: s.speakerId ?? undefined,
             }));
 
             if (append) {

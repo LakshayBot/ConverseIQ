@@ -28,6 +28,7 @@ import { IntelligenceSelectionProvider } from '@/contexts/IntelligenceSelectionC
 import { buildTranscriptEntityMap } from '@/lib/transcriptEntities';
 import type { ProductMention } from '@/components/ProductIntelligenceCard';
 import { LocalSummaryView } from '@/components/MeetingDetails/LocalSummaryView';
+import { SpeakerIdentificationPanel } from '@/components/MeetingDetails/SpeakerIdentificationPanel';
 import { TranscriptSegmentData } from '@/types';
 import Analytics from '@/lib/analytics';
 import {
@@ -41,6 +42,7 @@ import {
 
 interface PageContentProps {
   meeting: any;
+  meetingId?: string | null;
   segments?: TranscriptSegmentData[];
   totalCount?: number;
   loadedCount?: number;
@@ -49,6 +51,8 @@ interface PageContentProps {
   onLoadMore?: () => void;
   onMeetingUpdated?: () => void;
   onRefetchTranscripts?: () => void;
+  /** Speaker labels changed (identify done / renamed / merged) - refetch transcripts. */
+  onSpeakersChanged?: () => void;
   summaryData?: any;
   localSummaryState?: import('@/hooks/useLocalSummarization').LocalSummaryState;
   localSummaryProgress?: import('@/lib/llm').SummaryProgressEvent | null;
@@ -60,6 +64,7 @@ interface PageContentProps {
 
 const PageContent: React.FC<PageContentProps> = ({
   meeting,
+  meetingId,
   segments,
   totalCount,
   loadedCount,
@@ -72,6 +77,7 @@ const PageContent: React.FC<PageContentProps> = ({
   localSummaryError,
   onRegenerateSummary,
   onRetrySaveSummary,
+  onSpeakersChanged,
 }) => {
   const router = useRouter();
   const segmentCount = segments?.length ?? 0;
@@ -231,23 +237,29 @@ const PageContent: React.FC<PageContentProps> = ({
                   onRetrySave={onRetrySaveSummary}
                 />
               ) : (
-                <div className="bg-[var(--opaline-surface-container-lowest)] border border-[var(--opaline-outline-variant)] rounded-xl shadow-xs p-4">
-                  <VirtualizedTranscriptView
-                    segments={segments ?? []}
-                    isRecording={false}
-                    isPaused={false}
-                    isProcessing={false}
-                    isStopping={false}
-                    enableStreaming={false}
-                    showConfidence={true}
-                    disableAutoScroll={true}
-                    hasMore={hasMore}
-                    isLoadingMore={isLoadingMore}
-                    totalCount={totalCount}
-                    loadedCount={loadedCount}
-                    onLoadMore={onLoadMore}
-                    products={productNames}
+                <div className="space-y-4">
+                  <SpeakerIdentificationPanel
+                    meetingId={meetingId ?? null}
+                    onSpeakersChanged={onSpeakersChanged}
                   />
+                  <div className="bg-[var(--opaline-surface-container-lowest)] border border-[var(--opaline-outline-variant)] rounded-xl shadow-xs p-4">
+                    <VirtualizedTranscriptView
+                      segments={segments ?? []}
+                      isRecording={false}
+                      isPaused={false}
+                      isProcessing={false}
+                      isStopping={false}
+                      enableStreaming={false}
+                      showConfidence={true}
+                      disableAutoScroll={true}
+                      hasMore={hasMore}
+                      isLoadingMore={isLoadingMore}
+                      totalCount={totalCount}
+                      loadedCount={loadedCount}
+                      onLoadMore={onLoadMore}
+                      products={productNames}
+                    />
+                  </div>
                 </div>
               )}
             </div>

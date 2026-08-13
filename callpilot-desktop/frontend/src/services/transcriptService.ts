@@ -60,6 +60,18 @@ export class TranscriptService {
   }
 
   /**
+   * Listen for live speaker assignments (arrive asynchronously after the
+   * matching transcript-update; matched by sequenceId).
+   */
+  async onSpeakerAssignment(
+    callback: (payload: { sequenceId: number; speakerId: string; label: string }) => void,
+  ): Promise<UnlistenFn> {
+    return listen<{ sequenceId: number; speakerId: string; label: string }>('speaker-assignment', (event) => {
+      callback(event.payload);
+    });
+  }
+
+  /**
    * Listen for transcription-complete event
    * @param callback - Function to call when transcription processing is complete
    * @returns Promise that resolves to unlisten function

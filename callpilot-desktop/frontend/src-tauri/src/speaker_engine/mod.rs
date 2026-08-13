@@ -14,6 +14,7 @@
 
 pub mod commands;
 pub mod helper;
+pub mod live;
 pub mod model_manager;
 pub mod models;
 pub mod session;

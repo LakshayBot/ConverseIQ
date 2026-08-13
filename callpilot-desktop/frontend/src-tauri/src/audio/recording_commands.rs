@@ -271,7 +271,10 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     reset_speech_detected_flag(); // Reset for new recording session
 
     // Start optimized parallel transcription task and store handle
-    let task_handle = transcription::start_transcription_task(app.clone(), transcription_receiver);
+    // Live speaker diarization (None when disabled/unconfigured - the
+    // pipeline runs identically without it).
+    let diar = crate::speaker_engine::commands::live_runtime(&app).await;
+    let task_handle = transcription::start_transcription_task(app.clone(), transcription_receiver, diar);
     {
         let mut global_task = TRANSCRIPTION_TASK.lock().unwrap();
         *global_task = Some(task_handle);
@@ -457,7 +460,10 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     reset_speech_detected_flag(); // Reset for new recording session
 
     // Start optimized parallel transcription task and store handle
-    let task_handle = transcription::start_transcription_task(app.clone(), transcription_receiver);
+    // Live speaker diarization (None when disabled/unconfigured - the
+    // pipeline runs identically without it).
+    let diar = crate::speaker_engine::commands::live_runtime(&app).await;
+    let task_handle = transcription::start_transcription_task(app.clone(), transcription_receiver, diar);
     {
         let mut global_task = TRANSCRIPTION_TASK.lock().unwrap();
         *global_task = Some(task_handle);

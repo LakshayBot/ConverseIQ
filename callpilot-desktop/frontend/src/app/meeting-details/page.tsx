@@ -52,9 +52,14 @@ function MeetingDetailsContent() {
   const { state: localSummaryState, progress: localSummaryProgress, error: localSummaryError, generate: generateLocal, retrySave: retryLocalSave } =
     useLocalSummarization(meetingId || null);
 
-  // Transcript text for local summarization.
+  // Transcript text for local summarization. Speaker labels are included as
+  // additive context (the structured summary schema is unchanged).
   const transcriptText = useMemo(
-    () => (segments || []).filter((s: any) => s.text).map((s: any) => s.text).join('\n'),
+    () =>
+      (segments || [])
+        .filter((s: any) => s.text)
+        .map((s: any) => (s.speakerLabel ? `${s.speakerLabel}: ${s.text}` : s.text))
+        .join('\n'),
     [segments],
   );
 
@@ -223,12 +228,14 @@ function MeetingDetailsContent() {
 
   return <PageContent
     meeting={meetingDetails}
+    meetingId={meetingId}
     summaryData={meetingSummary}
     localSummaryState={localSummaryState}
     localSummaryProgress={localSummaryProgress}
     localSummaryError={localSummaryError}
     onRegenerateSummary={() => generateLocal(transcriptText)}
     onRetrySaveSummary={retryLocalSave}
+    onSpeakersChanged={() => void refetch()}
     onSummaryChanged={async () => {
       await fetchMeetingSummaryRef.current();
       await refetchMeetings();

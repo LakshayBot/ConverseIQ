@@ -16,6 +16,10 @@ export interface Transcript {
   audio_start_time?: number; // Seconds from recording start (e.g., 125.3)
   audio_end_time?: number;   // Seconds from recording start (e.g., 128.6)
   duration?: number;          // Segment duration in seconds (e.g., 3.3)
+  // Speaker diarization: label snapshot + stable per-meeting speaker id
+  // (the id references the meeting's Speakers table on the backend).
+  speaker?: string;
+  speakerId?: string;
 }
 
 export interface TranscriptUpdate {
@@ -113,4 +117,6 @@ export interface TranscriptSegmentData {
   is_partial?: boolean;
   /** Which audio stream produced this segment. CallPilot infers speaker from this. */
   audioSource?: 'mic' | 'system' | 'unknown';
+  /** Speaker diarization label ("Speaker 1", or a renamed name) when known. */
+  speakerLabel?: string;
 }

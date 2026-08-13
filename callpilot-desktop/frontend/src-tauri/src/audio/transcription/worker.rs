@@ -57,6 +57,7 @@ pub struct TranscriptUpdate {
 pub fn start_transcription_task<R: Runtime>(
     app: AppHandle<R>,
     transcription_receiver: tokio::sync::mpsc::UnboundedReceiver<AudioChunk>,
+    diar: Option<crate::speaker_engine::live::LiveDiarization>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         TRANSCRIPTION_TASK_ACTIVE.store(true, Ordering::SeqCst);
@@ -82,6 +83,10 @@ pub fn start_transcription_task<R: Runtime>(
         let (work_sender, work_receiver) = tokio::sync::mpsc::unbounded_channel::<AudioChunk>();
         let work_receiver = Arc::new(tokio::sync::Mutex::new(work_receiver));
 
+        // Live speaker diarization: cloned into each worker below; the
+        // sender keeps the diarization task alive for the whole recording.
+        let diar = Arc::new(diar);
+
         // Track completion: AtomicU64 for chunks queued, AtomicU64 for chunks completed
         let chunks_queued = Arc::new(AtomicU64::new(0));
         let chunks_completed = Arc::new(AtomicU64::new(0));
@@ -102,6 +107,7 @@ pub fn start_transcription_task<R: Runtime>(
             let chunks_completed_clone = chunks_completed.clone();
             let input_finished_clone = input_finished.clone();
             let chunks_queued_clone = chunks_queued.clone();
+            let diar_clone = diar.clone();
 
             let worker_handle = tokio::spawn(async move {
                 info!("👷 Worker {} started", worker_id);
@@ -195,6 +201,23 @@ pub fn start_transcription_task<R: Runtime>(
                             let chunk_timestamp = chunk.timestamp;
                             let chunk_duration = chunk.data.len() as f64 / chunk.sample_rate as f64;
 
+                            // Forward final chunks to live speaker diarization
+                            // (non-blocking; diarization never delays STT).
+                            let diar_samples: Option<Vec<f32>> = match diar_clone.as_ref() {
+                                Some(_) if !chunk.is_partial => Some(
+                                    if chunk.sample_rate != 16000 {
+                                        crate::audio::audio_processing::resample_audio(
+                                            &chunk.data,
+                                            chunk.sample_rate,
+                                            16000,
+                                        )
+                                    } else {
+                                        chunk.data.clone()
+                                    },
+                                ),
+                                _ => None,
+                            };
+
                             // Transcribe with provider-agnostic approach
                             match transcribe_chunk_with_provider(
                                 &engine_clone,
@@ -247,6 +270,25 @@ pub fn start_transcription_task<R: Runtime>(
                                         let sequence_id = SEQUENCE_COUNTER.fetch_add(1, Ordering::SeqCst);
                                         let audio_start_time = chunk_timestamp; // Already in seconds from recording start
                                         let audio_end_time = chunk_timestamp + chunk_duration;
+
+                                        // Non-blocking handoff to the live
+                                        // speaker-identification task. The
+                                        // assignment arrives asynchronously
+                                        // via the speaker-assignment event and
+                                        // the frontend matches it by
+                                        // sequence_id.
+                                        if let Some(samples) = diar_samples {
+                                            if let Some(d) = diar_clone.as_ref().as_ref() {
+                                                let _ = d.send_chunk(
+                                                    crate::speaker_engine::live::LiveChunk {
+                                                        sequence: sequence_id,
+                                                        samples,
+                                                        start: audio_start_time as f32,
+                                                        end: audio_end_time as f32,
+                                                    },
+                                                );
+                                            }
+                                        }
 
                                         // Save structured transcript segment to recording manager (only final results)
                                         // Save ALL segments (partial and final) to ensure complete JSON

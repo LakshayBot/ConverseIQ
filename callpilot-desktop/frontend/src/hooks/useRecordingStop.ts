@@ -57,6 +57,7 @@ export function useRecordingStop(
     clearTranscripts,
     meetingTitle,
     markMeetingAsSaved,
+    speakers,
   } = useTranscripts();
 
   const {
@@ -278,6 +279,7 @@ export function useRecordingStop(
             freshTranscripts,
             folderPath,
             looksLikeDotNetGuid ? stashedMeetingId : null,
+            speakers,
           );
 
           const meetingId = responseData.meeting_id;

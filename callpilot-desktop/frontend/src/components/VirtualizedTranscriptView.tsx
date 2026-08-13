@@ -129,6 +129,7 @@ interface TranscriptRowProps {
   activeOccurrenceKey: string | null;
   showConfidence: boolean;
   audioSource?: 'mic' | 'system' | 'unknown';
+  speakerLabel?: string;
   onEntityClick: (occ: TranscriptEntityOccurrence) => void;
 }
 
@@ -145,6 +146,7 @@ const TranscriptRow = memo(function TranscriptRow({
   activeOccurrenceKey,
   showConfidence,
   audioSource,
+  speakerLabel,
   onEntityClick,
 }: TranscriptRowProps) {
   const speakerSource: 'mic' | 'system' | 'unknown' | undefined = audioSource;
@@ -211,10 +213,18 @@ const TranscriptRow = memo(function TranscriptRow({
           </TooltipContent>
         </Tooltip>
 
-        {/* Column - timestamp on top, body text below. */}
+        {/* Column - speaker label + timestamp on top, body text below. */}
         <div className="min-w-0 flex-1">
-          <div className="font-mono text-[12px] text-[var(--nav-muted-text)] tabular-nums">
-            {formatRecordingTime(timestamp)}
+          <div className="flex items-center gap-1.5">
+            {speakerLabel && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)] px-1.5 py-px text-[10px] font-medium tracking-wide text-[var(--opaline-on-surface-variant)]">
+                <span aria-hidden className="h-1 w-1 rounded-full bg-[var(--opaline-primary)]" />
+                {speakerLabel}
+              </span>
+            )}
+            <div className="font-mono text-[12px] text-[var(--nav-muted-text)] tabular-nums">
+              {formatRecordingTime(timestamp)}
+            </div>
           </div>
           <p className={`min-w-0 ${textClass}`}>
             {parts.map((part, i) =>
@@ -412,6 +422,7 @@ export const VirtualizedTranscriptView: React.FC<{
           activeOccurrenceKey={activeOccurrenceKey}
           showConfidence={showConfidence}
           audioSource={segment.audioSource as 'mic' | 'system' | 'unknown' | undefined}
+          speakerLabel={segment.speakerLabel}
           onEntityClick={handleEntityClick}
         />
       );
