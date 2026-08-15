@@ -171,7 +171,10 @@ if [ "$SKIP_DEPS" = "0" ]; then
   fi
   # shellcheck disable=SC1091
   source src/callpilot-ai-engine/.venv/bin/activate
-  pip install -e ".[dev]" --quiet
+  # `pip install -e ".[dev]"` must run from the engine dir - the repo root
+  # has no pyproject.toml and pip would fail with "does not appear to be a
+  # Python project".
+  (cd src/callpilot-ai-engine && pip install -e ".[dev]" --quiet)
   deactivate
   ok "Python AI Engine ready"
 
