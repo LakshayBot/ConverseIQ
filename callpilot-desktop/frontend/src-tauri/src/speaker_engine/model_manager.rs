@@ -89,9 +89,31 @@ fn is_valid_size(path: &std::path::Path, expected_mb: u64) -> bool {
     }
 }
 
+/// Recursively locates `name` under `dir` (the pyannote tar unpacks its
+/// files inside a top-level directory like
+/// `sherpa-onnx-pyannote-segmentation-3-0/`).
+fn find_file_recursive(dir: &std::path::Path, name: &str) -> Option<PathBuf> {
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let entries = std::fs::read_dir(&d).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.file_name().and_then(|n| n.to_str()) == Some(name) {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
 /// Extracts the pyannote segmentation tar.bz2 into the tier dir and returns
-/// whether the tier's chosen file is present and valid.
-fn extract_segmentation(app: &AppHandle<impl Runtime>, def: &DiarModelDef, dir: &std::path::Path) -> Result<(), String> {
+/// whether the tier's chosen file is present and valid. The tar unpacks into
+/// a nested top-level directory, so the target file is hoisted to the tier
+/// root (where the diar-helper expects it) and the leftover extraction
+/// directory is removed.
+fn extract_segmentation(def: &DiarModelDef, dir: &std::path::Path) -> Result<(), String> {
     let tar_path = dir.join("segmentation.tar.bz2");
     if !tar_path.exists() {
         return Err("segmentation archive missing".to_string());
@@ -102,8 +124,30 @@ fn extract_segmentation(app: &AppHandle<impl Runtime>, def: &DiarModelDef, dir: 
         .unpack(dir)
         .map_err(|e| format!("failed to extract segmentation model: {e}"))?;
 
-    let extracted = dir.join(def.segmentation_file);
-    if !is_valid_size(&extracted, def.segmentation_size_mb) {
+    // Hoist the tier's file out of the nested directory the tar unpacks into.
+    let target = dir.join(def.segmentation_file);
+    let extracted = find_file_recursive(dir, def.segmentation_file).ok_or_else(|| {
+        format!(
+            "extracted segmentation model not found ({} expected)",
+            def.segmentation_file
+        )
+    })?;
+    if extracted != target {
+        std::fs::rename(&extracted, &target).map_err(|e| e.to_string())?;
+    }
+
+    // Remove whatever else the tar unpacked (scripts, README, the leftover
+    // top-level directory). Never touches the embedding model or .part files.
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let _ = std::fs::remove_dir_all(&path);
+            }
+        }
+    }
+
+    if !is_valid_size(&target, def.segmentation_size_mb) {
         return Err(format!(
             "extracted segmentation model is invalid or undersized ({} expected)",
             def.segmentation_file
@@ -349,7 +393,7 @@ pub async fn download_model<R: Runtime>(
     }
 
     // Extraction + final validation.
-    if let Err(e) = extract_segmentation(app, def, &dir) {
+    if let Err(e) = extract_segmentation(def, &dir) {
         let _ = std::fs::remove_file(&tar_final);
         let mut guard = state().write().unwrap();
         guard.active.remove(def.id);
@@ -406,5 +450,93 @@ pub fn validate_downloaded<R: Runtime>(app: &AppHandle<R>, name: &str) -> Result
             def.name
         )),
         (ModelStatus::Downloading { .. }, _) => Err("The model is still downloading.".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write as _;
+
+    /// Builds a tar.bz2 with the file nested inside a top-level directory -
+    /// exactly the layout of the real pyannote segmentation archive.
+    fn write_nested_tar_bz2(path: &std::path::Path, nested_name: &str, bytes: &[u8]) {
+        let file = std::fs::File::create(path).unwrap();
+        let mut encoder = bzip2::write::BzEncoder::new(file, bzip2::Compression::best());
+        {
+            let mut builder = tar::Builder::new(&mut encoder);
+            let header_path = format!("sherpa-onnx-pyannote-segmentation-3-0/{nested_name}");
+            let mut header = tar::Header::new_gnu();
+            header.set_size(bytes.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder.append_data(&mut header, header_path, bytes).unwrap();
+            builder.finish().unwrap();
+        }
+        encoder.finish().unwrap();
+    }
+
+    fn test_def(segmentation_file: &'static str, size_mb: u64) -> DiarModelDef {
+        DiarModelDef {
+            id: "test",
+            name: "Test",
+            description: "",
+            embedding_file: "embed.onnx",
+            embedding_url: "",
+            embedding_size_mb: 1,
+            segmentation_tar_url: "",
+            segmentation_tar_size_mb: 1,
+            segmentation_file,
+            segmentation_size_mb: size_mb,
+            cluster_threshold: 0.5,
+            similarity_threshold: 0.8,
+            similarity_floor: 0.7,
+        }
+    }
+
+    #[test]
+    fn extracts_nested_segmentation_into_tier_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = vec![7u8; 6 * 1024 * 1024]; // 6 MB - passes the ≥90% floor for 6 MB
+        write_nested_tar_bz2(&dir.path().join("segmentation.tar.bz2"), "model.onnx", &bytes);
+
+        extract_segmentation(&test_def("model.onnx", 6), dir.path()).unwrap();
+
+        // Hoisted to the tier root (where diar-helper expects it)...
+        assert!(dir.path().join("model.onnx").exists());
+        // ...and the nested extraction directory is gone.
+        assert!(!dir.path().join("sherpa-onnx-pyannote-segmentation-3-0").exists());
+        // The tar is consumed.
+        assert!(!dir.path().join("segmentation.tar.bz2").exists());
+    }
+
+    #[test]
+    fn undersized_extraction_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = vec![1u8; 100]; // way below the floor
+        write_nested_tar_bz2(&dir.path().join("segmentation.tar.bz2"), "model.onnx", &bytes);
+
+        let err = extract_segmentation(&test_def("model.onnx", 6), dir.path()).unwrap_err();
+        assert!(err.contains("invalid or undersized"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn missing_file_in_tar_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        write_nested_tar_bz2(&dir.path().join("segmentation.tar.bz2"), "other.bin", &[1u8; 100]);
+
+        let err = extract_segmentation(&test_def("model.onnx", 6), dir.path()).unwrap_err();
+        assert!(err.contains("not found"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn find_file_recursive_locates_nested_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("a").join("b");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join("model.onnx"), b"x").unwrap();
+
+        let found = find_file_recursive(dir.path(), "model.onnx").unwrap();
+        assert_eq!(found, nested.join("model.onnx"));
     }
 }

@@ -84,7 +84,9 @@ pub static DIAR_MODEL_CATALOG: std::sync::LazyLock<Vec<DiarModelDef>> =
                 "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
                 37,
                 "model.int8.onnx",
-                2,
+                // int8 segmentation is 1.47 MB - the floor must stay under it
+                // (≥90% validation).
+                1,
                 0.5,
                 0.82,
                 0.70,
