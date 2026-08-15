@@ -124,20 +124,39 @@ class DoclingIngestService:
 
         from docling.datamodel.base_models import InputFormat
         from docling.datamodel.document import DocumentStream
-        from docling.datamodel.pipeline_options import PdfPipelineOptions, TesseractOcrOptions
+        from docling.datamodel.pipeline_options import PdfPipelineOptions
         from docling.document_converter import DocumentConverter, PdfFormatOption
 
         # Quality-first extraction: complex brochures contain scanned pages
         # and image-only spec sheets.  OCR is ON so scanned text enters the
         # pipeline; table structure + figure structure keep layout-aware
         # chunks; picture crops feed the vision-LLM caption pass.
+        #
+        # docling's pipeline options drifted across 2.x releases:
+        # `do_figure_structure` and `do_reading_order` were removed in newer
+        # versions (2.120+) in favour of picture classification/description.
+        # Guard every optional flag so a docling upgrade never breaks ingest.
+        #
+        # OCR backend: the container ships rapidocr (onnxruntime) - docling's
+        # TesseractOcrOptions needs the tesserocr C binding + system
+        # Tesseract, which are NOT installed here, so it raises ImportError
+        # on every conversion. Fall back to no-OCR only if rapidocr is also
+        # unavailable.
         opts = PdfPipelineOptions()
         opts.do_ocr = True
-        opts.ocr_options = TesseractOcrOptions(lang=["en"])
+        try:
+            from docling.datamodel.pipeline_options import RapidOcrOptions
+
+            opts.ocr_options = RapidOcrOptions(lang=["en"])
+        except Exception:  # noqa: BLE001 - no OCR backend available
+            opts.do_ocr = False
         opts.do_table_structure = True
-        opts.do_figure_structure = True
-        opts.do_picture_classification = True
-        opts.do_reading_order = True
+        if hasattr(opts, "do_figure_structure"):
+            opts.do_figure_structure = True
+        if hasattr(opts, "do_picture_classification"):
+            opts.do_picture_classification = True
+        if hasattr(opts, "do_reading_order"):
+            opts.do_reading_order = True
         converter = DocumentConverter(
             format_options={
                 InputFormat.PDF: PdfFormatOption(pipeline_options=opts),

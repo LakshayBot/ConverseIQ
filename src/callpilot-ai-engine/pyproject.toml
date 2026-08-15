@@ -22,6 +22,11 @@ dependencies = [
     "docling>=2.50.0",
     "pytesseract>=0.3.10",
     "groq>=0.11.0",
+    # OCR backend for docling's RapidOcrOptions (scanned-page extraction).
+    # tesserocr (docling's other OCR backend) needs system Tesseract + a
+    # C build - onnxruntime + rapidocr is the pure-pip path that works in
+    # the container.
+    "onnxruntime>=1.17",
 ]
 
 [project.optional-dependencies]
