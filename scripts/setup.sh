@@ -180,7 +180,10 @@ if [ "$SKIP_DEPS" = "0" ]; then
 
   echo ""
   echo "Installing Dashboard dependencies..."
-  (cd src/callpilot-dashboard && npm install --silent)
+  # The dashboard is a pnpm project (pnpm-lock.yaml committed). `npm install`
+  # ignores that lockfile, resolves the whole tree from scratch and takes
+  # ages - always use pnpm here.
+  (cd src/callpilot-dashboard && pnpm install --silent)
   ok "Dashboard dependencies installed"
 fi
 
