@@ -1,34 +1,81 @@
-# CallPilot e2e regression stack - fully isolated from any dev/production
-# stack: its own postgres instance (host port 5433, database callpilot_e2e),
-# its own server (host port 5002) and ai-engine (host port 8002). Runs the
-# REAL server + engine + postgres images with a dedicated database - never
-# touches the production DB, recordings, models, or config.
+# CallPilot e2e regression stack - FULLY self-contained.
 #
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml \
-#                  -f tests/e2e/docker-compose.e2e.yml up -d
-# (the run_e2e.py orchestrator does this automatically)
+# CRITICAL isolation rules:
+#  - Own compose project name (`callpilot-e2e`): never shares containers,
+#    networks or volumes with the dev/prod project (voicepilotai). A plain
+#    `docker compose up` in the repo root can never touch this stack, and
+#    `down -v` on the dev project can never touch e2e volumes.
+#  - Own host ports: postgres 5433, server 5002, ai-engine 8002.
+#  - Own volumes: postgres_data_e2e / redis_data_e2e / server_uploads_e2e
+#    (+ the engine's own model cache).
+#  - This file does NOT extend docker-compose.yml on purpose - compose
+#    merges ports/env/volumes across files, and the merge semantics are
+#    what caused port 8001 collisions and shared-volume pollution.
+#
+# Run via tests/e2e/run_e2e.py (or manually):
+#   docker compose -p callpilot-e2e -f tests/e2e/docker-compose.e2e.yml up -d
+
+name: callpilot-e2e
 
 services:
   postgres:
-    container_name: callpilot-e2e-postgres
+    image: pgvector/pgvector:pg17
+    pull_policy: missing
+    restart: unless-stopped
     environment:
       POSTGRES_DB: callpilot_e2e
       POSTGRES_USER: callpilot
       POSTGRES_PASSWORD: callpilot_e2e
     ports:
       - "5433:5432"
-    # Own data volume - the base compose volume is initialized with the
-    # dev password and POSTGRES_* env vars only apply on first init.
     volumes:
       - postgres_data_e2e:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U callpilot -d callpilot_e2e"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   redis:
-    container_name: callpilot-e2e-redis
+    image: redis:7-alpine
+    pull_policy: missing
+    restart: unless-stopped
     volumes:
       - redis_data_e2e:/data
 
+  ai-engine:
+    build:
+      context: ../..
+      dockerfile: src/docker/Dockerfile.ai-engine
+    restart: unless-stopped
+    ports:
+      - "8002:8001"
+    volumes:
+      - ai_engine_cache_e2e:/home/appuser/.cache
+    environment:
+      WHISPER_MODEL_SIZE: medium.en
+      WHISPER_DEVICE: cpu
+      WHISPER_COMPUTE_TYPE: int8
+      NEMOTRON_ENABLED: "false"
+      NEMOTRON_DEVICE: cpu
+      NEMOTRON_RIGHT_CONTEXT: "1"
+      PYTHONUNBUFFERED: "1"
+      REDIS_URL: redis://redis:6379
+      TAVILY_API_KEY: "${TAVILY_API_KEY:-}"
+      CALLPILOT_SERVER_URL: "http://server:5001"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      ENRICHMENT_MODEL: "${ENRICHMENT_MODEL:-openai/gpt-oss-20b}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
   server:
-    container_name: callpilot-e2e-server
+    build:
+      context: ../..
+      dockerfile: src/docker/Dockerfile.server
+    restart: unless-stopped
     ports:
       - "5002:5001"
     environment:
@@ -44,20 +91,17 @@ services:
       AiEngine__BaseUrl: http://ai-engine:8001
       NEMOTRON_ENABLED: "false"
       ASPNETCORE_ENVIRONMENT: Production
-      GROQ_API_KEY: ""
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
     volumes:
       - server_uploads_e2e:/app/uploads
-
-  ai-engine:
-    container_name: callpilot-e2e-ai-engine
-    ports:
-      - "8002:8001"
-
-  dashboard:
-    container_name: callpilot-e2e-dashboard
-    profiles: ["e2e-dashboard"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai-engine:
+        condition: service_started
 
 volumes:
   postgres_data_e2e:
   redis_data_e2e:
   server_uploads_e2e:
+  ai_engine_cache_e2e:

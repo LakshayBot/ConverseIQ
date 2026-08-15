@@ -53,9 +53,10 @@ ENGINE_URL = os.environ.get("CALLPILOT_E2E_ENGINE", "http://localhost:8002")
 SERVER_PORT = "5002"
 ENGINE_PORT = "8002"
 
+# Self-contained e2e stack (own project + ports + volumes): extending the
+# base compose would merge ports/env/volumes and re-introduce collisions.
 COMPOSE = [
-    "docker", "compose", "-f", str(ROOT / "docker-compose.yml"),
-    "-f", str(ROOT / "docker-compose.dev.yml"),
+    "docker", "compose", "-p", "callpilot-e2e",
     "-f", str(E2E / "docker-compose.e2e.yml"),
 ]
 
@@ -194,8 +195,9 @@ def stack_up():
 def stack_down(keep=False):
     if keep:
         return
-    subprocess.run(COMPOSE + ["stop", "server", "ai-engine", "redis", "postgres"],
-                   capture_output=True, text=True)
+    # `down` (not `stop`): e2e containers must never linger, or a plain
+    # `docker compose up` in the repo root could reuse them.
+    subprocess.run(COMPOSE + ["down"], capture_output=True, text=True)
 
 
 # ---------------------------------------------------------------------------
