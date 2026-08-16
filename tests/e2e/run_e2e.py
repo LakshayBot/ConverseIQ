@@ -310,9 +310,9 @@ def main():
         kb_id = (kb or {}).get("id")
         report.add("Knowledge base created", bool(kb_id), f"kb={kb_id}")
 
-        code, doc = multipart_upload("/api/v1/knowledge/upload?mode=fast",
+        code, doc = multipart_upload("/api/v1/knowledge/upload?mode=fast&knowledgeBaseId=" + kb_id,
                                      E2E / "sample" / "secure-meters-product-guide.md",
-                                     token, {"knowledgeBaseId": kb_id})
+                                     token, {})
         doc_id = (doc or {}).get("documentId") or (doc or {}).get("id")
         report.add("Fixture document uploaded (fast mode)", bool(doc_id), f"doc={doc_id}")
 
