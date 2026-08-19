@@ -84,13 +84,21 @@ def _get_groq_api_key() -> str:
 
 
 def _get_model() -> str:
-    # openai/gpt-oss-20b is Groq's current free-tier default (llama-3.1-8b-instant
-    # was deprecated - shutdown 2026-08-16).  Fast, supports
-    # response_format={"type": "json_object"}, and good enough for the
-    # product-card extraction prompt.  Override via ENRICHMENT_MODEL
-    # (e.g. qwen/qwen3.6-27b or openai/gpt-oss-120b for higher quality
-    # on dev keys).
+    # openai/gpt-oss-20b is the recommended default (llama-3.1-8b-instant
+    # / llama-3.3-70b-versatile were deprecated - shutdown 2026).  It is
+    # deterministic on the free tier; groq/compound-mini has a higher TPM
+    # but currently routes to the retiring llama-3.3-70b-versatile backend,
+    # which returns persistent 429s.  Override via ENRICHMENT_MODEL.
     return os.getenv("ENRICHMENT_MODEL", "openai/gpt-oss-20b")
+
+
+# Explicit completion budget for the Groq call.  Groq's default max_tokens
+# is far too small for a dense brochure page: the 13-field product schema
+# plus the entity list routinely needs 3-8k tokens, and an over-budget
+# completion gets truncated and rejected with HTTP 400 "json_validate_failed"
+# (16/19 pages of secure.pdf failed this way with the default).  Override
+# via ENRICHMENT_MAX_TOKENS.
+GROQ_MAX_TOKENS = int(os.getenv("ENRICHMENT_MAX_TOKENS", "4608"))
 
 
 # ── Data shape ─────────────────────────────────────────────────────────────
@@ -531,7 +539,8 @@ async def _call_groq(prompt: str) -> "_GroqResult":
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             response_format={"type": "json_object"},
-            timeout=30,
+            max_tokens=GROQ_MAX_TOKENS,
+            timeout=60,
         )
     except Exception as exc:  # noqa: BLE001 - fail-open
         # Covers the full Groq exception hierarchy (APIError, APIConnectionError,
@@ -623,46 +632,77 @@ def _parse_retry_after_seconds(error_message: str) -> float | None:
         return None
 
 
+def _is_retryable_failure(result: _GroqResult) -> bool:
+    """Whether a Groq failure is worth retrying.
+
+    Two failure families qualify:
+
+    * Rate limits (429 / token quota): classified http_5xx with a
+      "Please try again in Xs" hint - waiting helps.
+    * json_validate_failed (HTTP 400, http_4xx): Groq's JSON-mode
+      validation is flaky - the model sometimes emits a completion
+      that fails validation even though the same page passes on a
+      fresh attempt (observed on gpt-oss-20b; the error body carries
+      an empty failed_generation).  A short pause and a retry usually
+      succeeds.
+
+    Everything else (auth, bad model) is returned immediately -
+    retrying won't fix it.
+    """
+    if result.outcome_status == "http_5xx":
+        # Rate limits (429 / token quota) and 5xx.  Calling the compound
+        # router, 429s can come back WITHOUT a "Please try again" hint
+        # (a routed backend's own quota exhausted) - still retry, the
+        # baseline wait in _call_groq_with_retry paces us.
+        return True
+    if result.outcome_status in ("timeout", "connection_error"):
+        # The compound router can take a while under load; a second
+        # attempt usually lands on a faster route.
+        return True
+    if result.outcome_status == "http_4xx" and "json_validate_failed" in result.error_message:
+        return True
+    return False
+
+
 async def _call_groq_with_retry(prompt: str) -> _GroqResult:
-    """Wrap :func:`_call_groq` with rate-limit-aware retry.
+    """Wrap :func:`_call_groq` with retry for transient failures.
 
-    On a 429 / token-quota error (status ``http_5xx`` with a
-    "Please try again in Xs" hint), wait the hinted time (+20%
-    buffer, capped at ``MAX_RETRY_WAIT_S``) and retry, up to
-    ``MAX_RATE_LIMIT_RETRIES`` times.  Other failure modes (auth,
-    timeout, connection) are returned immediately without retry -
-    they won't be fixed by waiting.
+    Retries rate limits (429 / token quota) waiting the server's
+    "Please try again in Xs" hint (+20% buffer, capped at
+    MAX_RETRY_WAIT_S) and json_validate_failed validation flakes
+    after a short pause, up to MAX_RATE_LIMIT_RETRIES times each.
+    Other failure modes (auth, timeout, connection) are returned
+    immediately without retry - they won't be fixed by waiting.
 
-    Surfaces ``retry_count`` on the result so the dashboard can
-    show the user which pages needed retries and how many.
+    Surfaces retry_count on the result so the dashboard can show
+    the user which pages needed retries and how many.
     """
     result = await _call_groq(prompt)
-    if result.outcome_status != "http_5xx" or not result.error_message:
-        return result
-    # http_5xx without a "Please try again" hint - Groq is having a
-    # generic outage; retrying won't help.
-    if _parse_retry_after_seconds(result.error_message) is None:
+    if not _is_retryable_failure(result):
         return result
 
     for attempt in range(1, MAX_RATE_LIMIT_RETRIES + 1):
-        wait_s = _parse_retry_after_seconds(result.error_message) or MIN_RETRY_WAIT_S
-        wait_s = max(MIN_RETRY_WAIT_S, min(wait_s * RETRY_BUFFER_FACTOR, MAX_RETRY_WAIT_S))
+        hint_s = _parse_retry_after_seconds(result.error_message or "")
+        if hint_s is not None:
+            wait_s = max(MIN_RETRY_WAIT_S, min(hint_s * RETRY_BUFFER_FACTOR, MAX_RETRY_WAIT_S))
+        elif "json_validate_failed" in (result.error_message or ""):
+            wait_s = 2.0  # validation flake: brief pause, no server hint
+        elif result.outcome_status in ("timeout", "connection_error"):
+            wait_s = 1.0  # transport blip: retry quickly
+        else:
+            wait_s = 5.0  # 429/5xx without a hint (compound router backend)
         logger.warning(
-            "Groq rate-limit on attempt %d, waiting %.1fs before retry: %s",
-            attempt, wait_s, result.error_message[:200],
+            "Groq %s on attempt %d, waiting %.1fs before retry: %s",
+            result.outcome_status, attempt, wait_s, result.error_message[:200],
         )
         await asyncio.sleep(wait_s)
         result = await _call_groq(prompt)
         result.retry_count = attempt
-        # Stop on success or on a non-rate-limit failure (auth,
-        # parse, etc.) - only rate-limit errors benefit from waiting.
-        if result.outcome_status != "http_5xx":
-            return result
-        if _parse_retry_after_seconds(result.error_message or "") is None:
+        if not _is_retryable_failure(result):
             return result
     # All retries exhausted.  Return the last failure (with
     # retry_count populated) so the dashboard can show
-    # "tried 3 times, still rate-limited".
+    # "tried 3 times, still failing".
     return result
 
 
@@ -794,10 +834,10 @@ async def enrich_page(page_text: str) -> _PageResult:
 # ── Bulk helper used by the /api/v1/documents/enrich endpoint ─────────────
 
 # Per-page ceiling.  Kept in sync with the Groq client's own timeout
-# (also 30s in ``_call_groq``) so asyncio.wait_for() is the authoritative
-# cap.  Groq is fast - typical page completes in ~1 s; 30 s is generous
-# headroom for rate-limit backoff or transient network blips.
-PAGE_TIMEOUT_S: float = 30.0
+# (also 60s in ``_call_groq``) so asyncio.wait_for() is the authoritative
+# cap.  The compound router can be slow under load; 60 s covers the
+# slow route plus a retry without failing pages that are just slow.
+PAGE_TIMEOUT_S: float = 60.0
 
 # Concurrency cap.  Three in-flight Groq requests keeps us well under
 # the free-tier rate limit (~30 req/min for llama-3.1-8b-instant) while

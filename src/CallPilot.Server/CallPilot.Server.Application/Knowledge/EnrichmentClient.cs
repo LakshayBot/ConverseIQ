@@ -37,10 +37,11 @@ public class EnrichmentClient
     /// <remarks>
     /// Uses <c>HttpCompletionOption.ResponseHeadersRead</c> so the
     /// caller can read NDJSON lines as they arrive rather than waiting
-    /// for the full response body.  A 4-minute overall budget matches
-    /// the original batched call: 30 pages × 3 concurrent × ~30s
-    /// each = 5 minutes worst case, but most documents complete in
-    /// well under a minute on Groq's free tier.
+    /// for the full response body.  Pages are enriched sequentially
+    /// and each one now does real LLM work (a dense brochure page can
+    /// take 10-30s + occasional rate-limit waits), so the default
+    /// budget is 10 minutes; override with the
+    /// <c>ENRICHMENT_BUDGET_MINUTES</c> environment variable.
     /// </remarks>
     public async IAsyncEnumerable<EnrichEvent> EnrichStreamingAsync(
         Guid documentId,
@@ -55,7 +56,16 @@ public class EnrichmentClient
         }
 
         var client = _httpClientFactory.CreateClient("AiEngine");
-        client.Timeout = TimeSpan.FromMinutes(4);
+        // Pages are enriched sequentially and each one does real LLM work
+        // (10-30s + occasional Groq rate-limit waits), so 4 minutes is too
+        // tight for a 19-page document.  Configurable via env so ops can
+        // tune without a rebuild.
+        var budgetMinutes = double.TryParse(
+            Environment.GetEnvironmentVariable("ENRICHMENT_BUDGET_MINUTES"),
+            out var configuredMinutes) && configuredMinutes > 0
+            ? configuredMinutes
+            : 30;
+        client.Timeout = TimeSpan.FromMinutes(budgetMinutes);
 
         var payload = new EnrichRequest
         {
