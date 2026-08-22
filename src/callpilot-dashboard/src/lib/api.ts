@@ -398,3 +398,142 @@ export interface CreateProviderRequest {
   maxTokens: number;
   timeoutSeconds: number;
 }
+/* ─────────────────────────────────────────────────────────────
+   AI Providers (BYOK) — /api/v1/ai/*
+   Mirrors the desktop contract; used by the Providers page.
+   ───────────────────────────────────────────────────────────── */
+
+export type AiProviderType = 'groq' | 'openai' | 'anthropic';
+
+export interface AiProviderDto {
+  id: string;
+  providerType: AiProviderType;
+  model: string | null;
+  endpoint: string | null;
+  hasKey: boolean;
+  maskedKey: string | null;
+  isEnabled: boolean;
+  createdAt: string;
+  usedForFeatures: string[];
+}
+
+export interface ListAiProvidersResponse {
+  providers: AiProviderDto[];
+  features: string[];
+}
+
+export interface CreateAiProviderRequest {
+  providerType: AiProviderType;
+  model: string | null;
+  endpoint: string | null;
+  apiKey: string;
+  temperature?: number | null;
+  maxTokens?: number | null;
+  timeoutSeconds?: number | null;
+}
+
+export type AiTestErrorCode =
+  | 'invalid_api_key' | 'key_expired_or_revoked' | 'insufficient_credits'
+  | 'rate_limit_reached' | 'model_unavailable' | 'provider_unavailable'
+  | 'request_failed' | 'invalid_response' | 'ok' | 'unknown';
+
+export interface AiTestResult {
+  valid: boolean;
+  errorCode: AiTestErrorCode;
+  error?: string | null;
+}
+
+export interface AiModel {
+  id: string;
+  name: string;
+  capabilities: string[];
+  supportsJsonOutput: boolean;
+  fromFallback: boolean;
+}
+
+export interface AiPreference {
+  feature: string;
+  providerConfigurationId: string | null;
+  model: string | null;
+}
+
+export interface AiUsageRow {
+  providerType: AiProviderType;
+  requestCount: number;
+  successCount: number;
+  failedCount: number;
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostUsd: number;
+}
+
+export interface AiUsage {
+  totalRequests: number;
+  successful: number;
+  failed: number;
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostUsd: number;
+  byProvider: AiUsageRow[];
+}
+
+export interface AiLimitSnapshot {
+  capturedAt: string;
+  snapshotJson: string;
+}
+
+export interface AiLimits {
+  limits: AiLimitSnapshot[];
+  note: string;
+}
+
+export async function apiGetAiProviders() {
+  return apiRequest<ListAiProvidersResponse>('/api/v1/ai/providers');
+}
+
+export async function apiUpsertAiProvider(body: CreateAiProviderRequest) {
+  return apiRequest<AiProviderDto>('/api/v1/ai/providers', { method: 'POST', body });
+}
+
+export async function apiDeleteAiProvider(id: string) {
+  return apiRequest<{ id: string; deleted: boolean }>('/api/v1/ai/providers/' + encodeURIComponent(id), { method: 'DELETE' });
+}
+
+export async function apiTestAiProviderStored(providerId: string) {
+  return apiRequest<AiTestResult>('/api/v1/ai/providers/' + encodeURIComponent(providerId) + '/test', { method: 'POST' });
+}
+
+export async function apiTestAiProvider(body: { providerType: string; apiKey: string; endpoint?: string | null }) {
+  return apiRequest<AiTestResult>('/api/v1/ai/providers/test', { method: 'POST', body });
+}
+
+export async function apiGetAiModels(body: { providerType: string; apiKey: string; endpoint?: string | null }) {
+  const resp = await apiRequest<{ models: AiModel[] }>('/api/v1/ai/providers/models', { method: 'POST', body });
+  return (resp && resp.models) || [];
+}
+
+export async function apiGetAiModelsForProvider(providerId: string) {
+  // Connected provider: server decrypts the stored key and lists models.
+  const resp = await apiRequest<{ models: AiModel[] }>(`/api/v1/ai/providers/${encodeURIComponent(providerId)}/models`);
+  return (resp && resp.models) || [];
+}
+
+export async function apiGetAiPreference(feature: string) {
+  return apiRequest<AiPreference>('/api/v1/ai/preferences/' + encodeURIComponent(feature));
+}
+
+export async function apiSetAiPreference(feature: string, body: { providerConfigurationId: string | null; model: string | null }) {
+  return apiRequest<AiPreference>('/api/v1/ai/preferences/' + encodeURIComponent(feature), { method: 'PUT', body });
+}
+
+export async function apiGetAiUsage(providerId?: string | null) {
+  const qs = providerId ? '?providerId=' + encodeURIComponent(providerId) : '';
+  return apiRequest<AiUsage>('/api/v1/ai/usage' + qs);
+}
+
+export async function apiGetAiLimits(id: string) {
+  return apiRequest<AiLimits>('/api/v1/ai/providers/' + encodeURIComponent(id) + '/limits');
+}
+

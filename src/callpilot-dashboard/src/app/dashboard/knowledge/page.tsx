@@ -22,7 +22,7 @@ const FAILURE_PREFIX = 'Error:';
 const POLL_INTERVAL_MS = 1500;
 
 function isLlmTerminal(s: string | null | undefined): boolean {
-  return s === 'enriched' || s === 'enrichment_failed';
+  return s === 'enriched' || s === 'enrichment_failed' || s === 'provider_required';
 }
 
 function isDocTerminal(doc: KnowledgeDocument | DocumentStatus): boolean {
@@ -463,8 +463,10 @@ function StatusPill({
       value === 'enriched' ? 'bg-green-100 text-green-700' :
       value === 'enriching' ? 'bg-blue-100 text-blue-700' :
       value === 'enrichment_failed' ? 'bg-red-100 text-red-700' :
+      value === 'provider_required' ? 'bg-yellow-100 text-yellow-700' :
       'bg-gray-100 text-gray-600';
-    return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${tone}`}>{value}</span>;
+    const label = value === 'provider_required' ? 'Provider needed' : value;
+    return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${tone}`} title={value === 'provider_required' ? 'Connect an AI provider in Settings > AI Providers to enable product extraction.' : undefined}>{label}</span>;
   }
 
   // Processing pill.
