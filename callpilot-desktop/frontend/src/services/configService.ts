@@ -191,16 +191,20 @@ export class ConfigService {
     return { status: 'success', message: 'Model configuration saved successfully' };
   }
 
-  /** Decrypt + return the API key for a given provider id. */
-  async getApiKeyForProvider(providerId: string): Promise<string> {
+  /**
+ * Fetch the MASKED key for a provider id.  The server never returns the
+ * plaintext key (security hardening); the value here is gsk_****abcd for
+ * display only.  Returns null when there is no key.
+ */
+  async getMaskedApiKey(providerId: string): Promise<string | null> {
     try {
-      const { apiKey } = await authedApiCall<{ apiKey: string }>(
+      const res = await authedApiCall<{ hasKey: boolean; apiKey: string | null }>(
         'GET',
         `/api/v1/providers/${providerId}/api-key`,
       );
-      return apiKey;
+      return res.hasKey ? res.apiKey : null;
     } catch {
-      return '';
+      return null;
     }
   }
 

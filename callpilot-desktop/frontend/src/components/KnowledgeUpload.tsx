@@ -23,6 +23,7 @@
 //     when nothing is in flight, it stops.
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
@@ -40,6 +41,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  KeyRound,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { authedApiCall } from '@/lib/auth';
@@ -189,7 +191,7 @@ const STAGE_ORDER: Array<{ key: IngestStageKey; label: string }> = [
 ];
 
 function isLlmTerminal(s: string | null | undefined): boolean {
-  return s === 'enriched' || s === 'enrichment_failed';
+  return s === 'enriched' || s === 'enrichment_failed' || s === 'provider_required';
 }
 
 // Terminal means "nothing left to poll for".  Fast-mode docs are done as
@@ -231,6 +233,7 @@ const StatusChip: React.FC<{ doc: KnowledgeDocument; live: DocumentStatus | null
   const isNoText = processingStatus === 'No extractable text found';
   const isIndexed = processingStatus === 'Indexed';
   const isEnrichmentFailed = enrichmentStatus === 'enrichment_failed';
+  const isProviderRequired = enrichmentStatus === 'provider_required';
   const isEnriching =
     isIndexed && doc.mode === 'structured' && enrichmentStatus != null && !isLlmTerminal(enrichmentStatus);
 
@@ -244,6 +247,10 @@ const StatusChip: React.FC<{ doc: KnowledgeDocument; live: DocumentStatus | null
   } else if (isNoText) {
     chipClass = 'chip-warning';
     label = 'No text found';
+  } else if (isProviderRequired) {
+    chipClass = 'chip-warning';
+    label = 'Provider needed';
+    title = 'Connect an AI provider in Settings > AI & Keys to enable product extraction.';
   } else if (isEnrichmentFailed) {
     chipClass = 'chip-danger';
     label = 'Enrichment failed';
@@ -263,140 +270,255 @@ const StatusChip: React.FC<{ doc: KnowledgeDocument; live: DocumentStatus | null
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Stage row (one chip per ingest stage)
+// Pipeline stepper — single-row, connector-based progress
+// Replaces the dense wrap of 7 equally-weighted chips with a linear rail.
+// Done steps are muted (no bright green wash), only the running/failed step
+// carries saturated color. Labels are normalized to Title Case to remove the
+// casing jitter seen in the screenshot (chunking/indexed/enriching vs etc).
 // ──────────────────────────────────────────────────────────────────────────────
 
-const StageRow: React.FC<{ stage: IngestStage; lastUpdatedAt: string | null }> = ({ stage, lastUpdatedAt }) => {
-  const [expanded, setExpanded] = useState(false);
-  const STUCK_THRESHOLD_MS = 30_000;
-  const stuckMs =
-    stage.status === 'running' && lastUpdatedAt && !stage.error
-      ? Date.now() - new Date(lastUpdatedAt).getTime()
-      : null;
-  const isStuck = stuckMs !== null && stuckMs > STUCK_THRESHOLD_MS;
-  const hasContent = stage.detail || stage.error;
+const STEP_LABELS: Record<IngestStageKey, string> = {
+  uploaded: 'Uploaded',
+  extracting: 'Extracting',
+  chunking: 'Chunking',
+  embedding: 'Embedding',
+  indexed: 'Indexed',
+  entityextraction: 'Entities',
+  enriching: 'Enriching',
+};
 
-  const dot = (() => {
-    if (stage.status === 'done') {
-      return <CheckCircle2 className="h-3 w-3" />;
-    }
-    if (stage.status === 'failed') {
-      return <AlertCircle className="h-3 w-3" />;
-    }
-    if (stage.status === 'running') {
-      return (
-        <span
-          className={`h-1.5 w-1.5 rounded-full animate-pulse ${
-            isStuck ? 'bg-[var(--opaline-on-surface-variant)]' : 'bg-current'
-          }`}
-        />
-      );
-    }
-    if (stage.status === 'skipped') {
-      return <span className="h-1.5 w-1.5 rounded-full bg-current opacity-60" />;
-    }
-    return <span className="h-1.5 w-1.5 rounded-full bg-current opacity-40" />;
-  })();
-
-  const chipClass =
-    stage.status === 'done'
-      ? 'chip-success'
-      : stage.status === 'failed'
-        ? 'chip-danger'
-        : stage.status === 'running'
-          ? 'chip-info'
-          : stage.status === 'skipped'
-            ? 'chip-neutral'
-            : 'chip-neutral';
-
-  return (
-    <li className="text-sm">
-      <button
-        type="button"
-        onClick={() => hasContent && setExpanded((e) => !e)}
-        className={`chip ${chipClass} ${
-          stage.status === 'skipped' ? 'line-through decoration-[var(--opaline-outline)]' : ''
-        } ${hasContent ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
+const StepDot: React.FC<{ status: IngestStageStatus; isStuck?: boolean }> = ({ status, isStuck }) => {
+  if (status === 'done') {
+    return (
+      <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border border-[var(--opaline-success-border)] bg-[var(--opaline-success-soft)]">
+        <Check className="h-3 w-3 text-[var(--opaline-success)]" strokeWidth={2.5} />
+      </span>
+    );
+  }
+  if (status === 'failed') {
+    return (
+      <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border border-[var(--opaline-danger-border)] bg-[var(--opaline-danger-soft)]">
+        <X className="h-3 w-3 text-[var(--opaline-danger)]" strokeWidth={2.5} />
+      </span>
+    );
+  }
+  if (status === 'running') {
+    return (
+      <span
+        className={`inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border ${
+          isStuck
+            ? 'border-[var(--opaline-warning-border)] bg-[var(--opaline-warning-soft)]'
+            : 'border-[var(--opaline-info-border)] bg-[var(--opaline-info-soft)]'
+        }`}
       >
-        {dot}
-        {stage.label}
-        {hasContent && (
-          <span className="ml-0.5">
-            {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-          </span>
-        )}
-      </button>
-      {expanded && hasContent && (
-        <div className="mt-2 rounded-lg border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)] p-2 text-xs space-y-1">
-          {stage.detail && (
-            <div className="text-[var(--opaline-on-surface-variant)]">
-              <span className="font-medium">detail:</span> {stage.detail}
-            </div>
-          )}
-          {stage.error && (
-            <div className="text-[var(--opaline-on-error-container)]">
-              <div>
-                <span className="font-medium">source:</span> {stage.error.source}
-                {stage.error.httpStatus != null && (
-                  <span className="ml-2"><span className="font-medium">http:</span> {stage.error.httpStatus}</span>
-                )}
-                {stage.error.model && (
-                  <span className="ml-2"><span className="font-medium">model:</span> {stage.error.model}</span>
-                )}
-              </div>
-              <div className="mt-1 break-words whitespace-pre-wrap rounded border border-[var(--opaline-error-container)] bg-[var(--opaline-error-container)] p-1.5 font-mono text-[11px]">
-                {stage.error.message}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </li>
+        <span
+          className={`h-1.5 w-1.5 rounded-full animate-pulse ${isStuck ? 'bg-[var(--opaline-warning)]' : 'bg-[var(--opaline-info)]'}`}
+        />
+      </span>
+    );
+  }
+  if (status === 'skipped') {
+    return (
+      <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container)]">
+        <span className="h-1 w-1 rounded-full bg-[var(--opaline-outline)] opacity-60" />
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)]">
+      <span className="h-1 w-1 rounded-full bg-[var(--opaline-outline)] opacity-30" />
+    </span>
   );
 };
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Enrichment progress bar
-// ──────────────────────────────────────────────────────────────────────────────
+const PipelineStepper: React.FC<{
+  stages: IngestStage[];
+  mode: 'fast' | 'structured';
+  lastUpdatedAt: string | null;
+  enrichmentProgress: EnrichmentProgress | null;
+}> = ({ stages, mode, lastUpdatedAt, enrichmentProgress }) => {
+  const STUCK_MS = 30_000;
+  const byKey = new Map(stages.map((s) => [s.key, s] as const));
+  const order: IngestStageKey[] =
+    mode === 'structured'
+      ? ['uploaded', 'extracting', 'chunking', 'embedding', 'indexed', 'entityextraction', 'enriching']
+      : ['uploaded', 'extracting', 'chunking', 'embedding', 'indexed', 'entityextraction'];
 
-const EnrichmentProgressBar: React.FC<{ progress: EnrichmentProgress }> = ({ progress }) => {
-  const pct = progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
+  const items = order.map((key) => {
+    const server = byKey.get(key);
+    return (
+      server ?? {
+        key,
+        label: STEP_LABELS[key],
+        status: 'pending' as IngestStageStatus,
+        startedAt: null,
+        finishedAt: null,
+        detail: null,
+        error: null,
+      }
+    );
+  });
+
+  // Normalize label to short Title Case; keep detail as tooltip/meta.
+  const enrichedPct =
+    enrichmentProgress && enrichmentProgress.total > 0
+      ? Math.round((enrichmentProgress.completed / enrichmentProgress.total) * 100)
+      : 0;
+
+  const [expandedKey, setExpandedKey] = useState<IngestStageKey | null>(null);
+
   return (
-    <div className="mt-2">
-      <div className="flex items-center justify-between gap-2 text-caption">
-        <span>
-          LLM enrichment
-          <span className="ml-1.5 font-mono tabular-nums text-[var(--opaline-on-surface)]">
-            {progress.completed}/{progress.total}
-          </span>
-          {progress.failed > 0 && (
-            <span className="ml-1.5 font-medium text-danger">
-              ({progress.failed} failed)
-            </span>
-          )}
-          {progress.inFlight > 0 && (
-            <span className="ml-1.5 animate-pulse text-primary">
-              {progress.inFlight} in flight
-            </span>
-          )}
-        </span>
-        <span className="font-mono text-[10px] tabular-nums text-[var(--opaline-outline)]">
-          {pct}%
-        </span>
-      </div>
-      <div
-        className="mt-1 h-1 w-full overflow-hidden rounded-full bg-[var(--opaline-surface-container-high)]"
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={pct}
-        title={`${pct}% complete`}
-      >
+    <div className="border-t border-[var(--opaline-outline-variant)]/40 bg-[var(--opaline-surface-container-low)]/30">
+      {/* hairline progress for enriching — single thin track, no duplicate text block */}
+      {enrichmentProgress && enrichmentProgress.total > 0 && (
         <div
-          className="h-full rounded-full bg-primary transition-all duration-300"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
+          className="h-0.5 w-full overflow-hidden bg-[var(--opaline-surface-container-high)]/60"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={enrichedPct}
+        >
+          <div
+            className="h-full bg-[var(--opaline-primary)] transition-all duration-500"
+            style={{ width: `${enrichedPct}%` }}
+          />
+        </div>
+      )}
+      <ol className="flex items-center gap-0 px-3.5 py-2.5 overflow-x-auto custom-scrollbar">
+        {items.map((stage, idx) => {
+          const isLast = idx === items.length - 1;
+          const isStuck =
+            stage.status === 'running' &&
+            lastUpdatedAt != null &&
+            !stage.error &&
+            Date.now() - new Date(lastUpdatedAt).getTime() > STUCK_MS;
+          const hasContent = !!(stage.detail || stage.error);
+          const isExpanded = expandedKey === stage.key;
+
+          // Color decisions — muted for done/pending, saturated only for active/failed
+          const labelClass =
+            stage.status === 'done'
+              ? 'text-[var(--opaline-on-surface-variant)]'
+              : stage.status === 'running'
+                ? isStuck
+                  ? 'text-[var(--opaline-warning)] font-medium'
+                  : 'text-[var(--opaline-info)] font-medium'
+                : stage.status === 'failed'
+                  ? 'text-[var(--opaline-danger)] font-medium'
+                  : stage.status === 'skipped'
+                    ? 'text-[var(--opaline-outline)] line-through decoration-[var(--opaline-outline-variant)]'
+                    : 'text-[var(--opaline-outline)]';
+
+          // Connector inherits color of the preceding step's outcome
+          const connectorClass =
+            stage.status === 'done' || (idx > 0 && items[idx - 1].status === 'done')
+              ? 'bg-[var(--opaline-success-border)]/60'
+              : 'bg-[var(--opaline-outline-variant)]/70';
+
+          // Short label overrides verbose server label (e.g. "Extracting (Docling)" → "Extracting")
+          const shortLabel = STEP_LABELS[stage.key] ?? stage.label;
+          // Inline meta only for the actively interesting steps to avoid per-chip noise
+          const showEmbeddingDetail =
+            stage.key === 'embedding' && stage.detail && stage.status !== 'pending';
+          const showEnrichingCounts =
+            stage.key === 'enriching' && enrichmentProgress && enrichmentProgress.total > 0;
+
+          return (
+            <li key={stage.key} className="flex items-center gap-0 shrink-0">
+              {/* connector before every item except first */}
+              {idx !== 0 && (
+                <span
+                  aria-hidden
+                  className={`mx-1.5 h-px w-4 shrink-0 ${connectorClass}`}
+                />
+              )}
+              <button
+                type="button"
+                onClick={() => hasContent && setExpandedKey(isExpanded ? null : stage.key)}
+                disabled={!hasContent}
+                title={stage.error?.message ?? stage.detail ?? shortLabel}
+                className={`inline-flex items-center gap-1.5 rounded-full px-1 py-0.5 -my-0.5 transition-colors ${
+                  hasContent ? 'cursor-pointer hover:bg-[var(--opaline-surface-container)]/70' : 'cursor-default'
+                } ${isExpanded ? 'bg-[var(--opaline-surface-container)]' : ''} focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--opaline-primary)]`}
+              >
+                <StepDot status={stage.status} isStuck={!!isStuck} />
+                <span className={`whitespace-nowrap text-[11px] leading-none tracking-[0.01em] ${labelClass}`}>
+                  {shortLabel}
+                </span>
+                {/* inline detail — single tiny muted token, not a separate chip */}
+                {showEmbeddingDetail && (
+                  <span className="whitespace-nowrap text-[10px] font-mono tabular-nums text-[var(--opaline-outline)]">
+                    · {stage.detail}
+                  </span>
+                )}
+                {showEnrichingCounts && (
+                  <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                    <span className="text-[10px] font-mono tabular-nums text-[var(--opaline-on-surface-variant)]">
+                      {enrichmentProgress!.completed}/{enrichmentProgress!.total}
+                    </span>
+                    {enrichmentProgress!.inFlight > 0 && (
+                      <span className="text-[10px] font-medium tabular-nums text-[var(--opaline-info)] animate-pulse">
+                        · {enrichmentProgress!.inFlight} in flight
+                      </span>
+                    )}
+                    {enrichmentProgress!.failed > 0 && (
+                      <span className="text-[10px] font-medium text-[var(--opaline-danger)]">
+                        · {enrichmentProgress!.failed} failed
+                      </span>
+                    )}
+                  </span>
+                )}
+                {isStuck && (
+                  <span className="rounded-full bg-[var(--opaline-warning-soft)] px-1 py-0 text-[9px] font-medium leading-none text-[var(--opaline-warning)]">
+                    stuck
+                  </span>
+                )}
+                {hasContent && (
+                  <span className="ml-0.5 text-[var(--opaline-outline)]">
+                    {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                  </span>
+                )}
+              </button>
+              {/* keep spacing balanced — connector after is rendered by next item's before */}
+              {isLast && <span aria-hidden className="w-1 shrink-0" />}
+            </li>
+          );
+        })}
+      </ol>
+      {/* single expanded detail slot — not per-chip popover stack */}
+      {(() => {
+        const active = expandedKey ? items.find((s) => s.key === expandedKey) : null;
+        if (!active || (!active.detail && !active.error)) return null;
+        return (
+          <div className="mx-3 mb-2.5 rounded-lg border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] px-2.5 py-2 text-xs">
+            {active.detail && (
+              <div className="text-[var(--opaline-on-surface-variant)]">
+                <span className="font-medium">detail:</span> {active.detail}
+              </div>
+            )}
+            {active.error && (
+              <div className="mt-1 text-[var(--opaline-on-error-container)]">
+                <div>
+                  <span className="font-medium">source:</span> {active.error.source}
+                  {active.error.httpStatus != null && (
+                    <span className="ml-2">
+                      <span className="font-medium">http:</span> {active.error.httpStatus}
+                    </span>
+                  )}
+                  {active.error.model && (
+                    <span className="ml-2">
+                      <span className="font-medium">model:</span> {active.error.model}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 break-words whitespace-pre-wrap rounded border border-[var(--opaline-error-container)] bg-[var(--opaline-error-container)] p-1.5 font-mono text-[11px]">
+                  {active.error.message}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 };
@@ -678,19 +800,22 @@ const DocumentRow: React.FC<{
     onDelete(doc.id);
   };
 
-  const processingStatus = live?.processingStatus ?? doc.processingStatus;
-  const enrichmentStatus = live?.enrichmentStatus ?? doc.enrichmentStatus;
   const chunkCount = live?.chunkCount ?? doc.chunkCount;
-  const showStepper = live && !isDocTerminal({ ...doc, ...live });
-  // Show the progress bar whenever the enrichment progress is populated,
-  // even post-terminal - partial successes are still worth surfacing.
   const enrichmentProgress = live?.enrichmentProgress ?? null;
-  const showProgressBar =
-    !!enrichmentProgress &&
-    (enrichmentProgress.total > 0) &&
-    (enrichmentProgress.completed < enrichmentProgress.total ||
-      enrichmentProgress.failed > 0 ||
-      enrichmentStatus !== 'enriched');
+  // Pipeline shows while ingest is active OR while enrichment counts are
+  // still meaningful (partial failure) OR when a stage has failed. Once
+  // everything is terminal and quiet we hide the rail so the row collapses
+  // to just the header + product list (maximizes density after completion).
+  const showPipeline = (() => {
+    if (!live) return false;
+    if (!isDocTerminal({ ...doc, ...live })) return true;
+    if (enrichmentProgress && enrichmentProgress.total > 0) {
+      const active = enrichmentProgress.completed < enrichmentProgress.total || enrichmentProgress.failed > 0;
+      if (active) return true;
+    }
+    if (live.stages.some((s) => s.status === 'failed' || s.status === 'running')) return true;
+    return false;
+  })();
 
   return (
     <React.Fragment>
@@ -711,9 +836,6 @@ const DocumentRow: React.FC<{
               </>
             )}
           </p>
-          {showProgressBar && enrichmentProgress && (
-            <EnrichmentProgressBar progress={enrichmentProgress} />
-          )}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <StatusChip doc={doc} live={live} />
@@ -739,44 +861,13 @@ const DocumentRow: React.FC<{
           </button>
         </div>
       </div>
-      {showStepper && live && (
-        <div className="flex flex-wrap items-center gap-1.5 bg-[var(--opaline-surface-container-low)]/40 px-4 py-2.5">
-          {STAGE_ORDER.map(({ key, label }) => {
-            const fromServer = live.stages.find((s) => s.key === key);
-            const stage: IngestStage = fromServer ?? {
-              key,
-              label,
-              status: 'pending',
-              startedAt: null,
-              finishedAt: null,
-              detail: null,
-              error: null,
-            };
-            return (
-              <StageRow
-                key={key}
-                stage={stage}
-                lastUpdatedAt={live.lastUpdatedAt}
-              />
-            );
-          })}
-          {doc.mode === 'structured' && (
-            <StageRow
-              stage={
-                live.stages.find((s) => s.key === 'enriching') ?? {
-                  key: 'enriching',
-                  label: 'LLM enrichment',
-                  status: 'pending',
-                  startedAt: null,
-                  finishedAt: null,
-                  detail: null,
-                  error: null,
-                }
-              }
-              lastUpdatedAt={live.lastUpdatedAt}
-            />
-          )}
-        </div>
+      {showPipeline && live && (
+        <PipelineStepper
+          stages={live.stages}
+          mode={(live.mode as 'fast' | 'structured') ?? (doc.mode as 'fast' | 'structured') ?? 'structured'}
+          lastUpdatedAt={live.lastUpdatedAt}
+          enrichmentProgress={enrichmentProgress}
+        />
       )}
       {live?.products && live.products.length > 0 && (
         <ProductProgressList
@@ -814,6 +905,7 @@ const DocumentRow: React.FC<{
 // ──────────────────────────────────────────────────────────────────────────────
 
 export const KnowledgeUpload: React.FC = () => {
+  const router = useRouter();
   const [docs, setDocs] = useState<KnowledgeDocument[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -829,12 +921,25 @@ export const KnowledgeUpload: React.FC = () => {
   const [creatingKb, setCreatingKb] = useState(false);
   const [kbForm, setKbForm] = useState({ name: '', companyName: '', website: '', description: '' });
   const [drawer, setDrawer] = useState<{ product: DrawerProduct; documentId: string; sourceDocument: string } | null>(null);
+  // BYOK: whether this user has any AI provider connected (for the
+  // "connect a provider to enable product extraction" prompt).
+  const [hasProvider, setHasProvider] = useState<boolean | null>(null);
 
   // Load docs + knowledge bases on mount
   useEffect(() => {
     void loadDocs();
     void loadKnowledgeBases();
+    void loadProviderStatus();
   }, []);
+
+  const loadProviderStatus = async () => {
+    try {
+      const resp = await authedApiCall<{ providers: { hasKey: boolean }[] }>('GET', '/api/v1/ai/providers');
+      setHasProvider((resp?.providers ?? []).some((p) => p.hasKey));
+    } catch {
+      setHasProvider(null);
+    }
+  };
 
   const loadKnowledgeBases = async () => {
     try {
@@ -970,6 +1075,19 @@ export const KnowledgeUpload: React.FC = () => {
       return;
     }
     if (!picked) return;
+
+    // BYOK gate: structured mode needs an LLM provider.  If this user has
+    // not connected one, stop with a clear prompt instead of silently
+    // failing enrichment in the background.
+    if (mode === 'structured') {
+      if (hasProvider === false) {
+        setError('Connect an AI provider first — open Settings > AI & Keys and add a Groq, OpenAI, or Anthropic API key to enable product extraction.');
+        return;
+      }
+      if (hasProvider === null) {
+        try { const p = await authedApiCall<{ providers: { hasKey: boolean }[] }>('GET', '/api/v1/ai/providers'); setHasProvider((p?.providers ?? []).some((x) => x.hasKey)); } catch { /* keep going */ }
+      }
+    }
 
     const fileName = picked.split(/[/\\]/).pop() || 'document';
     setUploading(true);
@@ -1129,6 +1247,26 @@ export const KnowledgeUpload: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* BYOK: user has not connected an AI provider → guide them before they\n          upload structured documents. */}
+      {hasProvider === false && (
+        <div className="panel-raised flex flex-wrap items-center justify-between gap-3 border-[var(--opaline-warning-border)] px-4 py-3">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="h-5 w-5 shrink-0 text-[var(--opaline-warning)]" />
+            <div>
+              <p className="text-sm font-medium text-[var(--opaline-on-surface)]">No AI provider connected</p>
+              <p className="text-caption mt-0.5">Connect Groq, OpenAI, or Anthropic with your own API key to enable product extraction (structured brochures).</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => router.push('/settings?tab=ai')}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-[var(--opaline-on-primary)] transition-colors hover:bg-[var(--opaline-primary-hover)]"
+          >
+            <KeyRound className="h-4 w-4" /> Go to AI & Keys
+          </button>
+        </div>
+      )}
+
       {/* Knowledge base (company context) - scopes product intelligence.
           Products discovered in uploaded documents are researched once
           under this company and reused live - no web search during calls. */}
