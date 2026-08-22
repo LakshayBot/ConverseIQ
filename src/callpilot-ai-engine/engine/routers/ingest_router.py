@@ -86,7 +86,8 @@ async def ingest_structured(file: UploadFile = File(...)) -> dict[str, Any]:
         try:
             from engine.services.vision_service import describe_pictures
             page_captions = await describe_pictures(
-                [{"page": p.page, "data_url": p.data_url} for p in result.pictures]
+                [{"page": p.page, "data_url": p.data_url} for p in result.pictures],
+                provider_config=body_provider,
             )
         except Exception as exc:  # noqa: BLE001 - fail-open
             logger.warning("ingest-structured: vision caption pass failed: %s", exc)
@@ -184,6 +185,20 @@ async def enrich_document(payload: dict = Body(...)) -> StreamingResponse:
     if not isinstance(pages, list):
         raise HTTPException(status_code=400, detail="pages must be a list")
     document_id = payload.get("document_id", "unknown")
+    # Optional BYOK provider block resolved by the .NET server::
+    #   {"provider": {"provider_type": "groq", "model": "...", "api_key": "...",
+    #                 "endpoint": null, "max_tokens": 6144}}
+    body_provider = payload.get("provider")
+    if isinstance(body_provider, dict):
+        from engine.ai.base import AiProviderConfig
+        body_provider = AiProviderConfig(
+            provider_type=(body_provider.get("provider_type") or body_provider.get("type") or "groq"),
+            model=body_provider.get("model") or "",
+            api_key=body_provider.get("api_key") or "",
+            endpoint=body_provider.get("endpoint") or None,
+            max_tokens=body_provider.get("max_tokens"),
+            temperature=body_provider.get("temperature"),
+        )
     t0 = time.time()
     logger.info(
         "enrich: document_id=%s, %d page(s) [streaming]", document_id, len(pages),
@@ -194,7 +209,7 @@ async def enrich_document(payload: dict = Body(...)) -> StreamingResponse:
         failure_count = 0
         emitted = 0
         try:
-            async for result in enrich_pages_streaming(pages):
+            async for result in enrich_pages_streaming(pages, provider_config=body_provider):
                 page_products = len(result.get("products", []))
                 outcome = result.get("outcome") or {}
                 status = outcome.get("status", "unknown")

@@ -257,7 +257,13 @@ Sources:
 __SNIPPETS__"""
 
 
-async def _extract_with_llm(name: str, sources: list[dict], llm_client=None, hints: dict | None = None) -> dict:
+async def _extract_with_llm(
+    name: str,
+    sources: list[dict],
+    llm_client=None,
+    hints: dict | None = None,
+    provider_config=None,
+) -> dict:
     if not sources:
         return {}
 
@@ -280,6 +286,8 @@ async def _extract_with_llm(name: str, sources: list[dict], llm_client=None, hin
     )
 
     # 1) BYOK proxy (the user's configured provider, via .NET LlmService).
+    #    This is the clean path: .NET resolves the user provider/model and
+    #    generates the response.  Preferred when supplied.
     if llm_client is not None:
         try:
             raw = await llm_client(prompt)
@@ -290,8 +298,22 @@ async def _extract_with_llm(name: str, sources: list[dict], llm_client=None, hin
         except Exception as exc:
             logger.warning("Product extraction BYOK call failed: %s", exc)
 
-    # 2) Groq fallback (existing enrichment client - json_object guaranteed).
-    #    Keeps research working even when no BYOK provider is configured.
+    # 2) Provider abstraction path: a resolved provider config was passed in
+    #    (new BYOK).  We call the same engine ai/ layer the enrichment pass
+    #    uses so there is no Groq-vs-OpenAI-vs-Anthropic branching here.
+    if provider_config is not None:
+        try:
+            from engine.services.enrichment_service import _call_provider_with_retry
+            result = await _call_provider_with_retry(provider_config, prompt)
+            if result and getattr(result, "content", None) and result.outcome_status == "ok":
+                payload = _parse_json_object(result.content)
+                if payload:
+                    return payload
+        except Exception as exc:
+            logger.warning("Product extraction provider call failed: %s", exc)
+
+    # 3) Legacy operator-default Groq fallback (env GROQ_API_KEY) so
+    #    research keeps working when no user provider is configured yet.
     try:
         from engine.services.enrichment_service import _call_groq_with_retry
         result = await _call_groq_with_retry(prompt)
@@ -324,6 +346,7 @@ async def research_product(
     boost: str = "",
     company: str = "",
     website: str = "",
+    provider_config=None,
 ) -> dict:
     """Run the full product research pipeline and return a result dict.
 
@@ -357,6 +380,7 @@ async def research_product(
     extracted = await _extract_with_llm(
         display_name, sources, llm_client,
         hints={"manufacturer": manufacturer or company, "category": category},
+        provider_config=provider_config,
     )
 
     if not extracted:

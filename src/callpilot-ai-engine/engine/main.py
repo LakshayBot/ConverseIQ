@@ -612,6 +612,7 @@ async def product_intel(request: dict):
     company = (request.get("company") or "").strip()
     website = (request.get("website") or "").strip()
     meeting_id = request.get("meeting_id", "unknown")
+    provider_config = request.get("provider")
 
     # Disambiguation hint from the knowledge base / seed data: the trie
     # entities carry product descriptions whose distinctive terms disambiguate
@@ -658,11 +659,78 @@ async def product_intel(request: dict):
         boost=description_terms,
         company=company,
         website=website,
+        provider_config=provider_config,
     )
     return {
         "name": name,
         **result,
     }
+
+
+@app.post("/internal/ai/models")
+async def ai_models(request: dict):
+    """Discover the models available to a provider API key.
+
+    Body: {"provider_type": "groq|openai|anthropic", "api_key": "...", "endpoint": null}
+    Returns the live-discovered model list, degrading to the curated
+    capability-tagged fallback when discovery is unavailable (Anthropic has
+    no list-models API; Groq/OpenAI discovery can fail on transient errors).
+    Never exposes the key.  Used by the .NET provider settings UI.
+    """
+    provider_type = (request.get("provider_type") or "").strip()
+    api_key = (request.get("api_key") or "").strip()
+    endpoint = request.get("endpoint") or None
+    if not provider_type or not api_key:
+        raise HTTPException(status_code=400, detail="provider_type and api_key are required")
+    from engine.ai.model_catalog import ModelCatalog
+    catalog = ModelCatalog()
+    models = await catalog.discover(provider_type, api_key, endpoint)
+    return {"provider_type": provider_type, "source": "live" if any(not m.from_fallback for m in models) else "fallback",
+            "models": [m.to_dict() for m in models]}
+
+
+@app.post("/internal/ai/test-key")
+async def ai_test_key(request: dict):
+    """Validate a provider API key (and optionally a model) without storing it.
+
+    Body: {"provider_type": "...", "api_key": "...", "endpoint": null, "model": null}
+    Makes the cheapest real provider call so .NET can show "Valid" /
+    "Invalid key" / "Rate limited" / "Model unavailable" in the settings UI.
+    Never stores or logs the key.
+    """
+    provider_type = (request.get("provider_type") or "").strip()
+    api_key = (request.get("api_key") or "").strip()
+    endpoint = request.get("endpoint") or None
+    model = (request.get("model") or "").strip() or None
+    if not provider_type or not api_key:
+        raise HTTPException(status_code=400, detail="provider_type and api_key are required")
+
+    from engine.ai.base import AiProviderConfig
+    from engine.ai.providers import get_provider
+
+    cfg = AiProviderConfig(
+        provider_type=provider_type,
+        model=model or _probe_model_for(provider_type),
+        api_key=api_key,
+        endpoint=endpoint,
+        temperature=0.0,
+        timeout_s=20.0,
+    )
+    try:
+        provider = get_provider(cfg)
+    except Exception as exc:
+        return {"valid": False, "error_code": "unknown", "error": str(exc)[:300]}
+    result = await provider.complete("Reply with the single word: OK", temperature=0.0, max_tokens=8)
+    if result.outcome_status == "ok":
+        return {"valid": True, "error_code": "ok", "error": None}
+    return {"valid": False, "error_code": result.error_code, "error": (result.error_message or "")[:300]}
+
+
+def _probe_model_for(provider_type: str) -> str:
+    """Cheapest model per provider for a key-validation probe."""
+    from engine.ai.base import APPLICATION_CATALOG
+    catalog = APPLICATION_CATALOG.get(provider_type or "")
+    return catalog[0]["id"] if catalog else ""
 
 
 @app.delete("/internal/competitor-cache/{competitor_name}")

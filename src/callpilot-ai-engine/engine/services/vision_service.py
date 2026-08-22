@@ -64,7 +64,10 @@ async def aclose() -> None:
         _groq_client = None
 
 
-async def describe_pictures(pictures: list[dict]) -> dict[int, list[str]]:
+async def describe_pictures(
+    pictures: list[dict],
+    provider_config=None,
+) -> dict[int, list[str]]:
     """Caption a list of picture descriptors.
 
     Input: list of dicts ``{"page": int, "data_url": str}`` (as produced by
@@ -76,12 +79,42 @@ async def describe_pictures(pictures: list[dict]) -> dict[int, list[str]]:
         return {}
 
     # Group by page, then chunk each page's pictures into IMAGES_PER_CALL.
-    from engine.services.enrichment_service import _get_groq_api_key
+    import os as _os
+    from engine.ai.base import AiProviderConfig, GROQ
+    from engine.ai.providers import get_provider
 
-    try:
-        _get_groq_api_key()  # early fail (cheap) with the typed error path below
-    except Exception:
-        return {}
+    resolved = provider_config
+    if resolved is not None and not hasattr(resolved, "provider_type"):
+        resolved = AiProviderConfig(
+            provider_type=resolved.get("provider_type", ""),
+            model=resolved.get("model", ""),
+            api_key=resolved.get("api_key", ""),
+            endpoint=resolved.get("endpoint") or None,
+        )
+
+    if resolved is None:
+        # Legacy operator-default path: env key + vision model.
+        try:
+            from engine.services.enrichment_service import _get_groq_api_key
+            _get_groq_api_key()
+            resolved = AiProviderConfig(
+                provider_type=GROQ,
+                model=_get_vision_model(),
+                api_key=_get_groq_api_key(),
+                timeout_s=VISION_TIMEOUT_S,
+            )
+        except Exception:
+            return {}
+        try:
+            provider = get_provider(resolved)
+        except Exception:
+            return {}
+    else:
+        try:
+            provider = get_provider(resolved)
+        except Exception as exc:
+            logger.warning("vision: provider init failed: %s", exc)
+            return {}
 
     out: dict[int, list[str]] = {}
 
@@ -95,22 +128,19 @@ async def describe_pictures(pictures: list[dict]) -> dict[int, list[str]]:
 
     async def _caption_page(page: int, page_pics: list[dict]) -> None:
         try:
-            client = _get_groq_client()
-            response = await asyncio.wait_for(
-                client.chat.completions.create(
-                    model=_get_vision_model(),
-                    messages=[{"role": "user", "content": _content_blocks(page_pics)}],
-                    temperature=0.2,
+            data_urls = [p.get("data_url") for p in page_pics if p.get("data_url")]
+            resp = await asyncio.wait_for(
+                provider.complete_with_images(
+                    _CAPTION_PROMPT,
+                    data_urls,
                     max_tokens=200,
-                    timeout=VISION_TIMEOUT_S,
+                    temperature=0.2,
                 ),
                 timeout=VISION_TIMEOUT_S,
             )
             text = ""
-            try:
-                text = (response.choices[0].message.content or "").strip()
-            except (AttributeError, IndexError, TypeError):
-                pass
+            if resp is not None and resp.content:
+                text = resp.content.strip()
             if not text or "NO_INFO" in text.upper():
                 return
             # One caption per picture in the batch; the model returns a

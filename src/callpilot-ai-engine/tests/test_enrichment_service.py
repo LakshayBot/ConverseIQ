@@ -26,6 +26,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from engine.services import enrichment_service
 from engine.services.enrichment_service import (
     EnrichedEntity,
     EnrichedProduct,
@@ -42,6 +43,16 @@ from engine.services.enrichment_service import (
     MAX_RATE_LIMIT_RETRIES,
     MIN_RETRY_WAIT_S,
 )
+
+
+@pytest.fixture(autouse=True)
+def _neutralize_prefilter_floor(monkeypatch):
+    """These tests exercise LLM-call mechanics with tiny synthetic pages
+    that the Phase 1 token-diet prefilter would skip as ``too_short``.
+    Drop the char floor here so the mocks are actually reached; the
+    prefilter itself is covered in ``test_enrichment_optimizations.py``.
+    """
+    monkeypatch.setattr(enrichment_service, "MIN_ENRICH_CHARS", 0)
 
 
 # ── _classify_groq_exception ───────────────────────────────────────────────
@@ -322,8 +333,10 @@ class TestMergedEntityClassification:
         with patch("engine.services.enrichment_service._call_groq",
                    new_callable=AsyncMock, return_value=ok_result):
             results = await enrich_pages([{"page": 1, "text": "..."}])
+        # Wire format is snake_case - EnrichmentClient.cs deserializes
+        # with JsonPropertyName("...") snake_case mappings.
         assert results[0]["entities"][0]["canonical"] == "Feature X"
-        assert results[0]["entities"][0]["entityType"] == "feature"
+        assert results[0]["entities"][0]["entity_type"] == "feature"
         assert "chunk_text" in results[0]["products"][0]
 
 
@@ -515,23 +528,28 @@ class TestEnrichPages:
 
     @pytest.mark.asyncio
     async def test_mixed_success_and_failure(self):
-        page_results = [
-            _GroqResult(
-                content=json.dumps({"products": [{"name": "A"}], "page_type": "overview"}),
-                outcome_status="ok", duration_ms=20,
-            ),
-            _GroqResult(
-                content=None, outcome_status="timeout",
-                error_message="per-page timeout", duration_ms=30000,
-            ),
-        ]
+        ok = _GroqResult(
+            content=json.dumps({"products": [{"name": "A"}], "page_type": "overview"}),
+            outcome_status="ok", duration_ms=20,
+        )
+        timeout = _GroqResult(
+            content=None, outcome_status="timeout",
+            error_message="per-page timeout", duration_ms=30000,
+        )
         pages = [{"page": 1, "text": "a"}, {"page": 2, "text": "b"}]
 
-        async def _mock_call(prompt: str):
-            return page_results.pop(0) if page_results else None
+        async def _mock_call(prompt: str, max_tokens=None):
+            # Route deterministically on the embedded page text - timeouts
+            # are retryable, so page "b" must keep returning them until
+            # retries are exhausted.
+            if "Page text:\nb\n" in prompt:
+                return timeout
+            return ok
 
         with patch("engine.services.enrichment_service._call_groq",
-                   new_callable=AsyncMock, side_effect=_mock_call):
+                   new_callable=AsyncMock, side_effect=_mock_call), \
+             patch("engine.services.enrichment_service.asyncio.sleep",
+                   new_callable=AsyncMock):
             results = await enrich_pages(pages)
         assert results[0]["products"][0]["name"] == "A"
         assert results[0]["page_type"] == "overview"
@@ -624,17 +642,20 @@ class TestCallGroqWithRetry:
         assert mock.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_does_not_retry_non_rate_limit_5xx(self):
-        # A 5xx without the "Please try again" hint is a generic outage;
-        # retrying won't help, so we return immediately.
+    async def test_retries_plain_5xx_outage(self):
+        # _is_retryable_failure treats ALL http_5xx as retryable (a routed
+        # backend's own quota can 429 without a wait hint; generic outages
+        # recover on a fresh attempt).  A later call succeeds.
         bad = _GroqResult(content=None, outcome_status="http_5xx",
                           error_message="Service unavailable", duration_ms=20)
+        ok = _GroqResult(content="{}", outcome_status="ok", duration_ms=10)
         with patch("engine.services.enrichment_service._call_groq",
-                   new_callable=AsyncMock, return_value=bad) as mock:
+                   new_callable=AsyncMock, side_effect=[bad, ok]), \
+             patch("engine.services.enrichment_service.asyncio.sleep",
+                   new_callable=AsyncMock):
             result = await _call_groq_with_retry("prompt")
-        assert result.outcome_status == "http_5xx"
-        assert result.retry_count == 0
-        assert mock.call_count == 1
+        assert result.outcome_status == "ok"
+        assert result.retry_count == 1
 
     @pytest.mark.asyncio
     async def test_does_not_retry_auth_errors(self):

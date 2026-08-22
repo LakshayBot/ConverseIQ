@@ -41,6 +41,7 @@ output.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -48,6 +49,17 @@ import re
 import time
 from dataclasses import dataclass, field, asdict
 from typing import Any, List, Optional
+
+from engine.ai.base import (
+    GROQ,
+    AiProviderConfig,
+    OUTCOME_OK,
+)
+from engine.ai.providers import (
+    MissingProviderKeyError,
+    complete_with_retry,
+    get_provider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +113,29 @@ def _get_model() -> str:
 GROQ_MAX_TOKENS = int(os.getenv("ENRICHMENT_MAX_TOKENS", "4608"))
 
 
+# ── Token-diet optimizations (Phase 1) ─────────────────────────────────────
+# Each knob is env-gated so operators can tune or disable it without code
+# changes.  Goal: cut per-document LLM token spend ~45-60% on typical
+# brochures by (a) never calling the LLM for junk pages, (b) scaling the
+# completion budget to page density instead of a flat ceiling, and
+# (c) deterministically bounding pathological inputs.
+
+#: Scale the completion budget to page size instead of paying the flat
+#: GROQ_MAX_TOKENS ceiling on every call (the single biggest TPM sink).
+_ADAPTIVE_TOKENS = os.getenv("ENRICHMENT_ADAPTIVE_TOKENS", "1") not in ("0", "false", "False")
+
+#: Pages longer than this are truncated (head+tail) before the prompt is
+#: built.  Brochure product data lives early in a page; this keeps
+#: pathological inputs from blowing the output budget.
+MAX_PAGE_CHARS = int(os.getenv("ENRICHMENT_MAX_PAGE_CHARS", "6000"))
+
+#: Prefilter floor - pages with less real text than this never reach the LLM.
+MIN_ENRICH_CHARS = int(os.getenv("ENRICHMENT_MIN_CHARS", "200"))
+
+#: Marker injected where truncation removed the middle of an overlong page.
+_TRUNCATION_MARKER = "\n[...truncated...]\n"
+
+
 # ── Data shape ─────────────────────────────────────────────────────────────
 
 #: Allowed values for ``EnrichedProduct.page_type``.  The LLM is told to pick
@@ -135,6 +170,12 @@ class _GroqResult:
     # so the user can see "this page needed a retry" without having
     # to read the server log.
     retry_count: int = 0
+    # Which provider+model served this call (surfaced for provenance so
+    # the .NET side can record "processed by Groq with Model X").
+    provider_type: Optional[str] = None
+    model: Optional[str] = None
+    error_code: Optional[str] = None
+    usage: Optional[Any] = None
 
 
 @dataclass
@@ -270,48 +311,17 @@ def _normalize_entity_type(raw: Any) -> str:
     return t if t in _VALID_ENTITY_TYPES else "other"
 
 
-_PROMPT_TEMPLATE = """You are a product intelligence extractor. Given text from a product brochure page, extract all products and their details, and classify EVERY notable entity on the page.
-
-Return ONLY valid JSON. No preamble, no explanation, no markdown backticks.
+_PROMPT_TEMPLATE = """Extract product intelligence from this brochure page text. Output JSON only.
 
 Schema:
-{{
-  "products": [
-    {{
-      "name": string,
-      "category": string or null,
-      "headline": string or null,
-      "key_features": [string],
-      "pricing": string or null,
-      "best_for": string or null,
-      "differentiators": [string],
-      "raw_claims": [string],
-      "entityType": "product",
-      "confidence": number (0.0-1.0, how confident you are it is a genuine named product),
-      "aliases": [string],
-      "evidence": string (short verbatim quote supporting the classification)
-    }}
-  ],
-  "entities": [
-    {{
-      "canonical": string,
-      "aliases": [string],
-      "entityType": "product_category | feature | component | accessory | application | technical_specification | other",
-      "confidence": number (0.0-1.0),
-      "evidence": string
-    }}
-  ],
-  "page_type": "product_listing | comparison | overview | pricing | contact | other"
-}}
+{{"products":[{{"name":str,"category":str|null,"headline":str|null,"key_features":[str],"pricing":str|null,"best_for":str|null,"differentiators":[str],"raw_claims":[str],"entityType":"product","confidence":0.0-1.0,"aliases":[str],"evidence":"verbatim quote"}}],"entities":[{{"canonical":str,"aliases":[str],"entityType":"product_category|feature|component|accessory|application|technical_specification|other","confidence":0.0-1.0,"evidence":"quote"}}],"page_type":"product_listing|comparison|overview|pricing|contact|other"}}
 
-RULES:
-- PRODUCT rules: only classify as a product if the page clearly presents it as a named, sellable offering of the company - not a component, feature, capability, industry, application, spec, or generic category. Be conservative.
-- "Prodigy", "PRODIGY" and "Prodigy meter" are the SAME product - keep one canonical name in "name" and collect alternate spellings as "aliases".
-- "canonical"/"name" is the clean primary name, title-cased, WITHOUT generic trailing words when the document brands it shorter (e.g. "Sprint 210" not "Sprint 210 modular meter").
-- "entities" must include every notable NON-product entity (features like "DLMS support", components, accessories, applications, technical specs) so nothing is lost.
-- "evidence" is a short verbatim quote from the text that supports the classification.
-
-If no products found return: {{"products": [], "entities": [], "page_type": "other"}}
+Rules:
+- "products" = only named, sellable offerings presented as such by the company - never components, features, specs, industries or generic categories.
+- Names are title-cased and canonical without generic trailing words ("Sprint 210", not "Sprint 210 modular meter"); alternate spellings go in "aliases".
+- "entities" must cover every notable NON-product entity (features like "DLMS support", specs, components).
+Limits: max 3 products, max 8 items per list, max 12 entities, quotes <= 15 words.
+No products found -> {{"products":[],"entities":[],"page_type":"other"}}
 
 Page text:
 {page_text}
@@ -320,6 +330,117 @@ Page text:
 
 def _build_prompt(page_text: str) -> str:
     return _PROMPT_TEMPLATE.format(page_text=page_text)
+
+
+# Appended to the prompt when a retry follows an output-budget truncation
+# (json_validate_failed).  Halving max_tokens alone doesn't tell the model
+# to be terse; this does.  Idempotent: guarded by membership check before
+# appending so it is never duplicated across retries.
+_RETRY_SHRINK_NOTE = (
+    "\n\nPrevious attempt exceeded output limits. Return FEWER, SHORTER "
+    "entries - prioritize products over entities and trim every list."
+)
+
+
+# ── Prefilter / dedup / budget helpers ─────────────────────────────────────
+
+# Dotted TOC leader lines ("Overview .......... 12").
+_TOC_LEADER_RE = re.compile(r"\.{4,}\s*\d+\s*$", re.MULTILINE)
+
+# Lines that look like legal/contact boilerplate rather than product copy.
+_BOILERPLATE_LINE_RE = re.compile(
+    r"(copyright|©|\ball rights reserved\b|www\.|https?://|@[\w.-]+\.[a-z]{2,}"
+    r"|\bphone\b|\btel[:.]|\bfax\b|disclaimer|privacy policy|terms of use"
+    r"|\bregistered office\b|\bregd\.? office\b|\bregd?\.? no\b"
+    r"|\bgstin?\b|\bcin\b)",
+    re.IGNORECASE,
+)
+
+_WHITESPACE_RE = re.compile(r"\s+")
+_PUNCT_RE = re.compile(r"[^\w\s]")
+
+
+def _prefilter_skip_reason(text: Optional[str]) -> Optional[str]:
+    """Cheap local check for pages with no plausible product signal.
+
+    Returns a skip-reason string, or ``None`` when the page should go to
+    the LLM.  Deliberately conservative: only skips pages that are CLEARLY
+    junk.  A false skip silently drops a real product card; a false enrich
+    costs one LLM call - asymmetric in favor of enriching.
+    """
+    if not text or not text.strip():
+        return "empty"
+    stripped = text.strip()
+    if len(stripped) < MIN_ENRICH_CHARS:
+        return "too_short"
+
+    lines = [ln for ln in stripped.splitlines() if ln.strip()]
+    lowered = stripped.lower()
+
+    # Table of contents: many dotted-leader lines plus contents/page words.
+    toc_leaders = len(_TOC_LEADER_RE.findall(stripped))
+    if toc_leaders >= 5 and ("contents" in lowered or " page" in lowered):
+        return "toc"
+
+    # Legal/contact-only page: most lines are copyright/address/phone noise
+    # and there is almost no long-form copy left.
+    if lines:
+        hits = sum(1 for ln in lines if _BOILERPLATE_LINE_RE.search(ln))
+        long_words = len(set(re.findall(r"[A-Za-z]{8,}", stripped)))
+        if hits / len(lines) >= 0.8 and long_words <= 6:
+            return "boilerplate"
+
+    return None
+
+
+def _truncate_page_text(text: str) -> str:
+    """Deterministic head+tail truncation for overlong pages."""
+    if len(text) <= MAX_PAGE_CHARS:
+        return text
+    head = int(MAX_PAGE_CHARS * 0.8)
+    tail = max(MAX_PAGE_CHARS - head - len(_TRUNCATION_MARKER), 0)
+    return text[:head] + _TRUNCATION_MARKER + (text[len(text) - tail:] if tail else "")
+
+
+def _output_budget(page_text: str) -> int:
+    """Completion budget scaled to page density instead of flat GROQ_MAX_TOKENS.
+
+    ~4 chars/token input heuristic; with the prompt's explicit list limits,
+    outputs rarely exceed ~0.9x input.  Clamped to [800, GROQ_MAX_TOKENS].
+    Disable via ENRICHMENT_ADAPTIVE_TOKENS=0 for legacy flat budgets.
+    """
+    if not _ADAPTIVE_TOKENS:
+        return GROQ_MAX_TOKENS
+    est_in = max(len(page_text) // 4, 1)
+    return max(800, min(GROQ_MAX_TOKENS, int(est_in * 0.9)))
+
+
+def _normalize_for_dedup(text: str) -> str:
+    return _PUNCT_RE.sub("", _WHITESPACE_RE.sub(" ", (text or "").lower())).strip()
+
+
+def _dedup_key(text: str) -> str:
+    return hashlib.sha1(_normalize_for_dedup(text).encode("utf-8")).hexdigest()
+
+
+def _duplicate_page_result(page_no: int, first_page: int, model: str) -> dict:
+    """Per-page result dict for a page whose normalized text was already
+    enriched earlier in the same document.  Reuses the ``no_products``
+    status (the .NET consumer's success vocabulary) plus metadata fields
+    it ignores."""
+    return {
+        "page": page_no,
+        "products": [],
+        "entities": [],
+        "page_type": "other",
+        "outcome": {
+            "status": "no_products",
+            "skip_reason": "duplicate",
+            "duplicate_of": first_page,
+            "model": model,
+            "duration_ms": 0,
+        },
+    }
 
 
 # ── JSON extraction & parsing ──────────────────────────────────────────────
@@ -505,7 +626,78 @@ async def aclose() -> None:
         _groq_client = None
 
 
-async def _call_groq(prompt: str) -> "_GroqResult":
+def _build_default_provider_config() -> AiProviderConfig:
+    """Operator-default provider config read from the environment.
+
+    Used only when the .NET side does not send a resolved user provider
+    (pre-migration / server-managed deployments).  The new BYOK pipeline
+    always passes an explicit ``provider_config`` so the engine never
+    hardcodes Groq there.
+    """
+    return AiProviderConfig(
+        provider_type=GROQ,
+        model=_get_model(),
+        api_key=_get_groq_api_key(),
+        max_tokens=GROQ_MAX_TOKENS,
+        temperature=0.1,
+        timeout_s=60.0,
+    )
+
+
+def _groq_result_from_ai(result, model_name: str) -> "_GroqResult":
+    """Map an :class:`AiCompletionResult` to the legacy :class:`_GroqResult`
+    shape the rest of this module (and its tests) consume."""
+    return _GroqResult(
+        content=result.content,
+        outcome_status=result.outcome_status,
+        error_message=result.error_message,
+        duration_ms=result.duration_ms,
+        retry_count=result.retry_count,
+        provider_type=getattr(result, "provider_type", None) or "unknown",
+        error_code=result.error_code,
+        usage=result.usage,
+    )
+
+
+async def _call_provider(
+    config: AiProviderConfig,
+    prompt: str,
+    max_tokens: Optional[int] = None,
+) -> "_GroqResult":
+    """Call any provider through the AI abstraction (no retries).
+
+    Mirrors the legacy :func:`_call_groq` contract so the rest of the
+    pipeline (and its outcome taxonomy) is provider-agnostic.
+
+    ``max_tokens`` (adaptive per-page budget) is a default; an explicit
+    ``config.max_tokens`` set by the caller still wins.
+    """
+    t0 = time.time()
+    try:
+        provider = get_provider(config)
+    except MissingProviderKeyError as exc:
+        logger.warning("Enrichment provider missing key: %s", exc)
+        return _GroqResult(content=None, outcome_status="missing_key", error_message=str(exc), duration_ms=_elapsed_ms(t0))
+    except Exception as exc:  # noqa: BLE001 - fail-open
+        logger.warning("Provider init failed: %s", exc)
+        return _GroqResult(content=None, outcome_status="unknown", error_message=str(exc), duration_ms=_elapsed_ms(t0))
+
+    try:
+        result = await provider.complete(
+            prompt,
+            max_tokens=config.max_tokens or (max_tokens if max_tokens is not None else GROQ_MAX_TOKENS),
+            temperature=config.temperature if config.temperature is not None else 0.1,
+            json_mode=True,
+        )
+    except asyncio.TimeoutError:
+        return _GroqResult(content=None, outcome_status="timeout", error_message="provider request timed out", duration_ms=_elapsed_ms(t0))
+    except Exception as exc:  # noqa: BLE001 - fail-open
+        logger.warning("Provider completion raised: %s", exc)
+        return _GroqResult(content=None, outcome_status="unknown", error_message=str(exc)[:500], duration_ms=_elapsed_ms(t0))
+    return _groq_result_from_ai(result, config.model)
+
+
+async def _call_groq(prompt: str, max_tokens: Optional[int] = None) -> "_GroqResult":
     """Call Groq's chat.completions API.  Returns a :class:`_GroqResult` with
     the response content and an outcome status so the caller can surface a
     useful error in the dashboard instead of silently dropping it.
@@ -518,6 +710,9 @@ async def _call_groq(prompt: str) -> "_GroqResult":
         ``timeout``          - asyncio.TimeoutError or client timeout
         ``connection_error`` - APIConnectionError / DNS / refused
         ``unknown``          - any other exception
+
+    ``max_tokens`` defaults to GROQ_MAX_TOKENS when not supplied (the
+    adaptive per-page budget is passed down by :func:`enrich_page`).
 
     Per spec: NO retries.  One shot per page.  ``response_format=json_object``
     forces the model to return a single JSON object, so we don't need to
@@ -539,7 +734,7 @@ async def _call_groq(prompt: str) -> "_GroqResult":
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             response_format={"type": "json_object"},
-            max_tokens=GROQ_MAX_TOKENS,
+            max_tokens=max_tokens if max_tokens is not None else GROQ_MAX_TOKENS,
             timeout=60,
         )
     except Exception as exc:  # noqa: BLE001 - fail-open
@@ -664,7 +859,10 @@ def _is_retryable_failure(result: _GroqResult) -> bool:
     return False
 
 
-async def _call_groq_with_retry(prompt: str) -> _GroqResult:
+async def _call_groq_with_retry(
+    prompt: str,
+    max_tokens: Optional[int] = None,
+) -> _GroqResult:
     """Wrap :func:`_call_groq` with retry for transient failures.
 
     Retries rate limits (429 / token quota) waiting the server's
@@ -674,10 +872,17 @@ async def _call_groq_with_retry(prompt: str) -> _GroqResult:
     Other failure modes (auth, timeout, connection) are returned
     immediately without retry - they won't be fixed by waiting.
 
+    On a validation-flake retry the completion budget is HALVED and a
+    terseness note appended to the prompt once - truncated-JSON retries
+    otherwise re-pay full input for an output that overflows again.
+    Rate-limit/transport retries keep the original prompt + budget.
+
     Surfaces retry_count on the result so the dashboard can show
     the user which pages needed retries and how many.
     """
-    result = await _call_groq(prompt)
+    cur_prompt = prompt
+    cur_max = max_tokens if max_tokens is not None else GROQ_MAX_TOKENS
+    result = await _call_groq(cur_prompt, max_tokens=cur_max)
     if not _is_retryable_failure(result):
         return result
 
@@ -696,7 +901,11 @@ async def _call_groq_with_retry(prompt: str) -> _GroqResult:
             result.outcome_status, attempt, wait_s, result.error_message[:200],
         )
         await asyncio.sleep(wait_s)
-        result = await _call_groq(prompt)
+        if "json_validate_failed" in (result.error_message or ""):
+            cur_max = max(600, cur_max // 2)
+            if _RETRY_SHRINK_NOTE not in cur_prompt:
+                cur_prompt += _RETRY_SHRINK_NOTE
+        result = await _call_groq(cur_prompt, max_tokens=cur_max)
         result.retry_count = attempt
         if not _is_retryable_failure(result):
             return result
@@ -704,6 +913,62 @@ async def _call_groq_with_retry(prompt: str) -> _GroqResult:
     # retry_count populated) so the dashboard can show
     # "tried 3 times, still failing".
     return result
+
+
+async def _call_provider_with_retry(
+    config: AiProviderConfig,
+    prompt: str,
+    max_tokens: Optional[int] = None,
+) -> _GroqResult:
+    """Wrap the provider-agnostic :func:`_call_provider` with the same
+    retry semantics as :func:`_call_groq_with_retry` (rate limits, 5xx,
+    timeouts, connection blips, json_validate flakes - including the
+    halved-budget + terseness-note shrink on validation retries).
+    Used when the .NET server has resolved a user provider config
+    (the BYOK path).  An explicit ``config.max_tokens`` still wins over
+    the adaptive budget inside :func:`_call_provider`.
+    """
+    cur_prompt = prompt
+    cur_max = max_tokens if max_tokens is not None else GROQ_MAX_TOKENS
+    result = await _call_provider(config, cur_prompt, max_tokens=cur_max)
+    if not _is_retryable_failure(result):
+        return result
+
+    for attempt in range(1, MAX_RATE_LIMIT_RETRIES + 1):
+        hint_s = _parse_retry_after_seconds(result.error_message or "")
+        if hint_s is not None:
+            wait_s = max(MIN_RETRY_WAIT_S, min(hint_s * RETRY_BUFFER_FACTOR, MAX_RETRY_WAIT_S))
+        elif "json_validate_failed" in (result.error_message or ""):
+            wait_s = 2.0
+        elif result.outcome_status in ("timeout", "connection_error"):
+            wait_s = 1.0
+        else:
+            wait_s = 5.0
+        logger.warning(
+            "Provider %s %s on attempt %d, waiting %.1fs before retry: %s",
+            config.provider_type, result.outcome_status, attempt, wait_s,
+            (result.error_message or "")[:200],
+        )
+        await asyncio.sleep(wait_s)
+        if "json_validate_failed" in (result.error_message or ""):
+            cur_max = max(600, cur_max // 2)
+            if _RETRY_SHRINK_NOTE not in cur_prompt:
+                cur_prompt += _RETRY_SHRINK_NOTE
+        result = await _call_provider(config, cur_prompt, max_tokens=cur_max)
+        result.retry_count = attempt
+        if not _is_retryable_failure(result):
+            return result
+    return result
+
+
+def _result_model(result, config: Optional[AiProviderConfig]) -> str:
+    """The model that served a page: the provider-sent model when the BYOK
+    path is active, otherwise the env default or the result's own model."""
+    if config is not None:
+        return config.model
+    if result is not None and getattr(result, "model", None):
+        return result.model
+    return _get_model()
 
 
 # ── Public API ─────────────────────────────────────────────────────────────
@@ -721,41 +986,53 @@ class _PageResult:
     outcome: dict = field(default_factory=dict)
 
 
-async def enrich_page(page_text: str) -> _PageResult:
+async def enrich_page(
+    page_text: str,
+    provider_config: Optional[AiProviderConfig] = None,
+) -> _PageResult:
     """Run the enrichment LLM pass on a single page of brochure text.
-
-    Returns a :class:`_PageResult` with the parsed products (possibly empty)
-    and an outcome dict the caller can attach to the per-page response so
-    the dashboard can distinguish "no products found" (LLM was fine) from
-    "enrichment failed" (auth / network / parse error).
-
-    The merged pass also returns classified non-product entities
-    (features, components, applications, ...) which the .NET handler
-    persists as DocumentEntity rows for the live-call trie.
-
-    Fail-open: every failure path returns an empty products list with a
-    classified outcome status.  The caller keeps the original Docling
-    chunks and the pipeline continues.
 
     Per spec: 30 s timeout, no retries.  The authoritative per-page cap is
     enforced at the ``enrich_pages`` level via :func:`asyncio.wait_for`;
     the Groq client's own 30 s timeout here is a redundant safety net.
+
+    Token-diet steps before any LLM call: local prefilter (blank / short /
+    TOC / boilerplate pages are skipped with ``status="no_products"`` and
+    a ``skip_reason`` - the .NET consumer treats that status as success),
+    then deterministic head+tail truncation for overlong pages, then an
+    adaptive completion budget scaled to the page's density.
     """
-    if not page_text or not page_text.strip():
+    skip_reason = _prefilter_skip_reason(page_text)
+    if skip_reason == "empty":
         return _PageResult(
             products=[],
-            outcome={"status": "no_products", "model": _get_model(), "duration_ms": 0,
+            outcome={"status": "no_products", "skip_reason": skip_reason,
+                     "model": _result_model(None, provider_config), "duration_ms": 0,
                      "error": "page text was empty"},
         )
-
-    prompt = _build_prompt(page_text.strip())
-    try:
-        groq_result = await _call_groq_with_retry(prompt)
-    except Exception as exc:  # noqa: BLE001 - fail-open, last line of defence
-        logger.warning("enrich_page: unexpected exception in _call_groq: %s", exc)
+    if skip_reason is not None:
+        logger.info("enrich_page: skipping page (prefilter: %s)", skip_reason)
         return _PageResult(
             products=[],
-            outcome={"status": "unknown", "model": _get_model(), "duration_ms": 0,
+            outcome={"status": "no_products", "skip_reason": skip_reason,
+                     "model": _result_model(None, provider_config), "duration_ms": 0},
+        )
+
+    clean_text = _truncate_page_text(page_text.strip())
+    budget = _output_budget(clean_text)
+    prompt = _build_prompt(clean_text)
+    try:
+        # BYOK path: the calling side already resolved the user provider.
+        # Legacy path (provider_config is None): the operator-default env key.
+        if provider_config is not None:
+            groq_result = await _call_provider_with_retry(provider_config, prompt, max_tokens=budget)
+        else:
+            groq_result = await _call_groq_with_retry(prompt, max_tokens=budget)
+    except Exception as exc:  # noqa: BLE001 - fail-open, last line of defence
+        logger.warning("enrich_page: unexpected exception in provider call: %s", exc)
+        return _PageResult(
+            products=[],
+            outcome={"status": "unknown", "model": _result_model(None, provider_config), "duration_ms": 0,
                      "error": str(exc), "retry_count": 0},
         )
 
@@ -769,10 +1046,13 @@ async def enrich_page(page_text: str) -> _PageResult:
             products=[],
             outcome={
                 "status": status,
-                "model": _get_model(),
+                "model": _result_model(groq_result, provider_config),
                 "duration_ms": groq_result.duration_ms,
                 "error": (groq_result.error_message or "")[:500] or None,
                 "retry_count": groq_result.retry_count,
+                "error_code": groq_result.error_code,
+                "provider": groq_result.provider_type,
+                "usage": None if groq_result.usage is None else groq_result.usage.__dict__,
             },
         )
 
@@ -786,7 +1066,7 @@ async def enrich_page(page_text: str) -> _PageResult:
         logger.warning("enrich_page: parse failure: %s; head=%r", exc, groq_result.content[:120])
         return _PageResult(
             products=[],
-            outcome={"status": "parse_error", "model": _get_model(),
+            outcome={"status": "parse_error", "model": _result_model(groq_result, provider_config),
                      "duration_ms": groq_result.duration_ms,
                      "error": f"JSON decode failed: {exc}"[:500],
                      "retry_count": groq_result.retry_count},
@@ -795,7 +1075,7 @@ async def enrich_page(page_text: str) -> _PageResult:
     if not isinstance(data, dict):
         return _PageResult(
             products=[],
-            outcome={"status": "parse_error", "model": _get_model(),
+            outcome={"status": "parse_error", "model": _result_model(groq_result, provider_config),
                      "duration_ms": groq_result.duration_ms,
                      "error": f"response root is {type(data).__name__}, not object"[:500],
                      "retry_count": groq_result.retry_count},
@@ -808,7 +1088,7 @@ async def enrich_page(page_text: str) -> _PageResult:
         logger.warning("enrich_page: parse failure: %s", exc)
         return _PageResult(
             products=[],
-            outcome={"status": "parse_error", "model": _get_model(),
+            outcome={"status": "parse_error", "model": _result_model(groq_result, provider_config),
                      "duration_ms": groq_result.duration_ms, "error": str(exc)[:500],
                      "retry_count": groq_result.retry_count},
         )
@@ -817,7 +1097,7 @@ async def enrich_page(page_text: str) -> _PageResult:
         # Valid JSON, valid schema, but LLM said no products on this page.
         return _PageResult(
             products=[],
-            outcome={"status": "no_products", "model": _get_model(),
+            outcome={"status": "no_products", "model": _result_model(groq_result, provider_config),
                      "duration_ms": groq_result.duration_ms, "error": None,
                      "retry_count": groq_result.retry_count},
         )
@@ -825,7 +1105,7 @@ async def enrich_page(page_text: str) -> _PageResult:
     return _PageResult(
         products=products,
         entities=entities,
-        outcome={"status": "ok", "model": _get_model(),
+        outcome={"status": "ok", "model": _result_model(groq_result, provider_config),
                  "duration_ms": groq_result.duration_ms, "error": None,
                  "retry_count": groq_result.retry_count},
     )
@@ -861,7 +1141,10 @@ import os as _os
 MIN_PAGE_INTERVAL_S: float = float(_os.getenv("ENRICHMENT_PAGE_INTERVAL_S", "5.0"))
 
 
-async def enrich_pages(pages: list[dict]) -> list[dict]:
+async def enrich_pages(
+    pages: list[dict],
+    provider_config: Optional[AiProviderConfig] = None,
+) -> list[dict]:
     """Enrich a batch of pages.  Each input dict: ``{"page": int, "text": str}``.
 
     Returns a list of dicts in the same shape as the input plus
@@ -881,11 +1164,28 @@ async def enrich_pages(pages: list[dict]) -> list[dict]:
     let the .NET side set ``enrichment_failed`` and exit.
     """
     semaphore = asyncio.Semaphore(PAGE_CONCURRENCY)
+    # Normalized-text hash -> first page number carrying it.  Duplicate
+    # pages (repeated boilerplate, mirrored layouts) return immediately
+    # without an LLM call or a pacing slot.
+    seen_hashes: dict[str, int] = {}
 
     async def _enrich_one(p: dict) -> dict:
         page_no = p.get("page", 0)
         text = p.get("text", "")
         async with semaphore:
+            # Exact-duplicate page detection (Phase 1 token diet).  Pages
+            # that would be prefiltered anyway are excluded so blank text
+            # doesn't masquerade as "duplicate of page 1".
+            if not _prefilter_skip_reason(text):
+                key = _dedup_key(text)
+                first = seen_hashes.setdefault(key, page_no)
+                if first != page_no:
+                    logger.info(
+                        "enrich_pages: page %d duplicates page %d - skipping LLM call",
+                        page_no, first,
+                    )
+                    return _duplicate_page_result(
+                        page_no, first, _result_model(None, provider_config))
             # Pace consecutive page starts so the per-minute request
             # rate stays below Groq's free-tier ceiling. PAGE_CONCURRENCY=1
             # already serializes the work via the semaphore, but a 5s gap
@@ -896,7 +1196,7 @@ async def enrich_pages(pages: list[dict]) -> list[dict]:
                 await asyncio.sleep(MIN_PAGE_INTERVAL_S)
             try:
                 result = await asyncio.wait_for(
-                    enrich_page(text), timeout=PAGE_TIMEOUT_S
+                    enrich_page(text, provider_config=provider_config), timeout=PAGE_TIMEOUT_S
                 )
                 products = result.products
                 entities = result.entities
@@ -978,7 +1278,10 @@ async def enrich_pages(pages: list[dict]) -> list[dict]:
 
 # ── Streaming variant ───────────────────────────────────────────────────
 
-async def enrich_pages_streaming(pages: list[dict]):
+async def enrich_pages_streaming(
+    pages: list[dict],
+    provider_config: Optional[AiProviderConfig] = None,
+):
     """Async generator: yield a per-page result dict as each page finishes.
 
     Same input shape as :func:`enrich_pages`, same per-page dict shape
@@ -992,14 +1295,27 @@ async def enrich_pages_streaming(pages: list[dict]):
     outcome per page rather than propagating up.
     """
     semaphore = asyncio.Semaphore(PAGE_CONCURRENCY)
+    # Normalized-text hash -> first page number carrying it (Phase 1
+    # token diet).  Duplicate pages yield immediately without an LLM call.
+    seen_hashes: dict[str, int] = {}
 
     async def _enrich_one(p: dict) -> dict:
         page_no = p.get("page", 0)
         text = p.get("text", "")
         async with semaphore:
+            if not _prefilter_skip_reason(text):
+                key = _dedup_key(text)
+                first = seen_hashes.setdefault(key, page_no)
+                if first != page_no:
+                    logger.info(
+                        "enrich_pages_streaming: page %d duplicates page %d - skipping LLM call",
+                        page_no, first,
+                    )
+                    return _duplicate_page_result(
+                        page_no, first, _result_model(None, provider_config))
             try:
                 result = await asyncio.wait_for(
-                    enrich_page(text), timeout=PAGE_TIMEOUT_S
+                    enrich_page(text, provider_config=provider_config), timeout=PAGE_TIMEOUT_S
                 )
                 products = result.products
                 entities = result.entities
