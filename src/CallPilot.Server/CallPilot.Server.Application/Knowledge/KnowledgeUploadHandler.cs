@@ -700,6 +700,34 @@ public class KnowledgeUploadHandler
             return;
         }
 
+        // BYOK: resolve THIS user's configured provider+model for knowledge
+        // processing.  When the user has NOT configured their own provider yet,
+        // we do NOT silently fall back to a server-wide key (the user should be
+        // prompted to connect one) - the document is marked provider_required and
+        // the UI shows a "connect a provider" prompt.  The provider block is sent
+        // to the engine per-request and never persisted beyond this scope.
+        var providerSvc = scope.ServiceProvider.GetRequiredService<CallPilot.Server.Infrastructure.AI.ProviderSvc>();
+        var resolvedProvider = (await providerSvc.ResolveFeatureAsync(
+            document.UserId, CallPilot.Server.Infrastructure.AI.AiFeatures.KnowledgeProcessing));
+        if (resolvedProvider is null)
+        {
+            logger.LogInformation(
+                "enrich: document {DocId} has no user AI provider configured, marking provider_required",
+                documentId);
+            var preRec = new IngestStageRecorder(document, db, logger);
+            preRec.MarkRunning("enriching");
+            document.SetEnrichmentStatus("provider_required");
+            preRec.MarkFailed("enriching", new IngestStageError(
+                Stage: "enriching", Source: "dotnet", HttpStatus: null,
+                Message: "No AI provider connected. Open Settings > AI & Keys and connect Groq, OpenAI, or Anthropic to enable product extraction.",
+                Model: null, At: DateTime.UtcNow));
+            await db.SaveChangesAsync();
+            return;
+        }
+        logger.LogInformation(
+            "enrich: document {DocId} resolved provider {Provider} model {Model}",
+            documentId, resolvedProvider.ProviderType, resolvedProvider.Model);
+
         var rec = new IngestStageRecorder(document, db, logger);
         rec.MarkRunning("enriching");
 
@@ -765,7 +793,7 @@ public class KnowledgeUploadHandler
         Exception? streamException = null;
         try
         {
-            await foreach (var evt in _enrichmentClient.EnrichStreamingAsync(documentId, pageInputs))
+            await foreach (var evt in _enrichmentClient.EnrichStreamingAsync(documentId, pageInputs, provider: resolvedProvider))
             {
                 if (evt is EnrichmentClient.EnrichPageResult page)
                 {
@@ -804,7 +832,39 @@ public class KnowledgeUploadHandler
                     }
                     inFlight = Math.Max(0, inFlight - 1);
 
-                    // Write the live progress + update the stage detail
+                    // Local usage tracking: record what CallPilot consumed through
+                    // the user key for this page (success/failure + tokens when
+                    // the provider reported them).  Best-effort - never blocks the
+                    // page loop, never includes document content.
+                    if (resolvedProvider is not null)
+                    {
+                        try
+                        {
+                            var usage = page.Outcome?.Usage;
+                            var estimated = CallPilot.Server.Infrastructure.AI.CostEstimator.EstimateUsd(
+                                resolvedProvider.ProviderType, resolvedProvider.Model,
+                                usage?.InputTokens, usage?.OutputTokens);
+                            await providerSvc.RecordUsageAsync(document.UserId,
+                                new CallPilot.Server.Infrastructure.AI.RecordUsageRequest(
+                                    ProviderConfigurationId: resolvedProvider.ProviderConfigurationId,
+                                    ProviderType: resolvedProvider.ProviderType,
+                                    Model: resolvedProvider.Model,
+                                    Feature: CallPilot.Server.Infrastructure.AI.AiFeatures.KnowledgeProcessing,
+                                    InputTokens: usage?.InputTokens,
+                                    OutputTokens: usage?.OutputTokens,
+                                    TotalTokens: usage?.TotalTokens,
+                                    Success: status == "ok" || status == "no_products",
+                                    DurationMs: page.Outcome?.DurationMs ?? 0,
+                                    EstimatedCostUsd: estimated,
+                                    ErrorCode: page.Outcome is null ? null : (status == "ok" ? "ok" : status),
+                                    DocumentId: documentId,
+                                    PageNumber: page.Page));
+                        }
+                        catch (Exception usageEx)
+                        {
+                            logger.LogWarning(usageEx, "enrich: usage recording failed for {DocId} page {Page}", documentId, page.Page);
+                        }
+                    }                    // Write the live progress + update the stage detail
                     // so the dashboard's next poll (≤1.5s away) sees it.
                     document.SetEnrichmentProgress(new EnrichmentProgress(
                         Total: total, Completed: completed, Failed: failed,
@@ -1047,6 +1107,15 @@ public class KnowledgeUploadHandler
             {
                 logger.LogWarning(innerEx, "enrich: failed to mark entityextraction as failed");
             }
+        }
+
+        // Record which provider+model actually processed this document so a
+        // later switch of the user default never retroactively relabels it.
+        if (resolvedProvider is not null)
+        {
+            var usedModel = pageProgress.FirstOrDefault(p => p.Model is not null)?.Model
+                ?? resolvedProvider.Model;
+            document.SetEnrichmentProvider(resolvedProvider.ProviderType, usedModel);
         }
 
         // Final stage transition.  If even one page had a real failure

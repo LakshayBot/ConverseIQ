@@ -13,6 +13,9 @@ public class CallPilotDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<ProviderConfiguration> ProviderConfigurations => Set<ProviderConfiguration>();
+    public DbSet<CallPilot.Server.Domain.AI.UserFeaturePreference> UserFeaturePreferences => Set<CallPilot.Server.Domain.AI.UserFeaturePreference>();
+    public DbSet<CallPilot.Server.Domain.AI.AiUsageLog> AiUsageLogs => Set<CallPilot.Server.Domain.AI.AiUsageLog>();
+    public DbSet<CallPilot.Server.Domain.AI.ProviderLimitSnapshot> ProviderLimitSnapshots => Set<CallPilot.Server.Domain.AI.ProviderLimitSnapshot>();
     public DbSet<Meeting> Meetings => Set<Meeting>();
     public DbSet<TranscriptSegment> TranscriptSegments => Set<TranscriptSegment>();
     public DbSet<Speaker> Speakers => Set<Speaker>();
@@ -61,6 +64,56 @@ public class CallPilotDbContext : DbContext
                   .HasForeignKey(pc => pc.UserId)
                   .OnDelete(DeleteBehavior.Cascade);
             entity.HasQueryFilter(pc => pc.DeletedAt == null);
+        });
+
+        modelBuilder.Entity<CallPilot.Server.Domain.AI.UserFeaturePreference>(entity =>
+        {
+            entity.HasKey(f => f.Id);
+            entity.HasIndex(f => new { f.UserId, f.Feature }).IsUnique();
+            entity.Property(f => f.Feature).HasMaxLength(100).IsRequired();
+            entity.Property(f => f.Model).HasMaxLength(200);
+            entity.HasOne(f => f.User)
+                  .WithMany(u => u.FeaturePreferences)
+                  .HasForeignKey(f => f.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(f => f.ProviderConfiguration)
+                  .WithMany()
+                  .HasForeignKey(f => f.ProviderConfigurationId)
+                  .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<CallPilot.Server.Domain.AI.AiUsageLog>(entity =>
+        {
+            entity.HasKey(u => u.Id);
+            entity.HasIndex(u => new { u.UserId, u.RequestedAt });
+            entity.HasIndex(u => u.ProviderConfigurationId);
+            entity.Property(u => u.ProviderType).HasMaxLength(100).IsRequired();
+            entity.Property(u => u.Model).HasMaxLength(200);
+            entity.Property(u => u.Feature).HasMaxLength(100);
+            entity.Property(u => u.ErrorCode).HasMaxLength(100);
+            entity.HasOne(u => u.User)
+                  .WithMany(us => us.AiUsageLogs)
+                  .HasForeignKey(u => u.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(u => u.ProviderConfiguration)
+                  .WithMany()
+                  .HasForeignKey(u => u.ProviderConfigurationId)
+                  .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<CallPilot.Server.Domain.AI.ProviderLimitSnapshot>(entity =>
+        {
+            entity.HasKey(s => s.Id);
+            entity.HasIndex(s => new { s.ProviderConfigurationId, s.CapturedAt });
+            entity.Property(s => s.SnapshotJson).HasColumnType("jsonb");
+            entity.HasOne(s => s.User)
+                  .WithMany(u => u.LimitSnapshots)
+                  .HasForeignKey(s => s.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(s => s.ProviderConfiguration)
+                  .WithMany()
+                  .HasForeignKey(s => s.ProviderConfigurationId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<Meeting>(entity =>
@@ -123,6 +176,8 @@ public class CallPilotDbContext : DbContext
             entity.Property(d => d.ContentType).HasMaxLength(200).IsRequired();
             entity.Property(d => d.ProcessingStatus).HasMaxLength(200).IsRequired();
             entity.Property(d => d.EnrichmentStatus).HasMaxLength(50);
+            entity.Property(d => d.EnrichmentProviderType).HasMaxLength(100);
+            entity.Property(d => d.EnrichmentModel).HasMaxLength(200);
             entity.Property(d => d.StoragePath).HasMaxLength(1000);
             // Per-stage ingest log (jsonb) - see KnowledgeDocument.RecordStage* methods.
             entity.Property(d => d.StagesJson).HasColumnType("jsonb");

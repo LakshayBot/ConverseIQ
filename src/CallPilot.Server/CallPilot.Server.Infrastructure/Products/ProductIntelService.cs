@@ -33,18 +33,25 @@ public class ProductIntelService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ProductIntelQueue _queue;
     private readonly ILogger<ProductIntelService> _logger;
+    private readonly CallPilot.Server.Infrastructure.AI.ProviderSvc _providerSvc;
 
     public ProductIntelService(
         CallPilotDbContext db,
         IHttpClientFactory httpClientFactory,
         ProductIntelQueue queue,
-        ILogger<ProductIntelService> logger)
+        ILogger<ProductIntelService> logger,
+        CallPilot.Server.Infrastructure.AI.ProviderSvc providerSvc)
     {
         _db = db;
         _httpClientFactory = httpClientFactory;
         _queue = queue;
         _logger = logger;
+        _providerSvc = providerSvc;
     }
+
+    /// <summary>Resolve a user configured provider+model for product research.</summary>
+    private async Task<CallPilot.Server.Infrastructure.AI.ResolvedProvider?> ResolveUserProviderAsync(Guid userId)
+        => await _providerSvc.ResolveFeatureAsync(userId, CallPilot.Server.Infrastructure.AI.AiFeatures.KnowledgeProcessing);
 
     /// <summary>Lowercase, trimmed, whitespace-collapsed canonical identity.</summary>
     public static string NormalizeName(string name)
@@ -523,14 +530,44 @@ public class ProductIntelService
         using var client = _httpClientFactory.CreateClient("AiEngine");
 
         // The owning knowledge base provides the company + website used to
-        // disambiguate the web research ("Secure Meters Sprint 210").
+        // disambiguate the web research ("Secure Meters Sprint 210"), and the
+        // owner user for BYOK provider resolution.
         string? website = null;
+        Guid? ownerUserId = null;
         if (row.KnowledgeBaseId is Guid kbId)
         {
-            website = await _db.KnowledgeBases
+            var kb = await _db.KnowledgeBases
                 .Where(k => k.Id == kbId)
-                .Select(k => k.Website)
+                .Select(k => new { k.Website, k.UserId })
                 .FirstOrDefaultAsync();
+            website = kb?.Website;
+            ownerUserId = kb?.UserId;
+        }
+
+        // BYOK: forward the user resolved provider config so the engine
+        // research extraction uses the user key (falls back to the engine
+        // operator default when unset).
+        object? providerBlock = null;
+        if (ownerUserId is Guid uid)
+        {
+            try
+            {
+                var resolved = await ResolveUserProviderAsync(uid);
+                if (resolved is not null)
+                {
+                    providerBlock = new
+                    {
+                        provider_type = resolved.ProviderType,
+                        model = resolved.Model,
+                        api_key = resolved.ApiKey,
+                        endpoint = resolved.Endpoint,
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Product research provider resolution failed for user {User}", uid);
+            }
         }
 
         var response = await client.PostAsJsonAsync("/internal/product-intel", new
@@ -542,6 +579,7 @@ public class ProductIntelService
             website = website ?? "",
             context = context ?? "",
             meeting_id = "",
+            provider = providerBlock,
         });
         if (!response.IsSuccessStatusCode)
         {

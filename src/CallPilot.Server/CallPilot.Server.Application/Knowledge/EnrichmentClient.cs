@@ -46,6 +46,7 @@ public class EnrichmentClient
     public async IAsyncEnumerable<EnrichEvent> EnrichStreamingAsync(
         Guid documentId,
         IReadOnlyList<EnrichPageInput> pages,
+        CallPilot.Server.Infrastructure.AI.ResolvedProvider? provider = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         if (pages.Count == 0)
@@ -71,6 +72,14 @@ public class EnrichmentClient
         {
             DocumentId = documentId.ToString(),
             Pages = pages.ToList(),
+            Provider = provider is null ? null : new EnrichProvider
+            {
+                ProviderType = provider.ProviderType,
+                Model = provider.Model,
+                ApiKey = provider.ApiKey,
+                Endpoint = provider.Endpoint,
+                MaxTokens = null,
+            },
         };
 
         _logger.LogInformation(
@@ -179,6 +188,17 @@ public class EnrichmentClient
     {
         [JsonPropertyName("document_id")] public string DocumentId { get; set; } = "";
         [JsonPropertyName("pages")] public List<EnrichPageInput> Pages { get; set; } = new();
+        [JsonPropertyName("provider")] public EnrichProvider? Provider { get; set; }
+    }
+
+    public class EnrichProvider
+    {
+        [JsonPropertyName("provider_type")] public string ProviderType { get; set; } = "";
+        [JsonPropertyName("model")] public string Model { get; set; } = "";
+        [JsonPropertyName("api_key")] public string ApiKey { get; set; } = "";
+        [JsonPropertyName("endpoint")] public string? Endpoint { get; set; }
+        [JsonPropertyName("max_tokens")] public int? MaxTokens { get; set; }
+        [JsonPropertyName("temperature")] public double? Temperature { get; set; }
     }
 
     public class EnrichPageInput
@@ -222,6 +242,15 @@ public class EnrichmentClient
         // surfaces this so the user can see which pages were slowed
         // by Groq throttling.
         [JsonPropertyName("retry_count")] public int RetryCount { get; set; } = 0;
+        // Provider-reported token usage for this page (when available).
+        [JsonPropertyName("usage")] public PageUsageDto? Usage { get; set; }
+    }
+
+    public class PageUsageDto
+    {
+        [JsonPropertyName("input_tokens")] public int? InputTokens { get; set; }
+        [JsonPropertyName("output_tokens")] public int? OutputTokens { get; set; }
+        [JsonPropertyName("total_tokens")] public int? TotalTokens { get; set; }
     }
 
     public class EnrichedProductDto

@@ -228,6 +228,7 @@ builder.Services.AddSingleton<TextExtractorFactory>();
 builder.Services.AddScoped<KnowledgeUploadHandler>();
 builder.Services.AddScoped<StructuredIngestClient>();
 builder.Services.AddScoped<EnrichmentClient>();
+builder.Services.AddScoped<CallPilot.Server.Infrastructure.AI.ProviderSvc>();
 
 builder.Services.AddSingleton<CallPilot.Server.Infrastructure.Products.ProductIntelQueue>();
 builder.Services.AddScoped<CallPilot.Server.Infrastructure.Products.ProductIntelService>();
@@ -1075,6 +1076,11 @@ app.MapGet("/api/v1/providers", async (CallPilotDbContext db, ClaimsPrincipal us
     return Results.Ok(providers);
 }).RequireAuthorization();
 
+// SECURITY: the old /api/v1/providers/{id}/api-key endpoint returned the
+// DECRYPTED plaintext key to the client.  That is removed.  The frontend now
+// only ever receives a masked form (gsk_****abcd) + a hasKey boolean; the
+// plaintext key is decrypted only server-side, immediately before a provider
+// call (see ProviderSvc.ResolveFeatureAsync).
 app.MapGet("/api/v1/providers/{id:guid}/api-key", async (
     Guid id,
     CallPilotDbContext db,
@@ -1088,15 +1094,22 @@ app.MapGet("/api/v1/providers/{id:guid}/api-key", async (
         .FirstOrDefaultAsync(p => p.Id == id && p.UserId == Guid.Parse(userIdClaim) && p.DeletedAt == null);
     if (provider is null) return Results.NotFound(new { error = "Provider not found" });
 
+    if (string.IsNullOrWhiteSpace(provider.EncryptedApiKey))
+        return Results.Ok(new { hasKey = false, apiKey = (string?)null });
+
+    // Decrypt ONLY to derive the masked display value; the full key never
+    // leaves this handler.
+    string masked;
     try
     {
         var plaintext = encryption.Decrypt(provider.EncryptedApiKey);
-        return Results.Ok(new { apiKey = plaintext });
+        masked = CallPilot.Server.Infrastructure.AI.ProviderSvc.SafeMask(plaintext);
     }
     catch
     {
-        return Results.Ok(new { apiKey = "" });
+        masked = "****";
     }
+    return Results.Ok(new { hasKey = true, apiKey = masked });
 }).RequireAuthorization();
 
 // Upsert a provider config keyed by ProviderType (so the desktop's
@@ -1169,6 +1182,153 @@ app.MapDelete("/api/v1/providers/{id:guid}", async (
 }).RequireAuthorization();
 
 // ── Internal LLM proxy (used by AI Engine for competitive intel) ────────────
+
+// ── BYOK AI provider management (user-api-key settings) ───────────────
+//
+// These endpoints back the dedicated "AI Providers" section.  They extend the
+// existing ProviderConfiguration storage with feature preferences, local usage
+// tracking, limit snapshots and provider-aware model discovery.  The desktop/
+// dashboard send the plaintext key ONLY on create/update; every read returns a
+// masked key + connection status.
+
+// Provider overview: connected providers + masked keys + feature usage.
+app.MapGet("/api/v1/ai/providers", async (
+    ClaimsPrincipal user,
+    CallPilot.Server.Infrastructure.AI.ProviderSvc svc) =>
+{
+    var userId = ClaimsHelpers.ClaimsUserId(user);
+    if (userId is null) return Results.Unauthorized();
+    var providers = await svc.ListAsync(userId.Value);
+    return Results.Ok(new { providers, features = CallPilot.Server.Infrastructure.AI.AiFeatures.All });
+}).RequireAuthorization();
+
+// Key test for an ALREADY-CONNECTED provider: uses the stored (encrypted)
+// probe the provider through the AI engine and return validity + a mapped
+// error code.  Never stores the key in this call.
+app.MapPost("/api/v1/ai/providers/test", async (
+    ClaimsPrincipal user,
+    ProviderTestRequest body,
+    CallPilot.Server.Infrastructure.AI.ProviderSvc svc) =>
+{
+    var userId = ClaimsHelpers.ClaimsUserId(user);
+    if (userId is null) return Results.Unauthorized();
+    var result = await svc.TestKeyAsync(userId.Value, body.ProviderType, body.ApiKey, body.Endpoint);
+    return Results.Ok(new { valid = result.Valid, errorCode = result.ErrorCode, error = result.Error });
+}).RequireAuthorization();
+
+// Key test for an ALREADY-CONNECTED provider: probes with the stored,
+// server-side-decrypted key (the client never supplies or sees it).
+app.MapPost("/api/v1/ai/providers/{id:guid}/test", async (
+    Guid id,
+    ClaimsPrincipal user,
+    CallPilot.Server.Infrastructure.AI.ProviderSvc svc) =>
+{
+    var userId = ClaimsHelpers.ClaimsUserId(user);
+    if (userId is null) return Results.Unauthorized();
+    var result = await svc.TestStoredProviderAsync(userId.Value, id);
+    return Results.Ok(new { valid = result.Valid, errorCode = result.ErrorCode, error = result.Error });
+}).RequireAuthorization();
+
+// Model discovery for a provider the user has ALREADY connected.  Uses the
+// stored (encrypted) key server-side - the client never sees the plaintext.
+app.MapGet("/api/v1/ai/providers/{id:guid}/models", async (
+    Guid id,
+    ClaimsPrincipal user,
+    CallPilot.Server.Infrastructure.AI.ProviderSvc svc) =>
+{
+    var userId = ClaimsHelpers.ClaimsUserId(user);
+    if (userId is null) return Results.Unauthorized();
+    var models = await svc.ListModelsForProviderAsync(userId.Value, id);
+    return Results.Ok(new { models });
+}).RequireAuthorization();
+
+// Model discovery for a provider key (live where supported, curated fallback
+// for Anthropic / failures).
+app.MapPost("/api/v1/ai/providers/models", async (
+    ClaimsPrincipal user,
+    ProviderTestRequest body,
+    CallPilot.Server.Infrastructure.AI.ProviderSvc svc) =>
+{
+    var userId = ClaimsHelpers.ClaimsUserId(user);
+    if (userId is null) return Results.Unauthorized();
+    var models = await svc.ListModelsAsync(userId.Value, body.ProviderType, body.ApiKey, body.Endpoint);
+    return Results.Ok(new { models });
+}).RequireAuthorization();
+
+// Upsert (create or replace) a connected provider + key.
+app.MapPost("/api/v1/ai/providers", async (
+    ClaimsPrincipal user,
+    UpsertProviderRequest body,
+    CallPilot.Server.Infrastructure.AI.ProviderSvc svc) =>
+{
+    var userId = ClaimsHelpers.ClaimsUserId(user);
+    if (userId is null) return Results.Unauthorized();
+    var dto = await svc.UpsertAsync(userId.Value, body);
+    return Results.Ok(dto);
+}).RequireAuthorization();
+
+// Delete (soft) a connected provider.
+app.MapDelete("/api/v1/ai/providers/{id:guid}", async (
+    Guid id,
+    ClaimsPrincipal user,
+    CallPilot.Server.Infrastructure.AI.ProviderSvc svc) =>
+{
+    var userId = ClaimsHelpers.ClaimsUserId(user);
+    if (userId is null) return Results.Unauthorized();
+    var ok = await svc.DeleteAsync(userId.Value, id);
+    return ok ? Results.Ok(new { id, deleted = true }) : Results.NotFound(new { error = "Provider not found" });
+}).RequireAuthorization();
+
+// Feature preference: which provider+model serves a feature.
+app.MapGet("/api/v1/ai/preferences/{feature}", async (
+    string feature,
+    ClaimsPrincipal user,
+    CallPilot.Server.Infrastructure.AI.ProviderSvc svc) =>
+{
+    var userId = ClaimsHelpers.ClaimsUserId(user);
+    if (userId is null) return Results.Unauthorized();
+    var pref = await svc.GetFeaturePreferenceAsync(userId.Value, feature);
+    return pref is null
+        ? Results.Ok(new { feature, providerConfigurationId = (Guid?)null, model = (string?)null })
+        : Results.Ok(pref);
+}).RequireAuthorization();
+
+// Set feature preference (the user chooses knowledge processing -> provider -> model).
+app.MapPut("/api/v1/ai/preferences/{feature}", async (
+    string feature,
+    SetFeaturePreferenceRequest body,
+    ClaimsPrincipal user,
+    CallPilot.Server.Infrastructure.AI.ProviderSvc svc) =>
+{
+    var userId = ClaimsHelpers.ClaimsUserId(user);
+    if (userId is null) return Results.Unauthorized();
+    var pref = await svc.SetFeaturePreferenceAsync(userId.Value, feature, body.ProviderConfigurationId, body.Model);
+    return Results.Ok(pref);
+}).RequireAuthorization();
+
+// Local CallPilot usage (what CallPilot consumed through the user key).
+app.MapGet("/api/v1/ai/usage", async (
+    Guid? providerId,
+    ClaimsPrincipal user,
+    CallPilot.Server.Infrastructure.AI.ProviderSvc svc) =>
+{
+    var userId = ClaimsHelpers.ClaimsUserId(user);
+    if (userId is null) return Results.Unauthorized();
+    var usage = await svc.GetUsageAsync(userId.Value, providerId);
+    return Results.Ok(usage);
+}).RequireAuthorization();
+
+// Provider rate-limit snapshot history (labeled "snapshot", never implied permanent).
+app.MapGet("/api/v1/ai/providers/{id:guid}/limits", async (
+    Guid id,
+    ClaimsPrincipal user,
+    CallPilot.Server.Infrastructure.AI.ProviderSvc svc) =>
+{
+    var userId = ClaimsHelpers.ClaimsUserId(user);
+    if (userId is null) return Results.Unauthorized();
+    var limits = await svc.GetLimitsAsync(userId.Value, id);
+    return Results.Ok(new { limits, note = "Snapshot as reported by the provider; may change." });
+}).RequireAuthorization();
 
 app.MapPost("/internal/llm/generate", async (
     GenerateRequest req,
@@ -1251,3 +1411,24 @@ public record ProviderUpsertRequest(
     double Temperature,
     int MaxTokens,
     int TimeoutSeconds);
+
+// ── BYOK request/response DTOs ────────────────────────────────────────────
+
+public record ProviderTestRequest(
+    string ProviderType,
+    string ApiKey,
+    string? Endpoint);
+
+public record SetFeaturePreferenceRequest(
+    Guid? ProviderConfigurationId,
+    string? Model);
+
+/// <summary>Read the authenticated userId claim or null (top-level helper).</summary>
+public static class ClaimsHelpers
+{
+    public static Guid? ClaimsUserId(System.Security.Claims.ClaimsPrincipal user)
+    {
+        var claim = user.FindFirst("userId")?.Value;
+        return claim is not null && Guid.TryParse(claim, out var id) ? id : (Guid?)null;
+    }
+}

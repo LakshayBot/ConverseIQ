@@ -13,6 +13,9 @@ public class User
 
     public ICollection<RefreshToken> RefreshTokens { get; private set; } = new List<RefreshToken>();
     public ICollection<ProviderConfiguration> ProviderConfigurations { get; private set; } = new List<ProviderConfiguration>();
+    public ICollection<CallPilot.Server.Domain.AI.UserFeaturePreference> FeaturePreferences { get; private set; } = new List<CallPilot.Server.Domain.AI.UserFeaturePreference>();
+    public ICollection<CallPilot.Server.Domain.AI.AiUsageLog> AiUsageLogs { get; private set; } = new List<CallPilot.Server.Domain.AI.AiUsageLog>();
+    public ICollection<CallPilot.Server.Domain.AI.ProviderLimitSnapshot> LimitSnapshots { get; private set; } = new List<CallPilot.Server.Domain.AI.ProviderLimitSnapshot>();
 
     private User() { }
 

@@ -40,6 +40,15 @@ public class KnowledgeDocument
     /// </summary>
     public string? Mode { get; private set; }
 
+    /// <summary>
+    /// Which provider+model actually processed this document s LLM enrichment.
+    /// Captured at enrichment time so a document enriched by Groq/Model X
+    /// does not later claim it was enriched by OpenAI after the user switches
+    /// their default provider.  Null for fast-mode / legacy rows.
+    /// </summary>
+    public string? EnrichmentProviderType { get; private set; }
+    public string? EnrichmentModel { get; private set; }
+
     public string? StoragePath { get; private set; }
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
@@ -113,6 +122,14 @@ public class KnowledgeDocument
     public void SetMode(string mode)
     {
         Mode = mode;
+    }
+
+    /// <summary>Record the provider/model that enriched this document.</summary>
+    public void SetEnrichmentProvider(string? providerType, string? model)
+    {
+        EnrichmentProviderType = providerType;
+        EnrichmentModel = model;
+        UpdatedAt = DateTime.UtcNow;
     }
 
     public void SetKnowledgeBase(Guid knowledgeBaseId)
