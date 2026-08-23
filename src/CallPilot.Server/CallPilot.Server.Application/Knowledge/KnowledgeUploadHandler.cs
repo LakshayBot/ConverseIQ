@@ -280,6 +280,10 @@ public class KnowledgeUploadHandler
 
             rec.MarkRunning("extracting",
                 mode == IngestMode.Structured ? "Extracting (Docling)" : "Extracting");
+            // P0: track per-document text yield for scanned-PDF warning
+            var extractionPageCount = 0;
+            var extractionPagesWithText = 0;
+            string? extractionWarning = null;
             try
             {
                 if (mode == IngestMode.Structured)
@@ -287,12 +291,36 @@ public class KnowledgeUploadHandler
                     var structured = await ExtractStructuredAsync(document, fileStream, rec);
                     chunks = structured.Chunks;
                     rawTextForEntityExtraction = structured.RawText;
+                    // Docling page count is stashed in RawOutput; use chunk page hints as proxy
+                    // for yield warning (chunks already carry PageHint).
+                    if (structured.Chunks.Count > 0)
+                    {
+                        var distinctPages = structured.Chunks.Select(c => c.PageHint).Where(p => p > 0).Distinct().Count();
+                        // If Docling extracted far fewer pages than expected, flag it.  We don't
+                        // have the original PDF page count here without extra plumbing, so we
+                        // defer the detailed ratio check to the enrichment path where
+                        // no_text_layer is counted per page.  Structured extraction with OCR
+                        // should rarely be low-yield; a warning here would be noisy.
+                    }
                 }
                 else
                 {
                     var fast = await ExtractFastAsync(document, fileStream);
                     chunks = fast.Chunks;
                     rawTextForEntityExtraction = fast.RawText;
+                    extractionPageCount = fast.PageCount;
+                    extractionPagesWithText = fast.PagesWithText;
+                    if (extractionPageCount > 0 && extractionPagesWithText > 0)
+                    {
+                        var emptyPages = extractionPageCount - extractionPagesWithText;
+                        var ratio = (double)emptyPages / extractionPageCount;
+                        if (ratio >= 0.25 || emptyPages >= 5)
+                        {
+                            extractionWarning = emptyPages == extractionPageCount
+                                ? $"Scanned PDF: all {extractionPageCount} pages had no extractable text"
+                                : $"Low text yield: {emptyPages}/{extractionPageCount} pages had no extractable text (likely scanned/image-only)";
+                        }
+                    }
                 }
             }
             catch (Exception)
@@ -304,18 +332,27 @@ public class KnowledgeUploadHandler
 
             if (chunks.Count == 0)
             {
-                rec.MarkDone("extracting", detail: "0 chunks produced");
+                var detail = extractionWarning ?? "0 chunks produced";
+                rec.MarkDone("extracting", detail: detail);
                 rec.MarkSkipped("chunking", "No extractable text");
                 rec.MarkSkipped("embedding", "No extractable text");
                 rec.MarkSkipped("indexed", "No extractable text");
                 rec.MarkSkipped("entityextraction", "No extractable text");
                 rec.MarkSkipped("enriching", "No extractable text");
-                document.SetProcessingStatus("No extractable text found");
+                document.SetProcessingStatus(extractionWarning is not null ? extractionWarning : "No extractable text found");
                 await _dbContext.SaveChangesAsync();
                 return;
             }
 
-            rec.MarkDone("extracting");
+            if (extractionWarning is not null)
+            {
+                rec.MarkDone("extracting", detail: extractionWarning);
+                _logger.LogWarning("extraction low yield for {FileName}: {Warning}", document.FileName, extractionWarning);
+            }
+            else
+            {
+                rec.MarkDone("extracting");
+            }
             rec.MarkRunning("chunking");
             rec.MarkDone("chunking", detail: $"{chunks.Count} chunks");
 
@@ -538,7 +575,7 @@ public class KnowledgeUploadHandler
     /// <summary>
     /// Fast extraction: Docnet.Core + paragraph-aware chunker, both in-process.
     /// </summary>
-    private async Task<(List<TextChunk> Chunks, string? RawText)> ExtractFastAsync(
+    private async Task<(List<TextChunk> Chunks, string? RawText, int PageCount, int PagesWithText)> ExtractFastAsync(
         KnowledgeDocument document, Stream fileStream)
     {
         document.SetProcessingStatus("Extracting");
@@ -550,20 +587,30 @@ public class KnowledgeUploadHandler
         {
             document.SetProcessingStatus($"Unsupported format: {document.ContentType}");
             await _dbContext.SaveChangesAsync();
-            return ([], null);
+            return ([], null, 0, 0);
         }
 
         var text = await extractor.ExtractTextAsync(fileStream);
+        // P0: capture per-page yield for scanned-PDF warning (PdfTextExtractor
+        // exposes LastPageCount/LastPagesWithText populated by ExtractTextAsync).
+        var pageCount = 0;
+        var pagesWithText = 0;
+        if (extractor is CallPilot.Server.Infrastructure.Knowledge.PdfTextExtractor pdfEx)
+        {
+            pageCount = pdfEx.LastPageCount;
+            pagesWithText = pdfEx.LastPagesWithText;
+        }
+
         if (string.IsNullOrWhiteSpace(text))
         {
-            return ([], null);
+            return ([], null, pageCount, pagesWithText);
         }
         text = SanitizeText(text);
 
         document.SetProcessingStatus("Chunking");
         await _dbContext.SaveChangesAsync();
 
-        return (_chunkingService.ChunkText(text, document.Id), text);
+        return (_chunkingService.ChunkText(text, document.Id), text, pageCount, pagesWithText);
     }
 
     /// <summary>
@@ -806,7 +853,8 @@ public class KnowledgeUploadHandler
                         DurationMs: page.Outcome?.DurationMs ?? 0,
                         Error: page.Outcome?.Error,
                         FinishedAt: DateTime.UtcNow,
-                        RetryCount: page.Outcome?.RetryCount ?? 0);
+                        RetryCount: page.Outcome?.RetryCount ?? 0,
+                        SkipReason: page.Outcome?.SkipReason);
 
                     // Update the per-page slot.
                     var idx = pageProgress.FindIndex(p => p.Page == page.Page);
@@ -924,9 +972,29 @@ public class KnowledgeUploadHandler
                     duration_ms = p.Outcome.DurationMs,
                     error = p.Outcome.Error,
                     retry_count = p.Outcome.RetryCount,
+                    skip_reason = p.Outcome.SkipReason,
+                    duplicate_of = p.Outcome.DuplicateOf,
                 },
             }),
         });
+
+        // P0: Surface low text yield warning when many pages had no extractable text.
+        var noTextLayerCount = pageProgress.Count(p =>
+            string.Equals(p.SkipReason, "no_text_layer", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(p.SkipReason, "empty", StringComparison.OrdinalIgnoreCase));
+        if (noTextLayerCount > 0)
+        {
+            var ratio = (double)noTextLayerCount / total;
+            if (ratio >= 0.25 || noTextLayerCount >= 5)
+            {
+                var detail = noTextLayerCount == total
+                    ? $"Scanned PDF: all {total} pages had no extractable text — likely image-only, try structured mode with OCR"
+                    : $"Low text yield: {noTextLayerCount}/{total} pages had no extractable text (likely scanned/image-only)";
+                rec.UpdateDetail("enriching", detail);
+                logger.LogWarning("enrich: low text yield for {DocId}: {Detail}", documentId, detail);
+                await db.SaveChangesAsync();
+            }
+        }
 
         // Apply per-page replacements: for each page that returned product
         // cards, delete the original Docling chunks and insert one product

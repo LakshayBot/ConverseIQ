@@ -61,11 +61,11 @@ def _product_page(words: int = 60) -> str:
 
 class TestPrefilter:
     def test_empty_text(self):
-        assert _prefilter_skip_reason("") == "empty"
-        assert _prefilter_skip_reason("   \n\t ") == "empty"
+        assert _prefilter_skip_reason("") == "no_text_layer"
+        assert _prefilter_skip_reason("   \n\t ") == "no_text_layer"
 
     def test_none_text(self):
-        assert _prefilter_skip_reason(None) == "empty"
+        assert _prefilter_skip_reason(None) == "no_text_layer"
 
     def test_too_short(self):
         assert _prefilter_skip_reason("Apex 100 supports DLMS.") == "too_short"
@@ -234,7 +234,7 @@ class TestDedup:
              patch.object(es, "MIN_PAGE_INTERVAL_S", 0.0):
             results = await enrich_pages(pages)
         mock.assert_not_called()  # both prefiltered - no LLM work at all
-        assert all(r["outcome"]["skip_reason"] in ("empty", "too_short")
+        assert all(r["outcome"]["skip_reason"] in ("no_text_layer", "too_short")
                    for r in results)
 
     def test_duplicate_result_shape_matches_dotnet_vocabulary(self):

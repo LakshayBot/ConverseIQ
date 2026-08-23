@@ -58,7 +58,13 @@ public sealed record EnrichmentPageStatus(
     /// retry - 0 = clean first-try, 1+ = at least one rate-limit
     /// backoff.
     /// </summary>
-    int RetryCount = 0)
+    int RetryCount = 0,
+    /// <summary>
+    /// Prefilter skip reason for no_products pages.  Null on ok/failed
+    /// pages.  Used to surface "scanned PDF" warnings when many pages
+    /// are no_text_layer.
+    /// </summary>
+    string? SkipReason = null)
 {
     public bool IsOk => Status == "ok";
     public bool IsFailure => !IsOk && Status != "no_products";

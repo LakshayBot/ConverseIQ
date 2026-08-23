@@ -14,6 +14,14 @@ public class PdfTextExtractor : ITextExtractor
 {
     private readonly ILogger<PdfTextExtractor>? _logger;
 
+    /// <summary>
+    /// Last extraction stats for P0 low-yield warning.  Populated by
+    /// <see cref="ExtractTextAsync"/>; read by the upload handler after
+    /// the call.  Per-scope instance so no cross-request sharing.
+    /// </summary>
+    public int LastPageCount { get; private set; }
+    public int LastPagesWithText { get; private set; }
+
     public PdfTextExtractor() { }
 
     public PdfTextExtractor(ILogger<PdfTextExtractor> logger) => _logger = logger;
@@ -59,6 +67,8 @@ public class PdfTextExtractor : ITextExtractor
         }
 
         var result = text.ToString().Trim();
+        LastPageCount = pageCount;
+        LastPagesWithText = pagesWithText;
         _logger?.LogInformation(
             "Docnet extracted {Chars} chars from {Pages} page(s) (out of {Total} total)",
             result.Length, pagesWithText, pageCount);

@@ -236,6 +236,12 @@ public class EnrichmentClient
         [JsonPropertyName("model")] public string? Model { get; set; }
         [JsonPropertyName("duration_ms")] public int DurationMs { get; set; }
         [JsonPropertyName("error")] public string? Error { get; set; }
+        // Prefilter skip reason for no_products pages: "no_text_layer" |
+        // "too_short" | "toc" | "boilerplate" | "duplicate" | null.
+        // Present only on prefiltered pages; the dashboard uses it to
+        // explain low text yield (e.g. scanned PDFs).
+        [JsonPropertyName("skip_reason")] public string? SkipReason { get; set; }
+        [JsonPropertyName("duplicate_of")] public int? DuplicateOf { get; set; }
         // 0 = succeeded or failed on first try. 1+ = at least one
         // rate-limit retry (the AI engine waited the suggested
         // "Please try again in Xs" before re-trying).  The dashboard

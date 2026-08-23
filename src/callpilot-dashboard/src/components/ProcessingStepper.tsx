@@ -57,6 +57,11 @@ function stuckSince(status: DocumentStatus, stage: IngestStage): number | null {
   return ageMs;
 }
 
+function isLowYieldWarning(detail: string | null | undefined): boolean {
+  if (!detail) return false;
+  return detail.includes('Low text yield') || detail.includes('Scanned PDF') || detail.includes('no extractable text');
+}
+
 export default function ProcessingStepper({ status, mode = 'structured' }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -70,7 +75,8 @@ export default function ProcessingStepper({ status, mode = 'structured' }: Props
   const enrichingFailed = enrichingStage?.status === 'failed';
   const hasEnrichmentProgress = status.enrichmentProgress != null
     && status.enrichmentProgress.total > 0;
-  const keepVisible = enrichingFailed || hasEnrichmentProgress;
+  const hasLowYieldWarning = status.stages.some(s => isLowYieldWarning(s.detail));
+  const keepVisible = enrichingFailed || hasEnrichmentProgress || hasLowYieldWarning;
 
   // Build the row list in declared order.  Structured mode shows
   // the LLM enrichment stage; fast mode hides it.  Stages not
@@ -164,7 +170,12 @@ export default function ProcessingStepper({ status, mode = 'structured' }: Props
                     {stage.key === 'enriching' && status.enrichmentProgress && (
                       <EnrichmentCounts progress={status.enrichmentProgress} />
                     )}
-                    {stage.detail && stage.status !== 'running' && (
+                    {isLowYieldWarning(stage.detail) && (
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                        ⚠ {stage.detail}
+                      </span>
+                    )}
+                    {stage.detail && stage.status !== 'running' && !isLowYieldWarning(stage.detail) && (
                       <span className="text-xs text-gray-500 truncate">
                         · {stage.detail}
                       </span>

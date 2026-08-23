@@ -232,6 +232,8 @@ export interface EnrichmentPageStatus {
   finishedAt: string | null;
   /** 0 = clean first-try. 1+ = at least one rate-limit retry was needed. */
   retryCount: number;
+  /** Prefilter skip reason for no_products pages (no_text_layer, too_short, etc.) */
+  skipReason?: string | null;
 }
 
 export interface EnrichmentProgress {

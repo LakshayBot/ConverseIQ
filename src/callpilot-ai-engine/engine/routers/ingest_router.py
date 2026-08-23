@@ -81,6 +81,11 @@ async def ingest_structured(file: UploadFile = File(...)) -> dict[str, Any]:
     # product-card extraction can cite image content.
     page_captions: dict[int, list[str]] = {}
     vision_ms = 0
+    # P0 fix: body_provider was previously undefined here (NameError) so the
+    # vision pass silently fail-opened on every call.  Structured ingest
+    # does not yet forward a BYOK provider block, so we use the env-based
+    # fallback (GROQ_VISION_MODEL + GROQ_API_KEY) via vision_service.
+    body_provider = None
     if result.pictures:
         t0 = time.time()
         try:

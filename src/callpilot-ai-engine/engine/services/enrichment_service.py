@@ -369,7 +369,7 @@ def _prefilter_skip_reason(text: Optional[str]) -> Optional[str]:
     costs one LLM call - asymmetric in favor of enriching.
     """
     if not text or not text.strip():
-        return "empty"
+        return "no_text_layer"
     stripped = text.strip()
     if len(stripped) < MIN_ENRICH_CHARS:
         return "too_short"
@@ -1003,12 +1003,12 @@ async def enrich_page(
     adaptive completion budget scaled to the page's density.
     """
     skip_reason = _prefilter_skip_reason(page_text)
-    if skip_reason == "empty":
+    if skip_reason == "no_text_layer":
         return _PageResult(
             products=[],
             outcome={"status": "no_products", "skip_reason": skip_reason,
                      "model": _result_model(None, provider_config), "duration_ms": 0,
-                     "error": "page text was empty"},
+                     "error": "page has no text layer (likely scanned/image-only)"},
         )
     if skip_reason is not None:
         logger.info("enrich_page: skipping page (prefilter: %s)", skip_reason)
