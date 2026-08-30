@@ -176,11 +176,36 @@ export function useTranscriptRecovery(): UseTranscriptRecoveryReturn {
       }));
 
       // 6. Save to backend database using existing save utilities
-      const saveResponse = await storageService.saveMeeting(
-        metadata.title,
-        formattedTranscripts,
-        folderPath ?? null
-      );
+      // For interrupted meetings, the meetingId is the server-issued UUID
+      // that was minted at recording start (via createMeeting) and saved to
+      // IndexedDB. Reuse it so transcripts land on the same meeting row that
+      // ConversationEvents were streamed under.
+      let saveResponse: { meeting_id: string };
+      try {
+        saveResponse = await storageService.saveMeeting(
+          metadata.title,
+          formattedTranscripts,
+          folderPath ?? null,
+          meetingId
+        );
+      } catch (e) {
+        const msg = String((e as any)?.message ?? e);
+        // If the meeting doesn't exist (e.g. it was a local UUID fallback
+        // when the server was unreachable at recording start), create a
+        // fresh meeting and save under that ID instead.
+        if (msg.includes('Meeting not found') || msg.includes('404')) {
+          const { createMeeting } = await import('@/lib/callpilotApi');
+          const fresh = await createMeeting(metadata.title);
+          saveResponse = await storageService.saveMeeting(
+            metadata.title,
+            formattedTranscripts,
+            folderPath ?? null,
+            fresh.id
+          );
+        } else {
+          throw e;
+        }
+      }
 
       const savedMeetingId = saveResponse.meeting_id;
 
