@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 
@@ -12,6 +12,16 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const { login, register } = useAuth();
   const router = useRouter();
+
+  // Show session expired banner if redirected due to 401
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('expired') === '1') {
+        setError('Your session expired. Please log in again.');
+      }
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

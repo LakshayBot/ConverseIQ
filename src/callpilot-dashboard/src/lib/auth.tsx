@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { apiLogin, apiRegister, setAccessToken, LoginResponse } from './api';
+import { apiLogin, apiRegister, setAccessToken, clearAccessToken, LoginResponse } from './api';
 
 interface AuthUser {
   email: string;
@@ -17,6 +17,16 @@ interface AuthContextType {
   logout: () => void;
 }
 
+function isTokenExpiringSoon(token: string | null, bufferMs = 5 * 60 * 1000): boolean {
+  if (!token) return true;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    const exp = payload.exp;
+    if (typeof exp === 'number') return Date.now() >= exp * 1000 - bufferMs;
+  } catch {}
+  return false;
+}
+
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -26,14 +36,84 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const savedToken = localStorage.getItem('callpilot_token');
+    const savedRefresh = localStorage.getItem('callpilot_refresh');
     const savedUser = localStorage.getItem('callpilot_user');
     if (savedToken && savedUser) {
+      // If access token is expiring soon but we have a refresh token, try silent refresh
+      if (isTokenExpiringSoon(savedToken) && savedRefresh) {
+        // Import dynamically to avoid circular dep
+        import('./api').then(({ apiRefresh }) => {
+          apiRefresh(savedRefresh)
+            .then((result) => {
+              const newToken = (result as LoginResponse).accessToken;
+              const newRefresh = (result as LoginResponse).refreshToken;
+              const userData = JSON.parse(savedUser);
+              setToken(newToken);
+              setAccessToken(newToken);
+              setUser(userData);
+              localStorage.setItem('callpilot_token', newToken);
+              if (newRefresh) localStorage.setItem('callpilot_refresh', newRefresh);
+              setIsLoading(false);
+            })
+            .catch(() => {
+              // Refresh failed — clear and require login
+              localStorage.removeItem('callpilot_token');
+              localStorage.removeItem('callpilot_refresh');
+              localStorage.removeItem('callpilot_user');
+              clearAccessToken();
+              setIsLoading(false);
+            });
+        });
+        return;
+      }
       setToken(savedToken);
       setAccessToken(savedToken);
       setUser(JSON.parse(savedUser));
     }
     setIsLoading(false);
   }, []);
+
+  // Global handler for session expired (emitted by api.ts interceptor)
+  useEffect(() => {
+    const handler = () => {
+      setToken(null);
+      setUser(null);
+      clearAccessToken();
+      localStorage.removeItem('callpilot_token');
+      localStorage.removeItem('callpilot_refresh');
+      localStorage.removeItem('callpilot_user');
+      // Use hard redirect to ensure login page shows with message
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.location.href = '/login?expired=1';
+      }
+    };
+    window.addEventListener('callpilot:session-expired', handler);
+    return () => window.removeEventListener('callpilot:session-expired', handler);
+  }, []);
+
+  // Periodic token health check (every 5 min)
+  useEffect(() => {
+    if (!token) return;
+    const interval = setInterval(async () => {
+      const current = localStorage.getItem('callpilot_token');
+      const refresh = localStorage.getItem('callpilot_refresh');
+      if (!current || isTokenExpiringSoon(current)) {
+        if (refresh) {
+          try {
+            const { apiRefresh } = await import('./api');
+            const result = await apiRefresh(refresh) as LoginResponse;
+            setToken(result.accessToken);
+            setAccessToken(result.accessToken);
+            localStorage.setItem('callpilot_token', result.accessToken);
+            if (result.refreshToken) localStorage.setItem('callpilot_refresh', result.refreshToken);
+          } catch {
+            // Refresh failed — will be handled on next 401 or next interval
+          }
+        }
+      }
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [token]);
 
   const login = useCallback(async (email: string, password: string) => {
     const result = await apiLogin(email, password) as LoginResponse;
@@ -44,6 +124,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('callpilot_token', result.accessToken);
     localStorage.setItem('callpilot_refresh', result.refreshToken);
     localStorage.setItem('callpilot_user', JSON.stringify(userData));
+    localStorage.setItem('callpilot_token_exp', result.accessTokenExpiresAt);
+    localStorage.setItem('callpilot_refresh_exp', result.refreshTokenExpiresAt);
   }, []);
 
   const register = useCallback(async (email: string, password: string) => {
@@ -51,13 +133,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await login(email, password);
   }, [login]);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    const refresh = localStorage.getItem('callpilot_refresh');
+    const currentToken = localStorage.getItem('callpilot_token');
+    // Best-effort server-side revocation
+    if (refresh && currentToken) {
+      try {
+        await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001'}/api/v1/auth/logout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentToken}`,
+          },
+          body: JSON.stringify({ refreshToken: refresh }),
+        });
+      } catch {}
+    }
     setToken(null);
     setUser(null);
-    setAccessToken(null);
+    clearAccessToken();
     localStorage.removeItem('callpilot_token');
     localStorage.removeItem('callpilot_refresh');
     localStorage.removeItem('callpilot_user');
+    localStorage.removeItem('callpilot_token_exp');
+    localStorage.removeItem('callpilot_refresh_exp');
   }, []);
 
   return (

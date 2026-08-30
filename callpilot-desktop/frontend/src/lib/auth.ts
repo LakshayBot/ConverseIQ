@@ -199,9 +199,87 @@ export async function getSession(): Promise<AuthSession | null> {
 }
 
 /**
+ * Checks if a JWT token is expired or will expire within the buffer.
+ * Uses the token's exp claim if available, falls back to expiresAt.
+ */
+function isTokenExpiringSoon(expiresAt: string | null, bufferMs = 5 * 60 * 1000): boolean {
+  if (!expiresAt) return false;
+  try {
+    const expiry = new Date(expiresAt).getTime();
+    return Date.now() >= expiry - bufferMs;
+  } catch {
+    return false;
+  }
+}
+
+function isJwtExpiringSoon(token: string | null, bufferMs = 5 * 60 * 1000): boolean {
+  if (!token) return true;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    const exp = payload.exp;
+    if (typeof exp === 'number') {
+      return Date.now() >= exp * 1000 - bufferMs;
+    }
+  } catch {
+    // Fall through to expiresAt check
+  }
+  return false;
+}
+
+// ── Refresh queue: prevents concurrent refresh calls (like Axios interceptors) ──
+let refreshPromise: Promise<AuthSession | null> | null = null;
+let sessionExpiredNotified = false;
+
+function emitSessionExpired() {
+  if (sessionExpiredNotified) return;
+  sessionExpiredNotified = true;
+  // Dispatch global event for AuthContext to handle logout + redirect
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('callpilot:session-expired'));
+  }
+}
+
+export function resetSessionExpiredFlag() {
+  sessionExpiredNotified = false;
+}
+
+/**
+ * Attempts to refresh the access token. Uses a shared promise to prevent
+ * concurrent refreshes (professional pattern like Axios interceptors).
+ */
+async function refreshAccessToken(): Promise<AuthSession | null> {
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    try {
+      const refreshed = await invoke<AuthSession | null>('refresh_access_token');
+      if (refreshed) resetSessionExpiredFlag();
+      return refreshed;
+    } catch (e) {
+      const msg = String(e);
+      // 401 or refresh token expired/revoked = session dead
+      if (msg.includes('401') || msg.includes('expired') || msg.includes('Invalid')) {
+        emitSessionExpired();
+      }
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
+/**
  * Authenticated REST helper. Use this for any endpoint beyond `/auth/*`.
  * Reads the current access token server-side and attaches it as a bearer
  * header - the token never lives in the webview for longer than one call.
+ *
+ * Professional session handling:
+ * - Proactively refreshes if token is expiring within 5 min
+ * - On 401, attempts silent refresh once then retries
+ * - On refresh failure, emits session-expired event for global logout
+ * - Queues concurrent requests during refresh (no thundering herd)
  */
 export async function authedApiCall<T>(
   method: string,
@@ -209,10 +287,57 @@ export async function authedApiCall<T>(
   body?: unknown,
 ): Promise<T> {
   let token: string | null = null;
+  let session: AuthSession | null = null;
+
   try {
-    token = (await invoke<string | null>('get_auth_access_token')) ?? null;
+    session = await invoke<AuthSession | null>('get_auth_session');
+    token = session?.accessToken ?? null;
   } catch {
     // No session - fall through and let the server reject with 401.
   }
-  return apiCall<T>(method, path, body, token);
+
+  // Proactive refresh: if token expires within 5 min, refresh before request
+  if (session && (isJwtExpiringSoon(token) || isTokenExpiringSoon(session.accessTokenExpiresAt))) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      token = refreshed.accessToken;
+    } else if (isJwtExpiringSoon(token, 0) || isTokenExpiringSoon(session.accessTokenExpiresAt, 0)) {
+      // Token actually expired and refresh failed -> session dead
+      emitSessionExpired();
+      throw new Error('HTTP 401: Session expired. Please log in again.');
+    }
+  } else if (!token) {
+    try {
+      token = (await invoke<string | null>('get_auth_access_token')) ?? null;
+    } catch {
+      // No session
+    }
+  }
+
+  try {
+    return await apiCall<T>(method, path, body, token);
+  } catch (e) {
+    const msg = String(e);
+    const is401 = msg.includes('HTTP 401') || msg.includes('401');
+
+    if (!is401) throw e;
+
+    // 401: try silent refresh once (with queue)
+    const refreshed = await refreshAccessToken();
+    if (!refreshed) {
+      emitSessionExpired();
+      throw new Error('HTTP 401: Session expired. Please log in again.');
+    }
+
+    // Retry with new token
+    try {
+      return await apiCall<T>(method, path, body, refreshed.accessToken);
+    } catch (retryErr) {
+      const retryMsg = String(retryErr);
+      if (retryMsg.includes('401')) {
+        emitSessionExpired();
+      }
+      throw retryErr;
+    }
+  }
 }

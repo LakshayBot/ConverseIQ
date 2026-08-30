@@ -12,27 +12,117 @@ export function setAccessToken(token: string | null) {
   accessToken = token;
 }
 
+export function clearAccessToken() {
+  accessToken = null;
+}
+
 export function getAccessToken(): string | null {
   return accessToken;
+}
+
+// ── Silent refresh queue (prevents thundering herd) ──
+let refreshPromise: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise;
+  const refreshToken = typeof window !== 'undefined' ? localStorage.getItem('callpilot_refresh') : null;
+  if (!refreshToken) return null;
+
+  refreshPromise = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!res.ok) {
+        if (res.status === 401) {
+          // Refresh token expired/revoked — session dead
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('callpilot:session-expired'));
+          }
+        }
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const data = (await res.json()) as LoginResponse;
+      accessToken = data.accessToken;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('callpilot_token', data.accessToken);
+        if (data.refreshToken) localStorage.setItem('callpilot_refresh', data.refreshToken);
+        if (data.accessTokenExpiresAt) localStorage.setItem('callpilot_token_exp', data.accessTokenExpiresAt);
+        if (data.refreshTokenExpiresAt) localStorage.setItem('callpilot_refresh_exp', data.refreshTokenExpiresAt);
+      }
+      return data.accessToken;
+    } catch {
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
+export function emitSessionExpired() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('callpilot:session-expired'));
+  }
+}
+
+export async function apiRefresh(refreshToken: string): Promise<LoginResponse> {
+  const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `HTTP ${res.status}`);
+  }
+  return res.json();
 }
 
 export async function apiRequest<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, headers = {} } = options;
 
-  const requestHeaders: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...headers,
+  const doFetch = async (token: string | null): Promise<Response> => {
+    const requestHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...headers,
+    };
+    if (token) requestHeaders['Authorization'] = `Bearer ${token}`;
+    return fetch(`${API_BASE}${endpoint}`, {
+      method,
+      headers: requestHeaders,
+      body: body ? JSON.stringify(body) : undefined,
+    });
   };
 
-  if (accessToken) {
-    requestHeaders['Authorization'] = `Bearer ${accessToken}`;
+  // Proactive check: if token is expiring in <5 min, refresh first
+  let tokenToUse = accessToken;
+  if (tokenToUse) {
+    try {
+      const payload = JSON.parse(atob(tokenToUse.split('.')[1]));
+      const exp = payload.exp;
+      if (typeof exp === 'number' && Date.now() >= exp * 1000 - 5 * 60 * 1000) {
+        const refreshed = await refreshAccessToken();
+        if (refreshed) tokenToUse = refreshed;
+      }
+    } catch {}
   }
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    method,
-    headers: requestHeaders,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let response = await doFetch(tokenToUse);
+
+  // 401 → try silent refresh once (with queue), then retry
+  if (response.status === 401 && !endpoint.includes('/auth/')) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      response = await doFetch(refreshed);
+    } else {
+      // Refresh failed — emit global session expired
+      emitSessionExpired();
+    }
+  }
 
   if (!response.ok) {
     const error = await response.text();
@@ -90,15 +180,25 @@ export async function apiUploadKnowledge(file: File, mode: 'fast' | 'structured'
   const formData = new FormData();
   formData.append('file', file);
 
-  const headers: Record<string, string> = {};
-  if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+  const doUpload = async (token: string | null) => {
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return fetch(`${API_BASE}/api/v1/knowledge/upload?mode=${mode}`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+  };
 
-  const response = await fetch(`${API_BASE}/api/v1/knowledge/upload?mode=${mode}`, {
-    method: 'POST',
-    headers,
-    body: formData,
-  });
-
+  let response = await doUpload(accessToken);
+  if (response.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) {
+      response = await doUpload(refreshed);
+    } else {
+      emitSessionExpired();
+    }
+  }
   if (!response.ok) throw new Error(await response.text());
   return response.json() as Promise<KnowledgeDocument>;
 }

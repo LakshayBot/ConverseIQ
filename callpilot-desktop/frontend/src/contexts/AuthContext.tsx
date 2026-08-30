@@ -57,7 +57,68 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const s = await getSession();
     setSession(s);
     setStatus(s ? 'authenticated' : 'unauthenticated');
+    if (s) {
+      const { resetSessionExpiredFlag } = await import('@/lib/auth');
+      resetSessionExpiredFlag();
+    }
   }, []);
+
+  // Global 401 handler: when any API call emits session-expired, log out
+  useEffect(() => {
+    const handleSessionExpired = async () => {
+      console.warn('[auth] session expired — logging out');
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('clear_auth_token');
+      } catch {}
+      setSession(null);
+      setStatus('unauthenticated');
+      // Professional UX: toast notification like major apps (Slack/Notion)
+      try {
+        const { toast } = await import('sonner');
+        toast.error('Session expired', {
+          description: 'Your session has expired. Please log in again to continue.',
+          duration: 5000,
+        });
+      } catch {}
+    };
+
+    window.addEventListener('callpilot:session-expired', handleSessionExpired);
+    return () => window.removeEventListener('callpilot:session-expired', handleSessionExpired);
+  }, []);
+
+  // Periodic token health check (every 5 min) — proactively refresh if expiring
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    const interval = setInterval(async () => {
+      try {
+        const s = await getSession();
+        if (!s) {
+          setSession(null);
+          setStatus('unauthenticated');
+          return;
+        }
+        // If token expires within 5 min, try silent refresh
+        const exp = new Date(s.accessTokenExpiresAt).getTime();
+        if (Date.now() >= exp - 5 * 60 * 1000) {
+          const refreshed = await tryRestoreSession();
+          if (refreshed) {
+            setSession(refreshed);
+          } else {
+            // Refresh failed — check if refresh token also expired
+            const stillValid = s.refreshTokenExpiresAt
+              ? Date.now() < new Date(s.refreshTokenExpiresAt).getTime()
+              : true;
+            if (!stillValid) {
+              setSession(null);
+              setStatus('unauthenticated');
+            }
+          }
+        }
+      } catch {}
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [status]);
 
   useEffect(() => {
     if (initRanRef.current) return;
