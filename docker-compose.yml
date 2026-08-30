@@ -52,7 +52,7 @@ services:
       GROQ_API_KEY: "${GROQ_API_KEY:-}"
       ENRICHMENT_MODEL: "${ENRICHMENT_MODEL:-qwen/qwen3.6-27b}"
       ENRICHMENT_MAX_TOKENS: "${ENRICHMENT_MAX_TOKENS:-6144}"
-      ENRICHMENT_PAGE_INTERVAL_S: "${ENRICHMENT_PAGE_INTERVAL_S:-60}"
+      ENRICHMENT_PAGE_INTERVAL_S: "${ENRICHMENT_PAGE_INTERVAL_S:-8}"
     depends_on:
       postgres:
         condition: service_healthy

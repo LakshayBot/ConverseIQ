@@ -1313,6 +1313,21 @@ async def enrich_pages_streaming(
                     )
                     return _duplicate_page_result(
                         page_no, first, _result_model(None, provider_config))
+            # Pace consecutive LLM starts so the per-minute request rate stays
+            # below Groq's free-tier ceiling. PAGE_CONCURRENCY=1 already
+            # serializes work via the semaphore, but the explicit sleep is
+            # what actually keeps us under the TPM budget. The first page
+            # starts immediately - pacing matters for pages 2..N.
+            # NOTE: This sleep must live INSIDE the semaphore-protected
+            # _enrich_one (not in the task-creation loop). The previous
+            # implementation did `await asyncio.sleep(...)` between
+            # `create_task` calls BEFORE entering `as_completed`, which
+            # blocked the generator from yielding ANY page until all
+            # 19*60s sleeps had elapsed - the dashboard saw "0/19 stuck".
+            # Moving the sleep here lets the first page yield in ~5s
+            # and paces subsequent starts without blocking the stream.
+            if MIN_PAGE_INTERVAL_S > 0 and p.get("page", 0) > 1:
+                await asyncio.sleep(MIN_PAGE_INTERVAL_S)
             try:
                 result = await asyncio.wait_for(
                     enrich_page(text, provider_config=provider_config), timeout=PAGE_TIMEOUT_S
@@ -1348,16 +1363,7 @@ async def enrich_pages_streaming(
             }
 
     pending: dict[asyncio.Task, dict] = {}
-    for i, p in enumerate(pages):
-        # Deliberate stagger between page STARTS so we never burst
-        # >1 concurrent LLM call in the window. PAGE_CONCURRENCY=1 keeps
-        # the in-flight count at 1; the MIN_PAGE_INTERVAL_S sleep on
-        # top of that guarantees the gap between consecutive request
-        # submissions stays above Groq's per-minute request ceiling.
-        # Started only after the first page so the first page begins
-        # immediately - the pacing matters once we're already in flight.
-        if i > 0 and MIN_PAGE_INTERVAL_S > 0:
-            await asyncio.sleep(MIN_PAGE_INTERVAL_S)
+    for p in pages:
         task = asyncio.create_task(_enrich_one(p))
         pending[task] = p
 
