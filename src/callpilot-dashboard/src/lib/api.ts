@@ -98,19 +98,9 @@ export async function apiRequest<T>(endpoint: string, options: RequestOptions = 
     });
   };
 
-  // Proactive check: if token is expiring in <5 min, refresh first
+  // Use current token; 401 handling below will refresh if needed.
+  // No proactive refresh here to avoid race right after login.
   let tokenToUse = accessToken;
-  if (tokenToUse) {
-    try {
-      const payload = JSON.parse(atob(tokenToUse.split('.')[1]));
-      const exp = payload.exp;
-      if (typeof exp === 'number' && Date.now() >= exp * 1000 - 5 * 60 * 1000) {
-        const refreshed = await refreshAccessToken();
-        if (refreshed) tokenToUse = refreshed;
-      }
-    } catch {}
-  }
-
   let response = await doFetch(tokenToUse);
 
   // 401 → try silent refresh once (with queue), then retry

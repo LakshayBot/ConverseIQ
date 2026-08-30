@@ -90,32 +90,9 @@ pub async fn set_auth_token<R: Runtime>(
 /// Returns the current access token (for attaching to `callpilot_api_request`)
 /// or `None` if no session is stored. The frontend uses this on every
 /// authenticated call so the Rust side can stamp the `Authorization` header.
-///
-/// Proactively refreshes if the token expires within 5 min (like the JS
-/// proactive check) — this catches the case where the webview hasn't yet
-/// run its JS refresh but Rust is asked for a token.
 #[tauri::command]
 pub async fn get_auth_access_token<R: Runtime>(app: AppHandle<R>) -> Result<Option<String>, String> {
-    if let Some(session) = read_session(&app) {
-        // Check if token is expiring within 5 min (parse ISO8601)
-        let needs_refresh = chrono::DateTime::parse_from_rfc3339(&session.access_token_expires_at)
-            .map(|exp| {
-                let now = chrono::Utc::now();
-                let exp_utc = exp.with_timezone(&chrono::Utc);
-                (exp_utc - now).num_milliseconds() < 5 * 60 * 1000
-            })
-            .unwrap_or(false);
-
-        if needs_refresh {
-            // Best-effort silent refresh; fall through to old token if it fails
-            // (the 401 handler in JS will then do a proper refresh + retry)
-            if let Ok(Some(refreshed)) = refresh_access_token(app.clone()).await {
-                return Ok(Some(refreshed.access_token));
-            }
-        }
-        return Ok(Some(session.access_token));
-    }
-    Ok(None)
+    Ok(read_session(&app).map(|s| s.access_token))
 }
 
 /// Returns the full session (email + token metadata). Used by `AuthContext`

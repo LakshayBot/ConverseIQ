@@ -36,39 +36,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const savedToken = localStorage.getItem('callpilot_token');
-    const savedRefresh = localStorage.getItem('callpilot_refresh');
     const savedUser = localStorage.getItem('callpilot_user');
     if (savedToken && savedUser) {
-      // If access token is expiring soon but we have a refresh token, try silent refresh
-      if (isTokenExpiringSoon(savedToken) && savedRefresh) {
-        // Import dynamically to avoid circular dep
-        import('./api').then(({ apiRefresh }) => {
-          apiRefresh(savedRefresh)
-            .then((result) => {
-              const newToken = (result as LoginResponse).accessToken;
-              const newRefresh = (result as LoginResponse).refreshToken;
-              const userData = JSON.parse(savedUser);
-              setToken(newToken);
-              setAccessToken(newToken);
-              setUser(userData);
-              localStorage.setItem('callpilot_token', newToken);
-              if (newRefresh) localStorage.setItem('callpilot_refresh', newRefresh);
-              setIsLoading(false);
-            })
-            .catch(() => {
-              // Refresh failed — clear and require login
-              localStorage.removeItem('callpilot_token');
-              localStorage.removeItem('callpilot_refresh');
-              localStorage.removeItem('callpilot_user');
-              clearAccessToken();
-              setIsLoading(false);
-            });
-        });
-        return;
-      }
       setToken(savedToken);
       setAccessToken(savedToken);
-      setUser(JSON.parse(savedUser));
+      try {
+        setUser(JSON.parse(savedUser));
+      } catch {
+        localStorage.removeItem('callpilot_user');
+      }
     }
     setIsLoading(false);
   }, []);
@@ -91,27 +67,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('callpilot:session-expired', handler);
   }, []);
 
-  // Periodic token health check (every 5 min)
+  // Periodic token health check (every 10 min) — only refresh if actually expired
   useEffect(() => {
     if (!token) return;
     const interval = setInterval(async () => {
       const current = localStorage.getItem('callpilot_token');
       const refresh = localStorage.getItem('callpilot_refresh');
-      if (!current || isTokenExpiringSoon(current)) {
-        if (refresh) {
-          try {
-            const { apiRefresh } = await import('./api');
-            const result = await apiRefresh(refresh) as LoginResponse;
-            setToken(result.accessToken);
-            setAccessToken(result.accessToken);
-            localStorage.setItem('callpilot_token', result.accessToken);
-            if (result.refreshToken) localStorage.setItem('callpilot_refresh', result.refreshToken);
-          } catch {
-            // Refresh failed — will be handled on next 401 or next interval
-          }
+      // Only refresh if token is actually expired (0 buffer), not 5 min before
+      if (!current) return;
+      let isExpired = false;
+      try {
+        const payload = JSON.parse(atob(current.split('.')[1]));
+        const exp = payload.exp;
+        if (typeof exp === 'number') isExpired = Date.now() >= exp * 1000;
+      } catch {}
+      if (isExpired && refresh) {
+        try {
+          const { apiRefresh } = await import('./api');
+          const result = await apiRefresh(refresh) as LoginResponse;
+          setToken(result.accessToken);
+          setAccessToken(result.accessToken);
+          localStorage.setItem('callpilot_token', result.accessToken);
+          if (result.refreshToken) localStorage.setItem('callpilot_refresh', result.refreshToken);
+        } catch {
+          // Refresh failed — will be handled on next 401
         }
       }
-    }, 5 * 60 * 1000);
+    }, 10 * 60 * 1000);
     return () => clearInterval(interval);
   }, [token]);
 

@@ -87,7 +87,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => window.removeEventListener('callpilot:session-expired', handleSessionExpired);
   }, []);
 
-  // Periodic token health check (every 5 min) — proactively refresh if expiring
+  // Periodic token health check (every 10 min) — only refresh if actually expired
   useEffect(() => {
     if (status !== 'authenticated') return;
     const interval = setInterval(async () => {
@@ -98,14 +98,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setStatus('unauthenticated');
           return;
         }
-        // If token expires within 5 min, try silent refresh
+        // Only refresh if token is actually expired (not 5 min before)
         const exp = new Date(s.accessTokenExpiresAt).getTime();
-        if (Date.now() >= exp - 5 * 60 * 1000) {
+        if (Date.now() >= exp) {
           const refreshed = await tryRestoreSession();
           if (refreshed) {
             setSession(refreshed);
           } else {
-            // Refresh failed — check if refresh token also expired
             const stillValid = s.refreshTokenExpiresAt
               ? Date.now() < new Date(s.refreshTokenExpiresAt).getTime()
               : true;
@@ -116,7 +115,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
       } catch {}
-    }, 5 * 60 * 1000);
+    }, 10 * 60 * 1000);
     return () => clearInterval(interval);
   }, [status]);
 
