@@ -613,6 +613,24 @@ async def product_intel(request: dict):
     website = (request.get("website") or "").strip()
     meeting_id = request.get("meeting_id", "unknown")
     provider_config = request.get("provider")
+    # Normalize the BYOK provider block from .NET (dict) into the typed
+    # AiProviderConfig the product-intel layer expects. The previous code
+    # passed the raw dict straight through, so _call_provider_with_retry
+    # failed with "'dict' object has no attribute 'provider_type'" and
+    # fell back to the env GROQ key. Convert here like the enrich endpoint does.
+    if isinstance(provider_config, dict):
+        try:
+            from engine.ai.base import AiProviderConfig
+            provider_config = AiProviderConfig(
+                provider_type=(provider_config.get("provider_type") or provider_config.get("type") or "groq"),
+                model=provider_config.get("model") or "",
+                api_key=provider_config.get("api_key") or "",
+                endpoint=provider_config.get("endpoint") or None,
+                max_tokens=provider_config.get("max_tokens"),
+                temperature=provider_config.get("temperature"),
+            )
+        except Exception:
+            provider_config = None
 
     # Disambiguation hint from the knowledge base / seed data: the trie
     # entities carry product descriptions whose distinctive terms disambiguate

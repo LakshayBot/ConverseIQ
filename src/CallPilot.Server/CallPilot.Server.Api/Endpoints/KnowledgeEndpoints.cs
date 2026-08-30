@@ -354,12 +354,28 @@ public static class KnowledgeEndpoints
                 .Select(e => CallPilot.Server.Infrastructure.Products.ProductIntelService.NormalizeName(e.EntityText))
                 .Distinct()
                 .ToList();
-            // Lookup profiles scoped to the document's own knowledge base so a
-            // doc never inherits another company/legacy row's display name.
+            // Lookup profiles company-scoped (ProductIntelligence is deduped by
+            // CompanyName+Canonical, not by KnowledgeBaseId — see
+            // ProductIntelService.EnsureScopedAsync). The previous
+            // KnowledgeBaseId filter missed the 15 products whose PI rows live
+            // under an earlier KB for the same company (E2E tests), leaving
+            // the doc with displayName == raw entityText and status from the
+            // entity alone.
+            string? companyName = null;
+            if (doc.KnowledgeBaseId is Guid kbId)
+            {
+                companyName = await db.KnowledgeBases.Where(k => k.Id == kbId).Select(k => k.CompanyName).FirstOrDefaultAsync();
+            }
             var productRows = await db.ProductIntelligences
-                .Where(p => p.KnowledgeBaseId == doc.KnowledgeBaseId && canonicalNames.Contains(p.CanonicalName))
-                .Select(p => new { p.CanonicalName, p.DisplayName, p.Id, Status = p.EnrichmentStatus.ToString(), p.LastEnrichedAt })
+                .Where(p => canonicalNames.Contains(p.CanonicalName)
+                         && (companyName == null || p.CompanyName == companyName || p.CompanyName == null))
+                .Select(p => new { p.CanonicalName, p.DisplayName, p.Id, Status = p.EnrichmentStatus.ToString(), p.LastEnrichedAt, p.CompanyName })
                 .ToListAsync();
+            // Prefer the company-scoped row over a legacy/global row for display.
+            productRows = productRows
+                .GroupBy(p => p.CanonicalName)
+                .Select(g => g.OrderByDescending(p => p.CompanyName != null).First())
+                .ToList();
 
             var products = new List<object>();
             var productsEnriched = 0;

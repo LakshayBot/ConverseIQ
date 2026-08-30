@@ -26,7 +26,7 @@ namespace CallPilot.Server.Infrastructure.Products;
 /// </summary>
 public class ProductIntelService
 {
-    private static readonly TimeSpan ReenrichCooldown = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan ReenrichCooldown = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan StaleEnrichingWindow = TimeSpan.FromMinutes(10);
 
     private readonly CallPilotDbContext _db;
@@ -137,8 +137,15 @@ public class ProductIntelService
             }
         }
 
-        var row = kbId is Guid scopedKb
-            ? await _db.ProductIntelligences.FirstOrDefaultAsync(p => p.KnowledgeBaseId == scopedKb && p.CanonicalName == canonical)
+        // Company-scoped lookup: ProductIntelligence is deduped by
+        // (CompanyName, CanonicalName) — the unique index — so a doc's
+        // product must reuse the company's existing row even if it lives
+        // under a different KB (E2E tests created the same products under
+        // an earlier KB). The previous KB-scoped lookup created a duplicate
+        // row attempt that violated the unique index for 10 of 17 products
+        // and caused bulk-enrich to skip them.
+        var row = !string.IsNullOrWhiteSpace(companyName)
+            ? await _db.ProductIntelligences.FirstOrDefaultAsync(p => p.CompanyName == companyName && p.CanonicalName == canonical)
             : await ScopedQuery(userId).FirstOrDefaultAsync(p => p.CanonicalName == canonical);
 
         if (row is null)
@@ -147,7 +154,19 @@ public class ProductIntelService
                 string.IsNullOrWhiteSpace(name) ? canonical : name.Trim(),
                 kbId, companyName);
             _db.ProductIntelligences.Add(row);
-            await _db.SaveChangesAsync();
+            try
+            {
+                await _db.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                // Race: another document created the same company+canonical row
+                // concurrently. Reload the winner.
+                await _db.Entry(row).ReloadAsync();
+                row = await _db.ProductIntelligences.FirstOrDefaultAsync(p =>
+                    p.CompanyName == companyName && p.CanonicalName == canonical)
+                    ?? row;
+            }
         }
 
         if (row.EnrichmentStatus == ProductIntelligence.EnrichmentState.Enriching && !IsStaleEnriching(row))
@@ -212,36 +231,77 @@ public class ProductIntelService
         }
 
         // Link + mark the document's own product entity.
+        // NOTE: For Completed/Failed reuse we must NOT leave the entity as
+        // Enriching — it should immediately reflect the shared profile's
+        // settled status so the doc's chip list shows Ready/Failed instead
+        // of stuck Processing. The previous code left it as Enriching when
+        // the PI was already Completed, causing 5 of 17 to show Processing
+        // forever.
+        string? documentStatusToSync = null;
+        Guid? documentStatusLinkId = row.Id;
         if (documentId is Guid docId)
         {
             await MarkDocumentEntityEnrichingAsync(canonical, docId, row.Id);
+            // Decide the correct per-document status before deciding to enqueue.
+            // We will sync it after the switch so a Completed reuse instantly
+            // marks the entity Completed.
+            documentStatusToSync = row.EnrichmentStatus switch
+            {
+                ProductIntelligence.EnrichmentState.Completed => "Completed",
+                ProductIntelligence.EnrichmentState.Failed => "Failed",
+                ProductIntelligence.EnrichmentState.NeedsReview => "NeedsReview",
+                _ => null,
+            };
         }
 
         // Background enrichment: enqueue unless already settled/processing.
+        var shouldEnqueue = false;
         if (autoEnrich)
         {
             switch (row.EnrichmentStatus)
             {
                 case ProductIntelligence.EnrichmentState.Completed:
-                    break; // already researched - reuse
+                    shouldEnqueue = false;
+                    break;
                 case ProductIntelligence.EnrichmentState.Enriching:
                     if (!IsStaleEnriching(row))
                     {
-                        break; // active job - no duplicate
+                        shouldEnqueue = false;
                     }
-                    _queue.Enqueue(canonical, context, knowledgeBaseId: row.KnowledgeBaseId, companyName: row.CompanyName, documentId: documentId);
+                    else
+                    {
+                        shouldEnqueue = true;
+                    }
                     break;
                 case ProductIntelligence.EnrichmentState.Failed:
                 case ProductIntelligence.EnrichmentState.NeedsReview:
                     if (row.LastEnrichedAt is null || DateTime.UtcNow - row.LastEnrichedAt.Value > ReenrichCooldown)
                     {
-                        _queue.Enqueue(canonical, context, knowledgeBaseId: row.KnowledgeBaseId, companyName: row.CompanyName, documentId: documentId);
+                        shouldEnqueue = true;
+                    }
+                    else
+                    {
+                        shouldEnqueue = false;
                     }
                     break;
                 default: // Pending
-                    _queue.Enqueue(canonical, context, knowledgeBaseId: row.KnowledgeBaseId, companyName: row.CompanyName, documentId: documentId);
+                    shouldEnqueue = true;
                     break;
             }
+            if (shouldEnqueue)
+            {
+                _queue.Enqueue(canonical, context, knowledgeBaseId: row.KnowledgeBaseId, companyName: row.CompanyName, documentId: documentId);
+                documentStatusToSync = null; // keep Enriching, job is now in flight
+            }
+        }
+
+        // Sync the per-document entity to the shared profile's settled status
+        // when we are reusing it and not re-enqueueing. This is the fix for
+        // "1/17 enriched, 5 processing forever" — those 5 had a Completed PI
+        // from an earlier E2E run but their entity stayed Enriching.
+        if (documentStatusToSync is not null && documentId is Guid syncDocId)
+        {
+            await UpdateDocumentEntitiesAsync(canonical, syncDocId, documentStatusToSync, documentStatusLinkId);
         }
 
         var sourceCount = await SourceCountAsync(row.Id);
@@ -301,9 +361,20 @@ public class ProductIntelService
             try
             {
                 // Already Processing (healthy) - never create a duplicate job.
-                if (entity.EnrichmentStatus == "Enriching" && doc.KnowledgeBaseId is Guid kbId)
+                // Use company-scoped lookup: PI is deduped by (Company, Canonical)
+                // so a KB-scoped lookup would miss the company's existing row
+                // and incorrectly queue a duplicate (which then hits the unique
+                // index and is counted as Skipped — 10 of 11 failed earlier).
+                if (entity.EnrichmentStatus == "Enriching")
                 {
-                    var row = await _db.ProductIntelligences.FirstOrDefaultAsync(p => p.KnowledgeBaseId == kbId && p.CanonicalName == canonical);
+                    string? companyForCheck = null;
+                    if (doc.KnowledgeBaseId is Guid checkKbId)
+                    {
+                        companyForCheck = await _db.KnowledgeBases.Where(k => k.Id == checkKbId).Select(k => k.CompanyName).FirstOrDefaultAsync();
+                    }
+                    var row = !string.IsNullOrWhiteSpace(companyForCheck)
+                        ? await _db.ProductIntelligences.FirstOrDefaultAsync(p => p.CompanyName == companyForCheck && p.CanonicalName == canonical)
+                        : await _db.ProductIntelligences.FirstOrDefaultAsync(p => p.CanonicalName == canonical);
                     if (row is not null && row.EnrichmentStatus == ProductIntelligence.EnrichmentState.Enriching && !IsStaleEnriching(row))
                     {
                         result.Processing++;
