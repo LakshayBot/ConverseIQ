@@ -546,6 +546,15 @@ app.MapPost("/api/v1/meetings/{id:guid}/transcripts", async (
         await db.SaveChangesAsync();
     }
 
+    // Build a set of valid speaker IDs for this meeting so segments that
+    // reference a non-existent speaker don't violate the FK. The desktop
+    // sometimes sends a SpeakerId that wasn't in the Speakers list (e.g.
+    // a diarization speaker that was created client-side after the last
+    // speakers upsert, or a stale ID after a speaker merge/delete). In that
+    // case we null the FK and keep the denormalized Speaker label.
+    var validSpeakerIds = new HashSet<Guid>(await db.Speakers.Where(s => s.MeetingId == id).Select(s => s.Id).ToListAsync());
+    foreach (var idInLabels in speakerLabels.Keys) validSpeakerIds.Add(idInLabels);
+
     // Existing segments get deleted first so re-saves (e.g., retranscription)
     // are idempotent. Idempotent saves keep desktop retry logic simple.
     var existingSegments = db.TranscriptSegments.Where(ts => ts.MeetingId == id);
@@ -553,16 +562,25 @@ app.MapPost("/api/v1/meetings/{id:guid}/transcripts", async (
 
     if (body.Segments is { Count: > 0 } segments)
     {
-        var entities = segments.Select(s => new TranscriptSegment(
-            id,
-            s.Speaker ?? (s.SpeakerId is { } sid && speakerLabels.TryGetValue(sid, out var label) ? label : string.Empty),
-            s.Text,
-            s.Confidence,
-            s.StartOffset,
-            s.EndOffset,
-            s.IsFinal,
-            s.Sequence,
-            s.SpeakerId)).ToList();
+        var entities = segments.Select(s => {
+            var speakerId = s.SpeakerId;
+            // Null the FK if the speaker doesn't exist for this meeting —
+            // prevents 23503 FK violation that was breaking meeting saves.
+            if (speakerId.HasValue && !validSpeakerIds.Contains(speakerId.Value))
+            {
+                speakerId = null;
+            }
+            return new TranscriptSegment(
+                id,
+                s.Speaker ?? (speakerId is { } sid && speakerLabels.TryGetValue(sid, out var label) ? label : string.Empty),
+                s.Text,
+                s.Confidence,
+                s.StartOffset,
+                s.EndOffset,
+                s.IsFinal,
+                s.Sequence,
+                speakerId);
+        }).ToList();
         db.TranscriptSegments.AddRange(entities);
     }
 
