@@ -34,7 +34,7 @@ export const PRODUCT_STATUS_META: Record<ProductEnrichmentStatus, ProductStatusM
     description: 'Researching product information from external sources…',
   },
   Completed: {
-    label: 'Ready',
+    label: 'Enriched',
     tone: 'success',
     description: 'Product intelligence has been gathered and is ready to use.',
   },

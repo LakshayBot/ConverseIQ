@@ -260,7 +260,7 @@ const StatusChip: React.FC<{ doc: KnowledgeDocument; live: DocumentStatus | null
     title = enrichmentStatus ?? undefined;
   } else if (isIndexed) {
     chipClass = 'chip-success';
-    label = 'Ready';
+    label = 'Enriched';
   }
   return (
     <span className={`chip ${chipClass}`} title={title}>
