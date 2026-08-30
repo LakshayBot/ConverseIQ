@@ -97,6 +97,24 @@ public class ProductIntelService
         var row = await ScopedQuery(userId).FirstOrDefaultAsync(p => p.CanonicalName == canonical);
         if (row is null)
         {
+            // Fallback via DocumentEntities: the user's own document may already be
+            // linked to a PI owned by a different user (legacy cross-user bug via
+            // global EnsureScopedAsync). Return that linked PI so the drawer shows
+            // real Completed data instead of a synthetic Pending placeholder.
+            var linkedPiId = await _db.DocumentEntities
+                .Where(e => e.EntityType == "product"
+                            && e.ProductIntelligenceId != null
+                            && e.EntityText.ToLower() == canonical)
+                .Where(e => _db.KnowledgeDocuments.Any(d => d.Id == e.DocumentId && d.UserId == userId))
+                .Select(e => e.ProductIntelligenceId!.Value)
+                .FirstOrDefaultAsync();
+            if (linkedPiId != Guid.Empty)
+            {
+                row = await _db.ProductIntelligences.FirstOrDefaultAsync(p => p.Id == linkedPiId);
+            }
+        }
+        if (row is null)
+        {
             return new ProductIntelligenceDto(
                 Name: string.IsNullOrWhiteSpace(name) ? canonical : name.Trim(),
                 CanonicalName: canonical,
@@ -137,16 +155,42 @@ public class ProductIntelService
             }
         }
 
-        // Company-scoped lookup: ProductIntelligence is deduped by
-        // (CompanyName, CanonicalName) — the unique index — so a doc's
-        // product must reuse the company's existing row even if it lives
-        // under a different KB (E2E tests created the same products under
-        // an earlier KB). The previous KB-scoped lookup created a duplicate
-        // row attempt that violated the unique index for 10 of 17 products
-        // and caused bulk-enrich to skip them.
-        var row = !string.IsNullOrWhiteSpace(companyName)
-            ? await _db.ProductIntelligences.FirstOrDefaultAsync(p => p.CompanyName == companyName && p.CanonicalName == canonical)
-            : await ScopedQuery(userId).FirstOrDefaultAsync(p => p.CanonicalName == canonical);
+        // Company-scoped, user-scoped lookup: ProductIntelligence is deduped by
+        // (CompanyName, CanonicalName) but must not cross user boundaries.
+        // The previous global lookup reused a PI owned by a different user,
+        // causing dev's documents to link to e2e-owned PIs (blank drawer via
+        // ScopedQuery). Now we only reuse PIs whose KnowledgeBase is owned by
+        // the same user; otherwise we create a new per-user PI.
+        // Fallback to synthetic/document link is handled below if still null.
+        ProductIntelligence? row = null;
+        if (!string.IsNullOrWhiteSpace(companyName))
+        {
+            var userKbIdsForForce = _db.KnowledgeBases.Where(k => k.UserId == userId).Select(k => k.Id);
+            row = await _db.ProductIntelligences.FirstOrDefaultAsync(p =>
+                p.CompanyName == companyName && p.CanonicalName == canonical
+                && p.KnowledgeBaseId != null && userKbIdsForForce.Contains(p.KnowledgeBaseId.Value));
+        }
+        if (row is null)
+        {
+            row = await ScopedQuery(userId).FirstOrDefaultAsync(p => p.CanonicalName == canonical);
+        }
+        if (row is null)
+        {
+            // Cross-user link fallback: a DocumentEntity for this user already
+            // points to a PI (legacy bug). Reuse that PI so ForceReenrich
+            // operates on the linked row instead of creating a duplicate.
+            var linkedPiId = await _db.DocumentEntities
+                .Where(e => e.EntityType == "product"
+                            && e.ProductIntelligenceId != null
+                            && e.EntityText.ToLower() == canonical)
+                .Where(e => _db.KnowledgeDocuments.Any(d => d.Id == e.DocumentId && d.UserId == userId))
+                .Select(e => e.ProductIntelligenceId!.Value)
+                .FirstOrDefaultAsync();
+            if (linkedPiId != Guid.Empty)
+            {
+                row = await _db.ProductIntelligences.FirstOrDefaultAsync(p => p.Id == linkedPiId);
+            }
+        }
 
         if (row is null)
         {
@@ -161,11 +205,21 @@ public class ProductIntelService
             catch (DbUpdateException)
             {
                 // Race: another document created the same company+canonical row
-                // concurrently. Reload the winner.
+                // concurrently. Reload the winner (user-scoped).
                 await _db.Entry(row).ReloadAsync();
-                row = await _db.ProductIntelligences.FirstOrDefaultAsync(p =>
-                    p.CompanyName == companyName && p.CanonicalName == canonical)
-                    ?? row;
+                if (!string.IsNullOrWhiteSpace(companyName))
+                {
+                    var userKbIdsRace = _db.KnowledgeBases.Where(k => k.UserId == userId).Select(k => k.Id);
+                    row = await _db.ProductIntelligences.FirstOrDefaultAsync(p =>
+                        p.CompanyName == companyName && p.CanonicalName == canonical
+                        && p.KnowledgeBaseId != null && userKbIdsRace.Contains(p.KnowledgeBaseId.Value))
+                        ?? row;
+                }
+                else
+                {
+                    row = await ScopedQuery(userId).FirstOrDefaultAsync(p => p.CanonicalName == canonical)
+                        ?? row;
+                }
             }
         }
 
@@ -206,8 +260,27 @@ public class ProductIntelService
         bool autoEnrich = true)
     {
         var canonical = NormalizeName(name);
-        var row = await _db.ProductIntelligences.FirstOrDefaultAsync(p =>
-            p.CompanyName == companyName && p.CanonicalName == canonical);
+        // User-scoped lookup: resolve owning user from knowledgeBaseId so we never
+        // link a document's entities to a PI owned by a different user (global
+        // CompanyName+Canonical index caused cross-user linking, e.g. dev@dev.com
+        // entities pointing at e2e user's PI for Secure Meters Brochure).
+        var ownerUserId = await _db.KnowledgeBases
+            .Where(k => k.Id == knowledgeBaseId)
+            .Select(k => (Guid?)k.UserId)
+            .FirstOrDefaultAsync();
+        ProductIntelligence? row = null;
+        if (ownerUserId != null)
+        {
+            var userKbIds = _db.KnowledgeBases.Where(k => k.UserId == ownerUserId.Value).Select(k => k.Id);
+            row = await _db.ProductIntelligences.FirstOrDefaultAsync(p =>
+                p.CompanyName == companyName && p.CanonicalName == canonical
+                && p.KnowledgeBaseId != null && userKbIds.Contains(p.KnowledgeBaseId.Value));
+        }
+        else
+        {
+            row = await _db.ProductIntelligences.FirstOrDefaultAsync(p =>
+                p.CompanyName == companyName && p.CanonicalName == canonical);
+        }
 
         if (row is null)
         {
@@ -224,9 +297,20 @@ public class ProductIntelService
             catch (DbUpdateException)
             {
                 await _db.Entry(row).ReloadAsync();
-                row = await _db.ProductIntelligences.AsNoTracking().FirstOrDefaultAsync(p =>
-                    p.CompanyName == companyName && p.CanonicalName == canonical)
-                    ?? row;
+                if (ownerUserId != null)
+                {
+                    var userKbIdsRace = _db.KnowledgeBases.Where(k => k.UserId == ownerUserId.Value).Select(k => k.Id);
+                    row = await _db.ProductIntelligences.AsNoTracking().FirstOrDefaultAsync(p =>
+                        p.CompanyName == companyName && p.CanonicalName == canonical
+                        && p.KnowledgeBaseId != null && userKbIdsRace.Contains(p.KnowledgeBaseId.Value))
+                        ?? row;
+                }
+                else
+                {
+                    row = await _db.ProductIntelligences.AsNoTracking().FirstOrDefaultAsync(p =>
+                        p.CompanyName == companyName && p.CanonicalName == canonical)
+                        ?? row;
+                }
             }
         }
 
@@ -481,6 +565,18 @@ public class ProductIntelService
             .Where(p => p.CanonicalName == canonical)
             .Select(p => p.Id)
             .FirstOrDefaultAsync();
+        if (id == Guid.Empty)
+        {
+            // Fallback via DocumentEntities link (same cross-user legacy fix as GetAsync)
+            var linkedPiId = await _db.DocumentEntities
+                .Where(e => e.EntityType == "product"
+                            && e.ProductIntelligenceId != null
+                            && e.EntityText.ToLower() == canonical)
+                .Where(e => _db.KnowledgeDocuments.Any(d => d.Id == e.DocumentId && d.UserId == userId))
+                .Select(e => e.ProductIntelligenceId!.Value)
+                .FirstOrDefaultAsync();
+            if (linkedPiId != Guid.Empty) id = linkedPiId;
+        }
         if (id == Guid.Empty) return [];
 
         return await _db.ProductSources
