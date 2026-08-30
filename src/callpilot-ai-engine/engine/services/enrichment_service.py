@@ -104,6 +104,42 @@ def _get_model() -> str:
     return os.getenv("ENRICHMENT_MODEL", "openai/gpt-oss-20b")
 
 
+FALLBACK_MODELS: list[str] = ["qwen/qwen3.8-27b", "allam-2-7b", "openai/gpt-oss-20b"]
+
+
+def _is_tpd_error(error_message: str) -> bool:
+    """Whether an error message signals a Groq tokens-per-day (TPD) quota exhaustion.
+
+    Groq's 429 body for TPD looks like "Rate limit reached ... on tokens per
+    day (TPD): Limit 200000, Used 199418, Requested 1096. Please try again in
+    3m42s."  The terse "TPD" or the long form "tokens per day" both indicate
+    the daily quota, not the per-minute bucket.
+    """
+    if not error_message:
+        return False
+    low = error_message.lower()
+    return "tokens per day" in low or "tpd" in low
+
+
+def _is_retriable_model_error(error_message: str) -> bool:
+    """Whether the error should trigger a fallback to the next model.
+
+    Covers TPD quota exhaustion (try a model with fresh quota) and
+    model_not_found / does_not_exist (the configured model was removed
+    from Groq, e.g. llama-3.1-8b-instant → 404).
+    """
+    if not error_message:
+        return False
+    low = error_message.lower()
+    return (
+        "tokens per day" in low
+        or "tpd" in low
+        or "model_not_found" in low
+        or "does not exist" in low
+        or "model does not exist" in low
+    )
+
+
 # Explicit completion budget for the Groq call.  Groq's default max_tokens
 # is far too small for a dense brochure page: the 13-field product schema
 # plus the entity list routinely needs 3-8k tokens, and an over-budget
@@ -1035,6 +1071,55 @@ async def enrich_page(
             outcome={"status": "unknown", "model": _result_model(None, provider_config), "duration_ms": 0,
                      "error": str(exc), "retry_count": 0},
         )
+
+    # ── TPD / model-removed fallback ───────────────────────────────────────
+    # Groq's free tier TPD for qwen/qwen3.6-27b is 200k tokens/day. A 19-page
+    # brochure at ~1k tokens/page burns ~19k per document, but the user's org
+    # had already consumed 199k earlier that day (Used 199418, Requested 1096).
+    # The raw error "Please try again in 3m42s" is misleading - that hint is
+    # for the per-minute bucket, not the daily quota which resets at midnight
+    # UTC.  When we detect TPD, transparently try the higher-limit fallbacks
+    # (qwen3.8-27b / allam-2-7b have fresh quota) before returning failure.
+    # Also covers the case where the configured model was removed from Groq
+    # (e.g. llama-3.1-8b-instant → 404 model_not_found).
+    if provider_config is not None and _is_retriable_model_error(groq_result.error_message or ""):
+        logger.warning(
+            "enrich_page: TPD quota hit on %s (%s), trying fallbacks %s",
+            provider_config.model, (groq_result.error_message or "")[:200], FALLBACK_MODELS,
+        )
+        original_model = provider_config.model
+        for fb_model in FALLBACK_MODELS:
+            if fb_model == original_model:
+                continue
+            fb_config = AiProviderConfig(
+                provider_type=provider_config.provider_type,
+                model=fb_model,
+                api_key=provider_config.api_key,
+                endpoint=provider_config.endpoint,
+                max_tokens=provider_config.max_tokens,
+                temperature=provider_config.temperature,
+                timeout_s=provider_config.timeout_s,
+            )
+            try:
+                fb_result = await _call_provider_with_retry(fb_config, prompt, max_tokens=budget)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("enrich_page: fallback %s raised: %s", fb_model, exc)
+                continue
+            if fb_result.outcome_status == "ok" and fb_result.content:
+                logger.info("enrich_page: fallback %s succeeded after TPD on %s", fb_model, original_model)
+                groq_result = fb_result
+                provider_config = fb_config
+                break
+            # Keep the last fallback result so the UI sees its error if all
+            # fallbacks also exhaust TPD.
+            groq_result = fb_result
+            provider_config = fb_config
+            if not _is_retriable_model_error(fb_result.error_message or ""):
+                # Non-retriable failure (auth, 5xx, etc.) - retrying further
+                # fallbacks with the same key is unlikely to help.
+                logger.warning("enrich_page: fallback %s failed non-retriable [%s]: %s", fb_model, fb_result.outcome_status, (fb_result.error_message or "")[:200])
+                break
+            logger.warning("enrich_page: fallback %s also hit retriable error, trying next", fb_model)
 
     if groq_result.outcome_status != "ok" or not groq_result.content:
         # Transport / auth / parse failure - the LLM never gave us parseable JSON.

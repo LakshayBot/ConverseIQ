@@ -33,6 +33,35 @@ _SOURCE_TYPE_HINTS: list[tuple[str, list[str]]] = [
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
+FALLBACK_MODELS: list[str] = ["qwen/qwen3.8-27b", "allam-2-7b", "openai/gpt-oss-20b"]
+
+
+def _is_tpd_error(error_message: str) -> bool:
+    if not error_message:
+        return False
+    low = error_message.lower()
+    return "tokens per day" in low or "tpd" in low
+
+
+def _is_retriable_model_error(error_message: str) -> bool:
+    if not error_message:
+        return False
+    low = error_message.lower()
+    return (
+        "tokens per day" in low
+        or "tpd" in low
+        or "model_not_found" in low
+        or "does not exist" in low
+    )
+
+
+def _is_tpd_error(error_message: str) -> bool:
+    """Whether an error signals Groq TPD (tokens per day) quota exhaustion."""
+    if not error_message:
+        return False
+    low = error_message.lower()
+    return "tokens per day" in low or "tpd" in low
+
 
 def _clamp_confidence(value) -> float:
     try:
@@ -309,6 +338,37 @@ async def _extract_with_llm(
                 payload = _parse_json_object(result.content)
                 if payload:
                     return payload
+            # TPD / model-removed fallback - same models as enrichment_service.
+            err_msg = getattr(result, "error_message", None) or "" if result else ""
+            if _is_retriable_model_error(err_msg):
+                logger.warning("Product extraction TPD hit on %s, trying fallbacks %s", provider_config.model, FALLBACK_MODELS)
+                for fb_model in FALLBACK_MODELS:
+                    if fb_model == provider_config.model:
+                        continue
+                    try:
+                        from engine.ai.base import AiProviderConfig
+                        fb_config = AiProviderConfig(
+                            provider_type=provider_config.provider_type,
+                            model=fb_model,
+                            api_key=provider_config.api_key,
+                            endpoint=getattr(provider_config, "endpoint", None),
+                            max_tokens=getattr(provider_config, "max_tokens", None),
+                            temperature=getattr(provider_config, "temperature", None),
+                            timeout_s=getattr(provider_config, "timeout_s", None),
+                        )
+                        fb_result = await _call_provider_with_retry(fb_config, prompt)
+                        if fb_result and getattr(fb_result, "content", None) and fb_result.outcome_status == "ok":
+                            payload = _parse_json_object(fb_result.content)
+                            if payload:
+                                logger.info("Product extraction fallback %s succeeded after TPD on %s", fb_model, provider_config.model)
+                                return payload
+                        fb_err = getattr(fb_result, "error_message", None) or "" if fb_result else ""
+                        if not _is_retriable_model_error(fb_err):
+                            break
+                        logger.warning("Product extraction fallback %s also hit retriable error, trying next", fb_model)
+                    except Exception as fb_exc:
+                        logger.warning("Product extraction fallback %s failed: %s", fb_model, fb_exc)
+                        continue
         except Exception as exc:
             logger.warning("Product extraction provider call failed: %s", exc)
 

@@ -50,7 +50,7 @@ services:
       # (no entities, no LLM output).  Interpolated from .env on the host
       # so a fresh `docker compose up` Just Works.
       GROQ_API_KEY: "${GROQ_API_KEY:-}"
-      ENRICHMENT_MODEL: "${ENRICHMENT_MODEL:-qwen/qwen3.6-27b}"
+      ENRICHMENT_MODEL: "${ENRICHMENT_MODEL:-qwen/qwen3.8-27b}"
       ENRICHMENT_MAX_TOKENS: "${ENRICHMENT_MAX_TOKENS:-6144}"
       ENRICHMENT_PAGE_INTERVAL_S: "${ENRICHMENT_PAGE_INTERVAL_S:-8}"
     depends_on:

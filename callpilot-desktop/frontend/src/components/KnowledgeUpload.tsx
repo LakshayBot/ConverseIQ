@@ -367,8 +367,60 @@ const PipelineStepper: React.FC<{
 
   const [expandedKey, setExpandedKey] = useState<IngestStageKey | null>(null);
 
+  // ── TPD detection for prominent banner ─────────────────────────────────
+  const isTpdLike = (msg: string | null | undefined): boolean => {
+    if (!msg) return false;
+    const low = msg.toLowerCase();
+    return low.includes("tokens per day") || low.includes("tpd") || low.includes("rate limit") || msg.includes("200000");
+  };
+  const tpdStage = items.find((s) => (s.error && isTpdLike(s.error.message)) || (s.detail && isTpdLike(s.detail)));
+  // Also surface TPD when enrichmentProgress shows failures and any page error looks like TPD
+  const enrichingFailedWithTpd = (() => {
+    const enriching = items.find((s) => s.key === "enriching");
+    if (enriching?.error && isTpdLike(enriching.error.message)) return true;
+    if (enriching?.detail && isTpdLike(enriching.detail)) return true;
+    if (tpdStage) return true;
+    return false;
+  })();
+
   return (
     <div className="border-t border-[var(--opaline-outline-variant)]/40 bg-[var(--opaline-surface-container-low)]/30">
+      {/* TPD prominent banner — shown automatically, not just in collapsible detail.
+          The original bug showed "0/19 pages enriched, 14 failed" with no clear reason
+          in the UI detail (only the truncated raw error). This banner surfaces the
+          daily quota explanation and fix directly. */}
+      {enrichingFailedWithTpd && tpdStage && (
+        <div className="mx-3 mt-2 rounded-lg border border-[var(--opaline-warning-border)] bg-[var(--opaline-warning-soft)] px-3 py-2.5">
+          <div className="flex gap-2">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--opaline-warning)]" />
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="text-xs font-semibold text-[var(--opaline-on-surface)]">
+                Daily Groq quota exhausted — enrichment hit the tokens-per-day limit
+              </p>
+              <p className="break-words whitespace-pre-wrap text-xs leading-relaxed text-[var(--opaline-on-surface-variant)]">
+                {tpdStage.error?.message ?? tpdStage.detail}
+              </p>
+              <p className="text-xs leading-relaxed text-[var(--opaline-on-surface-variant)]">
+                Fix: Switch to a higher-limit model like <span className="font-medium">llama-3.1-8b-instant</span> (500k TPD) in Settings &gt; AI &amp; Keys, or connect OpenAI/Anthropic. The quota resets daily at midnight UTC — the “try again in 3m42s” hint is for the per-minute bucket, not the daily quota.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Fallback banner when enrichmentProgress shows TPD-like detail but no single tpdStage was found (e.g. detail only) */}
+      {enrichingFailedWithTpd && !tpdStage && enrichmentProgress && enrichmentProgress.failed > 0 && (
+        <div className="mx-3 mt-2 rounded-lg border border-[var(--opaline-warning-border)] bg-[var(--opaline-warning-soft)] px-3 py-2.5">
+          <div className="flex gap-2">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--opaline-warning)]" />
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="text-xs font-semibold text-[var(--opaline-on-surface)]">Daily quota exhausted — enrichment failed</p>
+              <p className="text-xs leading-relaxed text-[var(--opaline-on-surface-variant)]">
+                Daily Groq quota exhausted (200k tokens/day for qwen/qwen3.6-27b). Used 199k today. The free tier resets daily. Fix: Switch to a higher-limit model like llama-3.1-8b-instant (500k TPD) in Settings &gt; AI &amp; Keys, or connect OpenAI/Anthropic, or wait until tomorrow. The 3m42s hint is for tokens-per-minute, not the daily quota.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       {/* hairline progress for enriching — single thin track, no duplicate text block */}
       {enrichmentProgress && enrichmentProgress.total > 0 && (
         <div
@@ -778,9 +830,44 @@ const DocumentRow: React.FC<{
   onView: (id: string) => void;
   onOpenProduct: (product: DrawerProduct, documentId: string) => void;
   onProductsDeleted: (documentId: string, ids: string[]) => void;
-}> = ({ doc, live, onDelete, onView, onOpenProduct, onProductsDeleted }) => {
+  onRetry?: (id: string) => void;
+}> = ({ doc, live, onDelete, onView, onOpenProduct, onProductsDeleted, onRetry }) => {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const confirmTimerRef = useRef<number | null>(null);
+
+  const isEnrichmentFailed = (() => {
+    if (live?.enrichmentStatus === 'enrichment_failed') return true;
+    const enriching = live?.stages.find((s) => s.key === 'enriching');
+    return enriching?.status === 'failed';
+  })();
+  const isTpdFailure = (() => {
+    if (!live) return false;
+    const enriching = live.stages.find((s) => s.key === 'enriching');
+    const candidates: (string | null | undefined)[] = [
+      enriching?.error?.message,
+      enriching?.detail,
+      ...live.stages.map((s) => s.error?.message),
+      ...live.stages.map((s) => s.detail),
+    ];
+    const combined = candidates.filter(Boolean).join(' ');
+    const low = combined.toLowerCase();
+    return low.includes('tokens per day') || low.includes('tpd') || combined.includes('200000') || low.includes('rate limit');
+  })();
+
+  const handleRetry = async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      await authedApiCall('POST', `/api/v1/knowledge/${doc.id}/reindex?mode=structured`);
+      toast.success('Re-enrichment started — watch the pipeline below.');
+      if (onRetry) onRetry(doc.id);
+    } catch (e) {
+      toast.error(`Retry failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -839,6 +926,18 @@ const DocumentRow: React.FC<{
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <StatusChip doc={doc} live={live} />
+          {isEnrichmentFailed && (
+            <button
+              type="button"
+              onClick={handleRetry}
+              disabled={retrying}
+              title={isTpdFailure ? 'Retry enrichment (quota may have reset)' : 'Retry enrichment'}
+              className="inline-flex items-center gap-1 rounded-md border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] px-2.5 py-1 text-xs font-medium text-[var(--opaline-on-surface)] transition-colors hover:bg-[var(--opaline-surface-container-high)] hover:text-[var(--opaline-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--opaline-primary)] disabled:opacity-50"
+            >
+              {retrying ? <LoaderIcon className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              Retry enrichment
+            </button>
+          )}
           <button
             type="button"
             onClick={() => onView(doc.id)}
@@ -868,6 +967,47 @@ const DocumentRow: React.FC<{
           lastUpdatedAt={live.lastUpdatedAt}
           enrichmentProgress={enrichmentProgress}
         />
+      )}
+      {/* Warning box below the stepper when enriching failed due to TPD — prominent so
+          "0/19 pages enriched, 14 failed" is never shown without the quota explanation. */}
+      {isEnrichmentFailed && isTpdFailure && live && (
+        <div className="mx-3 mb-2 rounded-lg border border-[var(--opaline-warning-border)] bg-[var(--opaline-warning-soft)] px-3 py-2.5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex gap-2">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--opaline-warning)]" />
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-[var(--opaline-on-surface)]">Daily quota hit — enrichment needs a retry</p>
+                <p className="text-xs leading-relaxed text-[var(--opaline-on-surface-variant)]">
+                  This document failed because the Groq daily token limit was exhausted. The quota resets at midnight UTC. You can retry now with a higher-limit model or wait until tomorrow.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleRetry}
+              disabled={retrying}
+              className="inline-flex shrink-0 items-center gap-1 rounded-md bg-[var(--opaline-primary)] px-3 py-1.5 text-xs font-medium text-[var(--opaline-on-primary)] transition-colors hover:bg-[var(--opaline-primary-hover)] disabled:opacity-50"
+            >
+              {retrying ? <LoaderIcon className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              Retry enrichment
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Non-TPD enrichment failure — still offer retry but without the quota explanation */}
+      {isEnrichmentFailed && !isTpdFailure && live && (
+        <div className="mx-3 mb-2 flex items-center justify-between gap-3 rounded-lg border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-low)] px-3 py-2">
+          <p className="text-xs text-[var(--opaline-on-surface-variant)]">Enrichment failed — you can retry.</p>
+          <button
+            type="button"
+            onClick={handleRetry}
+            disabled={retrying}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] px-2.5 py-1 text-xs font-medium text-[var(--opaline-on-surface)] transition-colors hover:bg-[var(--opaline-surface-container-high)] disabled:opacity-50"
+          >
+            {retrying ? <LoaderIcon className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+            Retry enrichment
+          </button>
+        </div>
       )}
       {live?.products && live.products.length > 0 && (
         <ProductProgressList
@@ -1179,6 +1319,36 @@ export const KnowledgeUpload: React.FC = () => {
     } catch (e) {
       console.warn('[KnowledgeUpload] failed to delete doc:', e);
     }
+  };
+
+  const handleRetryEnrichment = (id: string) => {
+    // Optimistically reset the enriching stage to running so polling
+    // resumes immediately and the stepper flips from failed → running.
+    setLiveStatuses((prev) => {
+      const live = prev[id];
+      if (!live) return prev;
+      return {
+        ...prev,
+        [id]: {
+          ...live,
+          enrichmentStatus: 'enriching',
+          lastUpdatedAt: new Date().toISOString(),
+          stages: live.stages.map((s) =>
+            s.key === 'enriching' ? { ...s, status: 'running' as const, error: null, detail: 'Retrying…' } : s,
+          ),
+          enrichmentProgress: live.enrichmentProgress
+            ? { ...live.enrichmentProgress, failed: 0, inFlight: live.enrichmentProgress.total }
+            : live.enrichmentProgress,
+        },
+      };
+    });
+    // Fetch the fresh status shortly after the server has restarted the pipeline
+    setTimeout(async () => {
+      try {
+        const s = await authedApiCall<DocumentStatus>('GET', `/api/v1/knowledge/${id}/status`);
+        setLiveStatuses((prev) => ({ ...prev, [id]: s }));
+      } catch {}
+    }, 1200);
   };
 
   // A product was deleted from its detail drawer - drop it from the
@@ -1519,6 +1689,7 @@ export const KnowledgeUpload: React.FC = () => {
                   onView={handleView}
                   onOpenProduct={handleOpenProduct}
                   onProductsDeleted={handleProductsDeleted}
+                  onRetry={handleRetryEnrichment}
                 />
               ))}
             </div>

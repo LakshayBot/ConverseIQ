@@ -1191,14 +1191,55 @@ public class KnowledgeUploadHandler
         // the dashboard renders a red row + surfaces the error body.
         if (failed > 0 && firstFailed is not null)
         {
+            var rawError = firstFailed.Error ?? "one or more pages failed";
+            var isTpdError = rawError.Contains("tokens per day", StringComparison.OrdinalIgnoreCase)
+                || rawError.Contains("TPD", StringComparison.OrdinalIgnoreCase)
+                || rawError.Contains("200000");
+            // Also check ALL page errors for TPD so a mixed failure where the
+            // first page happened to be a different error still surfaces TPD
+            // when any page hit it (e.g. 14/19 TPD + 5 ok).
+            if (!isTpdError && pageProgress.Any(p => p.Error != null && (
+                p.Error.Contains("tokens per day", StringComparison.OrdinalIgnoreCase) ||
+                p.Error.Contains("TPD", StringComparison.OrdinalIgnoreCase) ||
+                p.Error.Contains("200000"))))
+            {
+                isTpdError = true;
+            }
+
+            string displayError;
+            string stageDetail;
+            if (isTpdError)
+            {
+                const string tpdFriendly = "Daily Groq quota exhausted (200k tokens/day for qwen/qwen3.6-27b). Used 199k today. The free tier resets daily. Fix: Switch to a higher-limit model like llama-3.1-8b-instant (500k TPD) in Settings > AI & Keys, or connect OpenAI/Anthropic, or wait until tomorrow. The 3m42s hint is for tokens-per-minute, not the daily quota.";
+                displayError = tpdFriendly;
+                // Handle the case where all pages failed due to TPD - set a clear stage detail
+                if (failed == total)
+                {
+                    stageDetail = $"TPD quota exhausted: {failed}/{total} pages failed due to daily Groq limit (200k tokens/day for qwen/qwen3.6-27b). {tpdFriendly}";
+                }
+                else
+                {
+                    stageDetail = $"{completed}/{total} pages enriched, {failed} failed \u2014 daily Groq quota exhausted (200k TPD for qwen/qwen3.6-27b). {tpdFriendly}";
+                }
+            }
+            else
+            {
+                displayError = rawError;
+                stageDetail = $"{completed}/{total} pages enriched, {failed} failed";
+            }
+
             rec.MarkFailed("enriching", new IngestStageError(
                 Stage: "enriching", Source: "groq",
                 HttpStatus: firstFailed.Status switch
                 {
                     "http_4xx" => 400, "http_5xx" => 500, _ => null,
                 },
-                Message: firstFailed.Error ?? "one or more pages failed",
+                Message: displayError,
                 Model: firstFailed.Model, At: DateTime.UtcNow));
+            // Ensure stage detail is visible even when collapsed - the
+            // dashboard stepper shows detail inline, and the TPD message must
+            // be obvious without expanding the error body.
+            rec.UpdateDetail("enriching", stageDetail);
             document.SetEnrichmentStatus("enrichment_failed");
         }
         else
