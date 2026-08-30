@@ -223,12 +223,13 @@ export const SpeakerIdentificationPanel: React.FC<Props> = ({ meetingId, onSpeak
             <p className="mt-1 text-body-sm text-[var(--opaline-on-surface)]">
               {hasLabels
                 ? `${speakers.length} speaker${speakers.length === 1 ? '' : 's'} identified in this meeting.`
-                : 'This meeting has no speaker labels yet.'}
+                : 'No identified speakers yet.'}
             </p>
             {!hasLabels && (
               <p className="mt-0.5 text-caption text-[var(--opaline-on-surface-variant)]">
-                Speaker identification runs locally on your machine against the saved recording — no
-                re-transcription, no cloud.
+                Your transcript already has diarization labels (Speaker 1, 2…) — identification
+                assigns real names and calculates speaking time. Runs locally on your machine
+                against the saved recording — no re-transcription, no cloud.
               </p>
             )}
           </div>
