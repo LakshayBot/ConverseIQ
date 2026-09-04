@@ -44,6 +44,68 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   // Use global recording state context for pause state (syncs with tray operations)
   const recordingState = useRecordingState();
   const isPaused = recordingState.isPaused;
+  const activeDuration = recordingState.activeDuration;
+
+  // ── Listening dock: live timer + live waveform ──────────────────────
+  // Timer is the backend `active_duration` (excludes pauses, polled 500ms)
+  // so it matches the real recording clock. Waveform is driven by the
+  // `audio-levels` Tauri event when present, otherwise by a speech-aware
+  // animation fallback so the bars always feel live while listening.
+  const DOCK_BARS = 22;
+  const [dockLevels, setDockLevels] = useState<number[]>(() =>
+    Array.from({ length: 22 }, (_, i) => 0.25 + 0.4 * Math.abs(Math.sin(i * 0.65))),
+  );
+  const liveLevelRef = useRef<number | null>(null);
+  const boostUntilRef = useRef(0);
+
+  const dockSeconds = Math.max(0, Math.floor(activeDuration ?? 0));
+  const formatDockTime = (s: number) =>
+    `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
+
+  useEffect(() => {
+    if (!isRecording || isPaused) return;
+    let unlistenLevels: (() => void) | undefined;
+    let unlistenSpeech: (() => void) | undefined;
+    (async () => {
+      try {
+        unlistenLevels = await listen('audio-levels', (event: any) => {
+          const levels = event?.payload?.levels;
+          if (Array.isArray(levels) && levels.length > 0) {
+            const peak = Math.max(
+              ...levels.map((l: any) => Number(l?.rms_level ?? l?.peak_level ?? 0) || 0),
+            );
+            liveLevelRef.current = Math.max(0, Math.min(1, peak));
+          }
+        });
+      } catch { /* fallback animation covers it */ }
+      try {
+        unlistenSpeech = await listen('speech-detected', () => {
+          boostUntilRef.current = Date.now() + 1200;
+        });
+      } catch { /* optional */ }
+    })();
+    const id = setInterval(() => {
+      setDockLevels((prev) => {
+        const live = liveLevelRef.current;
+        const boosted = Date.now() < boostUntilRef.current;
+        const base = live !== null && live > 0.02
+          ? live
+          : boosted
+            ? 0.55 + Math.random() * 0.35
+            : 0.18 + Math.random() * 0.4;
+        // Smooth toward the target so bars glide instead of jumping.
+        const target = Math.max(0.08, Math.min(1, base));
+        const last = prev[prev.length - 1] ?? 0.3;
+        const next = last + (target - last) * 0.55 + (Math.random() - 0.5) * 0.08;
+        return [...prev.slice(1), Math.max(0.08, Math.min(1, next))];
+      });
+    }, 110);
+    return () => {
+      clearInterval(id);
+      if (unlistenLevels) unlistenLevels();
+      if (unlistenSpeech) unlistenSpeech();
+    };
+  }, [isRecording, isPaused]);
 
   const [showPlayback, setShowPlayback] = useState(false);
   const [recordingPath, setRecordingPath] = useState<string | null>(null);
@@ -414,8 +476,21 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col items-center space-y-2">
-        <div className="opaline-glass flex items-center space-x-2 rounded-full border border-[var(--opaline-outline-variant)] px-4 py-2 shadow-lg">
+      <div className="flex flex-col items-start">
+        {/* Listening label — sits above the dock, like the reference */}
+        {isRecording && !showPlayback && !(isProcessing && !isParentProcessing) && (
+          <div className="mb-2 flex items-center gap-1.5 pl-1">
+            <span
+              aria-hidden
+              className={`h-1.5 w-1.5 rounded-full ${isPaused ? 'bg-[var(--opaline-warning)]' : 'animate-pulse bg-blue-500'}`}
+            />
+            <span className="text-[13px] text-[var(--opaline-on-surface-variant)]">
+              {isPaused ? 'Paused' : 'Listening...'}
+            </span>
+          </div>
+        )}
+        {/* Meetily-style listening dock: waveform · timer · Pause · Stop */}
+        <div className="flex items-center gap-4 rounded-2xl border border-black/[0.06] bg-[var(--opaline-surface-container-lowest)] px-5 py-3.5 shadow-[0_16px_48px_-12px_rgb(0_0_0/0.25)]">
           {isProcessing && !isParentProcessing ? (
             <div className="flex items-center space-x-2">
               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[var(--opaline-ink)]"></div>
@@ -484,94 +559,83 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                       </TooltipContent>
                     </Tooltip>
                   ) : (
-                    // Recording controls (pause/resume + stop)
+                    // Listening mode: live waveform · elapsed timer · Pause · Stop
                     <>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={() => {
-                              if (isPaused) {
-                                Analytics.trackButtonClick('resume_recording', 'recording_controls');
-                                handleResumeRecording();
-                              } else {
-                                Analytics.trackButtonClick('pause_recording', 'recording_controls');
-                                handlePauseRecording();
-                              }
-                            }}
-                            disabled={isPausing || isResuming || isStopping}
-                            className={`w-10 h-10 flex items-center justify-center ${isPausing || isResuming || isStopping
-                              ? 'bg-[var(--opaline-surface-container)] border-2 border-[var(--opaline-outline-variant)] text-[var(--opaline-outline)]'
-                              : 'bg-[var(--opaline-surface-container-lowest)] border-2 border-[var(--opaline-outline-variant)] text-[var(--opaline-on-surface-variant)] hover:border-[var(--opaline-outline)] hover:bg-[var(--opaline-surface-container-low)]'
-                              } rounded-full transition-colors relative`}
-                          >
-                            {isPaused ? <Play size={16} /> : <Pause size={16} />}
-                            {(isPausing || isResuming) && (
-                              <div className="absolute -top-8 text-[var(--opaline-on-surface-variant)] font-medium text-xs">
-                                {isPausing ? 'Pausing...' : 'Resuming...'}
-                              </div>
-                            )}
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>{isPaused ? 'Resume recording' : 'Pause recording'}</p>
-                        </TooltipContent>
-                      </Tooltip>
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={() => {
-                              Analytics.trackButtonClick('stop_recording', 'recording_controls');
-                              handleStopRecording();
-                            }}
-                            disabled={isStopping || isPausing || isResuming}
-                            className={`w-10 h-10 flex items-center justify-center ${isStopping || isPausing || isResuming ? 'bg-[var(--opaline-on-surface-variant)]' : 'bg-[var(--opaline-primary)] hover:bg-[var(--opaline-primary-hover)] active:bg-[var(--opaline-primary-pressed)]'
-                              } rounded-full text-primary-foreground transition-colors duration-fast relative`}
-                          >
-                            <Square size={16} />
-                            {isStopping && (
-                              <div className="absolute -top-8 text-[var(--opaline-on-surface-variant)] font-medium text-xs">
-                                Stopping...
-                              </div>
-                            )}
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Stop recording</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </>
-                  )}
-
-                  {/* Audio-level bars. When idle they render as three small
-                      dots next to the mic - visually identical to an
-                      overflow "…" affordance - so label them explicitly to
-                      avoid a mystery button. */}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
                       <div
                         role="img"
-                        aria-label={isRecording ? 'Audio level indicator' : 'Audio level indicator (idle)'}
-                        title="Audio level indicator"
-                        className="flex items-center space-x-1 mx-4"
+                        aria-label={isPaused ? 'Audio level (paused)' : 'Live audio level'}
+                        className="flex h-8 items-center gap-[3px]"
                       >
-                        {barHeights.map((height, index) => (
+                        {dockLevels.map((level, index) => (
                           <div
                             key={index}
-                            className={`w-1 rounded-full transition-all duration-200 ${isPaused ? 'bg-[var(--opaline-primary)]' : 'bg-[var(--opaline-primary)]'
-                              }`}
+                            className="w-[3px] rounded-full bg-[#9aa0a6] transition-[height] duration-100"
                             style={{
-                              height: isRecording && !isPaused ? height : '4px',
-                              opacity: isPaused ? 0.6 : 1,
+                              height: isPaused ? '4px' : `${Math.round(5 + level * 24)}px`,
+                              opacity: isPaused ? 0.45 : 0.55 + level * 0.45,
                             }}
                           />
                         ))}
                       </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{isRecording ? 'Audio level' : 'Audio level - goes live when recording'}</p>
-                    </TooltipContent>
-                  </Tooltip>
+
+                      <span
+                        aria-label={`Elapsed time ${formatDockTime(dockSeconds)}`}
+                        className="min-w-[52px] text-[15px] font-medium tabular-nums text-[var(--opaline-on-surface)]"
+                      >
+                        {formatDockTime(dockSeconds)}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isPaused) {
+                            Analytics.trackButtonClick('resume_recording', 'recording_controls');
+                            handleResumeRecording();
+                          } else {
+                            Analytics.trackButtonClick('pause_recording', 'recording_controls');
+                            handlePauseRecording();
+                          }
+                        }}
+                        disabled={isPausing || isResuming || isStopping}
+                        aria-label={isPaused ? 'Resume recording' : 'Pause recording'}
+                        className="inline-flex h-10 items-center gap-2 rounded-xl bg-black/[0.05] px-4 text-[14px] font-medium text-[var(--opaline-on-surface)] transition-colors hover:bg-black/[0.08] disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white/[0.08] dark:hover:bg-white/[0.12]"
+                      >
+                        {isPausing || isResuming ? (
+                          <span className="text-[13px]">{isPausing ? 'Pausing…' : 'Resuming…'}</span>
+                        ) : isPaused ? (
+                          <>
+                            <Play size={15} />
+                            Resume
+                          </>
+                        ) : (
+                          <>
+                            <Pause size={15} />
+                            Pause
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          Analytics.trackButtonClick('stop_recording', 'recording_controls');
+                          handleStopRecording();
+                        }}
+                        disabled={isStopping || isPausing || isResuming}
+                        aria-label="Stop recording"
+                        className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--opaline-danger-soft)] px-4 text-[14px] font-medium text-[var(--opaline-danger)] transition-colors hover:brightness-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isStopping ? (
+                          <span className="text-[13px]">Stopping…</span>
+                        ) : (
+                          <>
+                            <Square size={11} fill="currentColor" aria-hidden />
+                            Stop
+                          </>
+                        )}
+                      </button>
+                    </>
+                  )}
                 </>
               )}
             </>
