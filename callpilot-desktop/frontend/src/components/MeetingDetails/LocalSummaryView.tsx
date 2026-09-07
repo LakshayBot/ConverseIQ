@@ -16,6 +16,8 @@ interface Props {
   error?: string | null;
   onRegenerate?: () => void;
   onRetrySave?: () => void;
+  /** Switch to the new Actions tab (wired from page-content.tsx). */
+  onSwitchToActions?: () => void;
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -44,6 +46,48 @@ function Section({ title, items }: { title: string; items: string[] }) {
 }
 
 const STEPS = ['Preparing transcript', 'Summarizing discussion', 'Extracting key points', 'Finalizing summary'];
+
+/** Read-only rendering of structured action items in the summary tab.
+ *  Priority uses the same intel severity tokens as the Intelligence rail;
+ *  assignee and source render as quiet text. Non-interactive by design -
+ *  management happens in the Actions tab. */
+function StructuredActionItemsSection({
+  title,
+  items,
+}: {
+  title: string;
+  items: import('@/lib/llm').StructuredActionItem[];
+}) {
+  if (!items || items.length === 0) return null;
+  const PRIORITY_DOT: Record<string, string> = {
+    high: 'bg-[var(--intel-high)]',
+    medium: 'bg-[var(--intel-medium)]',
+    low: 'bg-[var(--intel-low)]',
+  };
+  const ASSIGNEE_LABEL: Record<string, string> = {
+    you: 'You',
+    team_member: 'Team member',
+    unassigned: 'Unassigned',
+  };
+  return (
+    <div className="pt-4 first:pt-0">
+      <p className="text-overline mb-1.5 text-[var(--opaline-on-surface-variant)]">{title}</p>
+      <ul className="space-y-1.5">
+        {items.map((item, i) => (
+          <li key={i} className="flex items-start gap-1.5 text-[13px] leading-[1.5] text-[var(--opaline-on-surface-variant)]">
+            <span aria-hidden className={`mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full ${PRIORITY_DOT[item.priority] ?? PRIORITY_DOT.low}`} />
+            <span className="min-w-0">
+              {item.title}
+              <span className="text-caption text-[var(--opaline-outline)]">
+                {' '}· {ASSIGNEE_LABEL[item.assignee] ?? 'Unassigned'}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 function ProgressPanel({ progress, saving }: { progress: SummaryProgressEvent; saving: boolean }) {
   const activeStep = progress.stage === 'saving' ? 'Saving summary' : STAGE_LABELS[progress.stage] ?? 'Summarizing';
@@ -96,8 +140,20 @@ export const LocalSummaryView: React.FC<Props> = ({
   error,
   onRegenerate,
   onRetrySave,
+  onSwitchToActions,
 }) => {
   const router = useRouter();
+
+  // Backward compatibility: summaries saved before the structured action-item
+  // schema carry actionItems as string[] (and a top-level followUps[] key).
+  // Legacy summaries render as read-only text; only structured summaries get
+  // the richer list treatment. The interactive management surface lives in
+  // the Actions tab either way.
+  const legacyFollowUps = (summary?.followUps ?? []) as string[];
+  const isLegacyActionItems =
+    Array.isArray(summary?.actionItems) &&
+    summary.actionItems.length > 0 &&
+    typeof summary.actionItems[0] === 'string';
 
   if (state === 'summarizing' || state === 'saving') {
     return (
@@ -178,11 +234,42 @@ export const LocalSummaryView: React.FC<Props> = ({
         <div className="mt-2">
           <Section title="Key points" items={summary.keyPoints ?? []} />
           <Section title="Decisions" items={summary.decisions ?? []} />
-          <Section title="Action items" items={summary.actionItems ?? []} />
+          {isLegacyActionItems ? (
+            <>
+              <Section title="Action items" items={summary.actionItems as string[]} />
+              <Section title="Follow-ups" items={legacyFollowUps} />
+            </>
+          ) : (
+            <>
+              <StructuredActionItemsSection
+                title="Action items"
+                items={(summary.actionItems ?? []).filter(
+                  (i: any) => typeof i !== 'string' && i.source === 'action_item',
+                )}
+              />
+              <StructuredActionItemsSection
+                title="Follow-ups"
+                items={(summary.actionItems ?? []).filter(
+                  (i: any) => typeof i !== 'string' && i.source === 'follow_up',
+                )}
+              />
+            </>
+          )}
           <Section title="Customer requirements" items={summary.customerRequirements ?? []} />
           <Section title="Objections & concerns" items={summary.objections ?? []} />
-          <Section title="Follow-ups" items={summary.followUps ?? []} />
         </div>
+
+        {onSwitchToActions && (
+          <div className="mt-3 border-t border-[var(--opaline-outline-variant)] pt-2">
+            <button
+              type="button"
+              onClick={onSwitchToActions}
+              className="text-caption font-medium text-[var(--opaline-primary)] hover:underline"
+            >
+              Manage in Actions tab →
+            </button>
+          </div>
+        )}
 
         {onRegenerate && (
           <div className="mt-4 flex items-center gap-2 border-t border-[var(--opaline-outline-variant)] pt-3">

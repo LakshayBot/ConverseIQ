@@ -593,6 +593,7 @@ pub fn run() {
             llm_engine::commands::llm_cancel_download,
             llm_engine::commands::llm_delete_model,
             llm_engine::commands::llm_generate_summary,
+            llm_engine::commands::extract_action_items,
             // Speaker diarization commands
             speaker_engine::commands::diar_get_config,
             speaker_engine::commands::diar_set_config,

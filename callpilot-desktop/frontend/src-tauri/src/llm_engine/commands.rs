@@ -231,3 +231,83 @@ pub async fn llm_generate_summary<R: Runtime>(
         value
     })
 }
+
+/// Extracts ONLY the action items from a transcript - the focused companion
+/// to `llm_generate_summary` for meetings recorded before the structured
+/// action-item schema shipped. Never touches the rest of the summary: the
+/// caller (frontend) merges the returned items into the saved summary blob.
+///
+/// Uses the same local llama-helper sidecar and the same model selection as
+/// summarization - the transcript never leaves the device.
+#[tauri::command]
+pub async fn extract_action_items<R: Runtime>(
+    app: AppHandle<R>,
+    transcript: String,
+    model: Option<String>,
+) -> Result<Vec<summary::ActionItem>, String> {
+    let config = load_config(&app);
+    let model_id = model.or(config.model);
+    let def = model_id
+        .as_deref()
+        .and_then(get_model_by_id)
+        .cloned()
+        .ok_or_else(|| {
+            "No summarization model selected. Pick a model in Settings → Transcription, then try again."
+                .to_string()
+        })?;
+
+    if !helper_available(&app) {
+        return Err(
+            "The bundled inference engine (llama-helper) is unavailable in this build. Reinstall or rebuild the application to restore local summarization.".to_string(),
+        );
+    }
+
+    let model_path = model_manager::validate_downloaded(&app, def.id).map_err(|_| {
+        format!(
+            "The {} model is not downloaded. Install it in Settings → Transcription, then try again.",
+            def.name
+        )
+    })?;
+
+    let app_for_emit = app.clone();
+    let emit_progress = move |stage: String, percent: u8| {
+        let _ = app_for_emit.emit(
+            "llm-action-items-progress",
+            serde_json::json!({ "stage": stage, "percent": percent }),
+        );
+    };
+
+    let mut helper = match LlamaHelper::spawn(&app).await {
+        Ok(h) => h,
+        Err(e) => {
+            log::error!("llama-helper spawn failed: {e}");
+            return Err(e);
+        }
+    };
+    let helper = std::sync::Arc::new(tokio::sync::Mutex::new(helper));
+    let helper_for_shutdown = helper.clone();
+    let sampling = def.sampling.clone();
+    let template = def.template;
+    let context_size = def.context_size;
+    let path = model_path.clone();
+    let mut llm = move |user_prompt: String| {
+        let full = format_prompt(template, summary::ACTION_ITEMS_SCHEMA_PROMPT, &user_prompt);
+        let helper = helper.clone();
+        let path = path.clone();
+        let sampling = sampling.clone();
+        Box::pin(async move {
+            helper
+                .lock()
+                .await
+                .generate(&path, context_size, &full, &sampling)
+                .await
+        }) as Pin<Box<dyn Future<Output = Result<String, String>> + Send>>
+    };
+
+    let result = summary::extract_action_items_only(&transcript, &mut llm, emit_progress).await;
+    {
+        let mut guard = helper_for_shutdown.lock().await;
+        let _ = guard.shutdown().await;
+    }
+    result
+}

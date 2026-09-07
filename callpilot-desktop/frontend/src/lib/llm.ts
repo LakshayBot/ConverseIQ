@@ -33,14 +33,40 @@ export interface LlmConfig {
   autoSummarize: boolean | null;
 }
 
+export type ActionItemAssignee = 'you' | 'team_member' | 'unassigned';
+export type ActionItemPriority = 'high' | 'medium' | 'low';
+export type ActionItemSource = 'action_item' | 'follow_up';
+
+export interface StructuredActionItem {
+  title: string;
+  assignee: ActionItemAssignee;
+  priority: ActionItemPriority;
+  source: ActionItemSource;
+}
+
 export interface LocalSummary {
   summary?: string;
   keyPoints?: string[];
   decisions?: string[];
-  actionItems?: string[];
+  /**
+   * Structured action items (new schema). Legacy saved summaries may still
+   * carry the old string[] shape or a followUps[] key - the UI layer detects
+   * `typeof actionItems[0] === 'string'` and renders read-only text then.
+   */
+  actionItems?: Array<StructuredActionItem | string>;
   customerRequirements?: string[];
   objections?: string[];
-  followUps?: string[];
+  /**
+   * Per-item UI state owned by the user (not the LLM). Keyed by array
+   * index - items are generated once and never reordered. Persisted inside
+   * the same Meeting.SummaryJson blob as the summary itself.
+   */
+  actionItemState?: Record<
+    number,
+    { completed: boolean; assignee: ActionItemAssignee; addedToday: boolean }
+  >;
+  /** Saved-payload metadata (added by useLocalSummarization before the PUT). */
+  generatedAt?: string;
 }
 
 export interface SummaryProgressEvent {

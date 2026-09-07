@@ -28,6 +28,7 @@ import { IntelligenceSelectionProvider } from '@/contexts/IntelligenceSelectionC
 import { buildTranscriptEntityMap } from '@/lib/transcriptEntities';
 import type { ProductMention } from '@/components/ProductIntelligenceCard';
 import { LocalSummaryView } from '@/components/MeetingDetails/LocalSummaryView';
+import { ActionItemsPanel } from '@/components/MeetingDetails/ActionItemsPanel';
 import { SpeakerIdentificationPanel } from '@/components/MeetingDetails/SpeakerIdentificationPanel';
 import { TranscriptSegmentData } from '@/types';
 import Analytics from '@/lib/analytics';
@@ -78,6 +79,7 @@ const PageContent: React.FC<PageContentProps> = ({
   onRegenerateSummary,
   onRetrySaveSummary,
   onSpeakersChanged,
+  onSummaryChanged,
 }) => {
   const router = useRouter();
   const segmentCount = segments?.length ?? 0;
@@ -87,7 +89,30 @@ const PageContent: React.FC<PageContentProps> = ({
   // <IntelligencePanel> component renders them with identical styling.
   const [pastCards, setPastCards] = useState<ReturnType<typeof buildPastIntelligenceCards>>([]);
   const [cardsLoading, setCardsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'transcript' | 'summary'>('transcript');
+  const [activeTab, setActiveTab] = useState<'transcript' | 'summary' | 'actions'>('transcript');
+
+  // Uncompleted structured action items - drives the count badge on the
+  // Actions tab. Initialised from the saved blob, then kept live by the
+  // panel's onUncompletedChange callback (the panel owns the hook).
+  const [uncompletedActions, setUncompletedActions] = useState<number>(() => {
+    const s = summaryData;
+    if (!s || !Array.isArray(s.actionItems) || typeof s.actionItems[0] === 'string') return 0;
+    const state = s.actionItemState ?? {};
+    return (s.actionItems as any[]).filter(
+      (item, i) => !state[i]?.completed,
+    ).length;
+  });
+  useEffect(() => {
+    const s = summaryData;
+    if (!s || !Array.isArray(s.actionItems) || typeof s.actionItems[0] === 'string') {
+      setUncompletedActions(0);
+      return;
+    }
+    const state = s.actionItemState ?? {};
+    setUncompletedActions(
+      (s.actionItems as any[]).filter((item, i) => !state[i]?.completed).length,
+    );
+  }, [summaryData]);
 
   // Product entities for transcript highlighting - the PRODUCTS rail
   // identity, deduped.
@@ -116,6 +141,17 @@ const PageContent: React.FC<PageContentProps> = ({
     }
     return out;
   }, [segments, productNames]);
+
+  // Joined transcript text (already-loaded pages only) for action-item-only
+  // extraction - same shape the local summarizer uses.
+  const transcriptText = useMemo(
+    () =>
+      (segments ?? [])
+        .filter((s: any) => s.text)
+        .map((s: any) => (s.speakerLabel ? `${s.speakerLabel}: ${s.text}` : s.text))
+        .join('\n'),
+    [segments],
+  );
 
   useEffect(() => {
     Analytics.trackPageView('meeting_details');
@@ -190,9 +226,12 @@ const PageContent: React.FC<PageContentProps> = ({
           </div>
         </div>
 
-        {/* Tab strip - Summary / Transcript with bottom-border active indicator. */}
+        {/* Tab strip - Summary / Transcript / Actions with bottom-border
+            active indicator. The Actions tab carries a count badge (same
+            style as the Intelligence "Past N cards" pill) while uncompleted
+            action items remain. */}
         <div className="flex px-6 border-t border-[var(--tab-divider)]">
-          {(['summary', 'transcript'] as const).map((key) => {
+          {(['summary', 'transcript', 'actions'] as const).map((key) => {
             const isActive = activeTab === key;
             const label = key.charAt(0).toUpperCase() + key.slice(1);
             return (
@@ -206,7 +245,15 @@ const PageContent: React.FC<PageContentProps> = ({
                     : 'text-[var(--nav-muted-text)] hover:text-[var(--nav-active-text)]'
                 }`}
               >
-                {label}
+                <span className="inline-flex items-center gap-1.5">
+                  {label}
+                  {key === 'actions' && uncompletedActions > 0 && (
+                    <span className="status-pill !px-1.5 !py-0 !text-[10px]">
+                      <span className="pill-dot" aria-hidden />
+                      {uncompletedActions}
+                    </span>
+                  )}
+                </span>
                 {isActive && (
                   <span
                     aria-hidden
@@ -235,6 +282,16 @@ const PageContent: React.FC<PageContentProps> = ({
                   error={localSummaryError}
                   onRegenerate={onRegenerateSummary}
                   onRetrySave={onRetrySaveSummary}
+                  onSwitchToActions={() => setActiveTab('actions')}
+                />
+              ) : activeTab === 'actions' ? (
+                <ActionItemsPanel
+                  meetingId={meetingId ?? ''}
+                  summary={summaryData}
+                  transcriptText={transcriptText}
+                  onUncompletedChange={setUncompletedActions}
+                  onSummaryChanged={onSummaryChanged}
+                  onSwitchToSummary={() => setActiveTab('summary')}
                 />
               ) : (
                 <div className="space-y-4">
