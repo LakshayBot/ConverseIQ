@@ -63,6 +63,74 @@ public class PromptBuilder
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Prompt variant for the contextual (non-keyword) match path. Same
+    /// strict-JSON output contract as BuildRecommendationPrompt, but the
+    /// driver is a semantically matched chunk rather than a detected event.
+    /// </summary>
+    public string BuildContextualMatchPrompt(
+        string triggerSpan,
+        KnowledgeChunk chunk)
+    {
+        var sb = new StringBuilder();
+
+        sb.AppendLine("You are a sales intelligence assistant for CallPilot AI.");
+        sb.AppendLine();
+        sb.AppendLine($"The buyer said: \"{triggerSpan}\". Surface the most relevant talking point from the matched content.");
+        sb.AppendLine();
+        sb.AppendLine($"Matched company knowledge [{chunk.Document?.FileName ?? "document"}]:");
+        sb.AppendLine(chunk.Text[..Math.Min(chunk.Text.Length, 400)]);
+        sb.AppendLine();
+
+        sb.AppendLine("Respond with STRICT JSON only — no markdown, no prose outside the JSON object.");
+        sb.AppendLine("Use exactly this shape:");
+        sb.AppendLine("{");
+        sb.AppendLine("  \"talking_point\": \"string — 1-2 sentences: what the sales rep should say or do right now\",");
+        sb.AppendLine("  \"key_facts\": [\"string — max 3 short factual phrases from the knowledge base\"],");
+        sb.AppendLine("  \"priority\": \"high\" | \"medium\" | \"low\"");
+        sb.AppendLine("}");
+        sb.AppendLine();
+        sb.AppendLine("Rules:");
+        sb.AppendLine("- talking_point must be actionable advice for the rep in this exact moment.");
+        sb.AppendLine("- key_facts must be short, factual, and drawn ONLY from the provided knowledge.");
+        sb.AppendLine("- EXCLUDE contact information, addresses, phone/fax numbers, email addresses, and generic company-history or marketing boilerplate from BOTH fields, even if present in the source chunks.");
+        sb.AppendLine("- priority: \"high\" for deal-critical moments, \"medium\" for clear buying signals, \"low\" for informational matches.");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Rule-based fallback for the contextual match path (LLM unavailable or
+    /// malformed) - mirrors BuildFallbackRecommendation's no-boilerplate rule.
+    /// </summary>
+    public string BuildContextualFallbackRecommendation(string triggerSpan, KnowledgeChunk chunk)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("**Context match.**");
+        sb.Append($" The buyer said: \"{triggerSpan}\" — this matched your knowledge base.");
+
+        var meta = TryGetProductMetadata(chunk);
+        sb.AppendLine();
+        sb.AppendLine();
+        if (meta is not null)
+        {
+            sb.AppendLine("From the knowledge base:");
+            sb.AppendLine($"- {FormatProductLine(meta)}");
+        }
+        else
+        {
+            sb.AppendLine("See sources for the matched content.");
+        }
+
+        if (!string.IsNullOrEmpty(chunk.Document?.FileName))
+        {
+            sb.AppendLine();
+            sb.AppendLine($"Sources: {chunk.Document.FileName}");
+        }
+
+        return sb.ToString();
+    }
+
     public string BuildFallbackRecommendation(
         string eventType,
         string? entityName,

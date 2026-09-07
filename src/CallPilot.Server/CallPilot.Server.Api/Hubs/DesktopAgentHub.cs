@@ -5,6 +5,7 @@ using CallPilot.Server.Infrastructure.Data;
 using CallPilot.Server.Infrastructure.Reliability;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 
 namespace CallPilot.Server.Api.Hubs;
 
@@ -44,10 +45,50 @@ public class DesktopAgentHub : Hub
         return false;
     }
 
+    // Per-meeting contextual-match debounce: (userId, chunkId) → last fire
+    // time. Same 60s window as keyword events — the same matched chunk must
+    // not fire a second contextual card within the window, even if the
+    // buyer keeps circling the same topic.
+    private static readonly ConcurrentDictionary<(Guid MeetingId, Guid UserId, Guid ChunkId), DateTime>
+        _recentContextualMatches = new();
+
+    private static bool IsDuplicateContextualMatch(Guid meetingId, Guid userId, Guid chunkId)
+    {
+        var now = DateTime.UtcNow;
+        var key = (meetingId, userId, chunkId);
+        if (_recentContextualMatches.TryGetValue(key, out var last) && now - last < EventDebounceWindow)
+        {
+            return true;
+        }
+        _recentContextualMatches[key] = now;
+        if (_recentContextualMatches.Count > 256)
+        {
+            foreach (var stale in _recentContextualMatches
+                         .Where(kv => now - kv.Value > DebouncePruneAge)
+                         .Select(kv => kv.Key)
+                         .ToList())
+            {
+                _recentContextualMatches.TryRemove(stale, out _);
+            }
+        }
+        return false;
+    }
+
+    /// <summary>PROSPECT gate: only system/desktop audio (the buyer) drives
+    /// contextual matching. The rep's own mic never triggers cards on their
+    /// own words. Desktop sends "microphone" or "desktop"; empty defaults
+    /// to microphone. Accepts "system_audio" as a synonym for "desktop".</summary>
+    private static bool IsProspectSource(string? source)
+    {
+        var s = string.IsNullOrEmpty(source) ? "microphone" : source.ToLowerInvariant();
+        return s is "desktop" or "system_audio";
+    }
+
     private readonly ILogger<DesktopAgentHub> _logger;
     private readonly AiCoordinatorService _aiCoordinator;
     private readonly EventDetectionService _eventDetector;
     private readonly RecommendationEngine _recommendationEngine;
+    private readonly ContextualMatchService _contextualMatchService;
     private readonly MeetingDiagnosticsService _diagnostics;
     private readonly CallPilot.Server.Infrastructure.Products.ProductIntelQueue _productIntelQueue;
     private readonly IServiceProvider _serviceProvider;
@@ -57,6 +98,7 @@ public class DesktopAgentHub : Hub
         AiCoordinatorService aiCoordinator,
         EventDetectionService eventDetector,
         RecommendationEngine recommendationEngine,
+        ContextualMatchService contextualMatchService,
         MeetingDiagnosticsService diagnostics,
         CallPilot.Server.Infrastructure.Products.ProductIntelQueue productIntelQueue,
         IServiceProvider serviceProvider)
@@ -65,6 +107,7 @@ public class DesktopAgentHub : Hub
         _aiCoordinator = aiCoordinator;
         _eventDetector = eventDetector;
         _recommendationEngine = recommendationEngine;
+        _contextualMatchService = contextualMatchService;
         _diagnostics = diagnostics;
         _productIntelQueue = productIntelQueue;
         _serviceProvider = serviceProvider;
@@ -177,6 +220,18 @@ public class DesktopAgentHub : Hub
         var userId = GetUserId();
         if (userId is null || !Guid.TryParse(userId, out var userGuid)) return;
 
+        // ── Contextual match layer (PROSPECT turns only) ───────────────────
+        // Parallel to keyword detection: never awaited inline, so a slow
+        // engine call can't stall the audio pipeline. Any fault is logged
+        // via the ContinueWith backstop below.
+        if (IsProspectSource(frame.Source))
+        {
+            _ = RunContextualMatchAsync(meetingId, userGuid, segment)
+                .ContinueWith(
+                    t => _logger.LogError(t.Exception, "Contextual match pipeline faulted for meeting {MeetingId}", meetingId),
+                    TaskContinuationOptions.OnlyOnFaulted);
+        }
+
         var events = await _eventDetector.DetectEventsForMeetingAsync(segment.Text, meetingId.ToString());
         foreach (var evt in events)
         {
@@ -247,12 +302,111 @@ public class DesktopAgentHub : Hub
                     triggerEventId = conversationEvent.Id,
                     recommendation.Confidence,
                     recommendation.References,
-                    recommendation.GeneratedAt
+                    recommendation.GeneratedAt,
+                    // Keyword-triggered cards carry no trigger sentence;
+                    // triggerType is "keyword" for all event-detector cards.
+                    triggerSpan = recommendation.TriggerSpan,
+                    triggerType = recommendation.TriggerType
                 };
 
                 await Clients.Caller.SendAsync("RecommendationGenerated", recPayload);
                 await Clients.Group($"meeting_{frame.MeetingId}").SendAsync("RecommendationGenerated", recPayload);
             }
+        }
+    }
+
+    /// <summary>
+    /// Background contextual-match pipeline for a finalised PROSPECT turn.
+    /// Runs entirely off the audio hot path: engine call → chunk fetch →
+    /// LLM card → persist → SignalR broadcast, each on a fresh DI scope
+    /// (the hub's request scope is gone by the time this task runs).
+    /// Exceptions are caught inside AND by the caller's ContinueWith backstop,
+    /// so no unobserved task exceptions can escape.
+    /// </summary>
+    private async Task RunContextualMatchAsync(Guid meetingId, Guid userId, TranscriptSegment segment)
+    {
+        try
+        {
+            var match = await _contextualMatchService.MatchAsync(segment.Text, meetingId, userId);
+            if (match is null) return;
+
+            if (IsDuplicateContextualMatch(meetingId, userId, match.ChunkId))
+            {
+                _logger.LogDebug(
+                    "Suppressed duplicate contextual match chunk {ChunkId} for meeting {MeetingId}",
+                    match.ChunkId, meetingId);
+                return;
+            }
+
+            _diagnostics.TrackEvent(meetingId.ToString(), "ContextualMatch");
+
+            using var scope = _serviceProvider.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<CallPilotDbContext>();
+            var engine = scope.ServiceProvider.GetRequiredService<RecommendationEngine>();
+
+            // The engine already did the cosine work - fetch the chunk by ID.
+            var chunk = await dbContext.KnowledgeChunks
+                .Include(c => c.Document)
+                .FirstOrDefaultAsync(c => c.Id == match.ChunkId);
+            if (chunk is null)
+            {
+                _logger.LogWarning(
+                    "Contextual match referenced missing chunk {ChunkId} for meeting {MeetingId}",
+                    match.ChunkId, meetingId);
+                return;
+            }
+
+            var recommendation = await engine.GenerateFromContextualMatchAsync(meetingId, userId, match, chunk);
+            if (recommendation is null) return;
+
+            dbContext.Recommendations.Add(recommendation);
+            await dbContext.SaveChangesAsync();
+
+            var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<DesktopAgentHub>>();
+            var groupName = $"meeting_{meetingId}";
+
+            // Tell the dashboard WHY the card is about to appear.
+            await hubContext.Clients.Group(groupName).SendAsync("ContextualMatchDetected", new
+            {
+                chunkId = match.ChunkId,
+                similarity = match.Similarity,
+                triggerSpan = match.TriggerSpan,
+                knowledgeSource = match.KnowledgeSource,
+                meetingId
+            });
+
+            // Same RecommendationGenerated shape as the keyword path, with
+            // triggerSpan/triggerType/supportingTranscript appended (nothing
+            // removed) so existing consumers keep working.
+            var recPayload = new
+            {
+                recommendation.Id,
+                recommendation.Type,
+                recommendation.Title,
+                recommendation.Summary,
+                recommendation.TalkingPoint,
+                recommendation.KeyFacts,
+                recommendation.Priority,
+                triggerEventId = (Guid?)null,
+                recommendation.Confidence,
+                recommendation.References,
+                recommendation.GeneratedAt,
+                recommendation.TriggerSpan,
+                recommendation.TriggerType,
+                // The full buyer turn for the "Why this card appeared" highlight.
+                supportingTranscript = segment.Text.Length > 1000 ? segment.Text[..1000] : segment.Text
+            };
+
+            await hubContext.Clients.Group(groupName).SendAsync("RecommendationGenerated", recPayload);
+
+            _logger.LogInformation(
+                "Contextual card generated for meeting {MeetingId}: chunk {ChunkId} sim={Similarity:F3} span=\"{TriggerSpan}\"",
+                meetingId, match.ChunkId, match.Similarity, match.TriggerSpan);
+        }
+        catch (Exception ex)
+        {
+            // Fail silently for the pipeline; log for diagnostics.
+            _logger.LogError(ex, "Contextual match pipeline failed for meeting {MeetingId}", meetingId);
         }
     }
 

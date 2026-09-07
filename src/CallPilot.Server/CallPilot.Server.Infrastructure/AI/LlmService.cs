@@ -22,7 +22,7 @@ public class LlmService
         _logger = logger;
     }
 
-    public async Task<string?> GenerateResponseAsync(Guid userId, string prompt)
+    public async virtual Task<string?> GenerateResponseAsync(Guid userId, string prompt)
     {
         try
         {

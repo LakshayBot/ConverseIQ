@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
-import { useSignalR, EventPayload } from '@/lib/signalr';
+import { useSignalR, EventPayload, RecommendationPayload } from '@/lib/signalr';
 import ProductDetailsCard from '@/components/ProductDetailsCard';
 
 interface SpeakerGroup {
@@ -76,6 +76,15 @@ export default function MeetingPage() {
     supportingTranscript: string | null;
   } | null>(null);
 
+  // ── Contextual trigger state ─────────────────────────────────────────────
+  // When a semantic (non-keyword) recommendation arrives, its buyer sentence
+  // drives the "Why this card appeared" highlight on the right-rail card.
+  const [contextualTrigger, setContextualTrigger] = useState<{
+    triggerSpan: string;
+    supportingTranscript: string;
+  } | null>(null);
+  const [activeTriggerType, setActiveTriggerType] = useState<'keyword' | 'contextual' | null>(null);
+
   useEffect(() => {
     if (!user) {
       router.push('/login');
@@ -95,8 +104,29 @@ export default function MeetingPage() {
         category: latest.category,
         supportingTranscript: latest.supportingTranscript,
       });
+      setActiveTriggerType('keyword');
     }
   }, [events]);
+
+  // Track the latest contextual (semantic) recommendation. It replaces the
+  // right-rail card content: the card title is the matched knowledge source
+  // and the buyer's trigger sentence gets the visual highlight.
+  useEffect(() => {
+    const contextual = recommendations.filter(r => r.triggerType === 'contextual');
+    const latest = contextual[contextual.length - 1];
+    if (latest?.triggerSpan) {
+      setContextualTrigger({
+        triggerSpan: latest.triggerSpan,
+        supportingTranscript: latest.supportingTranscript || latest.triggerSpan,
+      });
+      setActiveTriggerType('contextual');
+      setActiveProduct({
+        name: latest.title,
+        category: 'contextual',
+        supportingTranscript: latest.supportingTranscript || null,
+      });
+    }
+  }, [recommendations]);
 
   const groups = useMemo(() => mergeTranscripts(liveTranscripts), [liveTranscripts]);
 
@@ -197,7 +227,17 @@ export default function MeetingPage() {
                   <div className="space-y-2">
                     {recommendations.slice(-5).map((r, i) => (
                       <div key={i} className="text-sm bg-white p-3 rounded-lg border border-green-200">
-                        <p className="font-medium text-green-900">{r.title}</p>
+                        <p className="font-medium text-green-900">
+                          {r.title}
+                          {r.triggerType === 'contextual' && (
+                            <span
+                              className="ml-2 font-semibold uppercase tracking-wide"
+                              style={{ color: '#E8490F', fontSize: 11 }}
+                            >
+                              context match
+                            </span>
+                          )}
+                        </p>
                         <p className="text-gray-600 mt-1">{r.summary?.slice(0, 200)}</p>
                       </div>
                     ))}
@@ -214,7 +254,13 @@ export default function MeetingPage() {
                 productName={activeProduct?.name ?? null}
                 category={activeProduct?.category}
                 supportingTranscript={activeProduct?.supportingTranscript}
-                onDismiss={() => setActiveProduct(null)}
+                triggerType={activeTriggerType}
+                triggerSpan={contextualTrigger?.triggerSpan ?? null}
+                onDismiss={() => {
+                  setActiveProduct(null);
+                  setContextualTrigger(null);
+                  setActiveTriggerType(null);
+                }}
               />
             </div>
           </div>

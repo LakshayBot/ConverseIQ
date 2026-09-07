@@ -3,6 +3,9 @@
 import { useEffect, useState } from 'react';
 import { apiGetProductDetails, ProductDetails } from '@/lib/api';
 
+/** Reppify orange, shared with the event pills. */
+const REPPIFY_ORANGE = '#E8490F';
+
 interface Props {
   /** The most recent product entity name.  When this changes, the card re-fetches. */
   productName: string | null;
@@ -10,6 +13,10 @@ interface Props {
   category?: string | null;
   /** Optional transcript snippet that triggered the mention */
   supportingTranscript?: string | null;
+  /** "keyword" | "contextual" — contextual cards render the buyer-sentence highlight */
+  triggerType?: 'keyword' | 'contextual' | null;
+  /** Contextual matches: the exact buyer sentence that drove the card */
+  triggerSpan?: string | null;
   onDismiss: () => void;
 }
 
@@ -36,7 +43,45 @@ function titleCase(s: string): string {
     .join(' ');
 }
 
-export default function ProductDetailsCard({ productName, category, supportingTranscript, onDismiss }: Props) {
+/**
+ * Renders the full buyer turn with the trigger sentence highlighted.
+ * Substring-safe: indexOf + split into three parts — no HTML injection.
+ */
+function HighlightedBuyerTurn({ turn, span }: { turn: string; span: string }) {
+  const idx = turn.indexOf(span);
+  if (idx === -1) {
+    // Span not found in the turn (e.g. normalisation drift) — render plain.
+    return <p className="mt-2 text-sm text-gray-700 leading-relaxed">{turn}</p>;
+  }
+  const before = turn.slice(0, idx);
+  const after = turn.slice(idx + span.length);
+  return (
+    <p className="mt-2 text-sm text-gray-700 leading-relaxed">
+      {before}
+      <mark
+        style={{
+          background: REPPIFY_ORANGE,
+          color: '#ffffff',
+          borderRadius: 3,
+          padding: '0 3px',
+        }}
+        data-testid="trigger-span-highlight"
+      >
+        {span}
+      </mark>
+      {after}
+    </p>
+  );
+}
+
+export default function ProductDetailsCard({
+  productName,
+  category,
+  supportingTranscript,
+  triggerType,
+  triggerSpan,
+  onDismiss,
+}: Props) {
   const [details, setDetails] = useState<ProductDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +164,15 @@ export default function ProductDetailsCard({ productName, category, supportingTr
 
       {/* Body */}
       <div className="p-4 space-y-3">
+        {triggerType === 'contextual' && triggerSpan && supportingTranscript && (
+          <div>
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              Why this card appeared
+            </h3>
+            <HighlightedBuyerTurn turn={supportingTranscript} span={triggerSpan} />
+          </div>
+        )}
+
         {loading && (
           <div className="text-sm text-gray-400 text-center py-4">
             Loading product details…

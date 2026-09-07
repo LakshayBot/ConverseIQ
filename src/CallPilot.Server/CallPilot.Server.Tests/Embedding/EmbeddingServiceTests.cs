@@ -133,6 +133,7 @@ public class EmbeddingServiceTests
         var queryVector = Enumerable.Repeat(1f / MathF.Sqrt(ModelDimensions), ModelDimensions).ToArray();
         var spy = new SpyEmbeddingService(queryVector);
         var engine = new RecommendationEngine(
+            db,
             new VectorSearchService(db, NullLogger<VectorSearchService>.Instance),
             spy,
             new PromptBuilder(),

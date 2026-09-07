@@ -19,6 +19,7 @@ internal sealed class StructuredRecommendation
 
 public class RecommendationEngine
 {
+    private readonly CallPilotDbContext _dbContext;
     private readonly VectorSearchService _vectorSearch;
     private readonly EmbeddingService _embeddingService;
     private readonly PromptBuilder _promptBuilder;
@@ -26,12 +27,14 @@ public class RecommendationEngine
     private readonly ILogger<RecommendationEngine> _logger;
 
     public RecommendationEngine(
+        CallPilotDbContext dbContext,
         VectorSearchService vectorSearch,
         EmbeddingService embeddingService,
         PromptBuilder promptBuilder,
         LlmService llmService,
         ILogger<RecommendationEngine> logger)
     {
+        _dbContext = dbContext;
         _vectorSearch = vectorSearch;
         _embeddingService = embeddingService;
         _promptBuilder = promptBuilder;
@@ -136,6 +139,91 @@ public class RecommendationEngine
         catch (Exception ex)
         {
             _logger.LogError(ex, "Recommendation generation failed for event {EventType}", conversationEvent.EventType);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Contextual (non-keyword) path: the Python engine already identified
+    /// the chunk via semantic similarity, so we fetch it directly by ID —
+    /// no event detection, no BuildSearchQuery, no cosine re-scan. The
+    /// prompt is driven by the buyer's trigger sentence.
+    /// </summary>
+    public async Task<Recommendation?> GenerateFromContextualMatchAsync(
+        Guid meetingId,
+        Guid userId,
+        ContextualMatchResult match,
+        KnowledgeChunk chunk)
+    {
+        try
+        {
+            string summary;
+            string? llmProvider = null;
+            string? llmModel = null;
+            string? talkingPoint = null;
+            List<string>? keyFacts = null;
+            string? priority = null;
+
+            var llmResponse = await _llmService.GenerateResponseAsync(
+                userId,
+                _promptBuilder.BuildContextualMatchPrompt(match.TriggerSpan, chunk));
+
+            if (llmResponse is not null)
+            {
+                var parsed = TryParseStructured(llmResponse);
+                if (parsed is not null)
+                {
+                    summary = llmResponse; // keep raw text for dashboard back-compat
+                    talkingPoint = parsed.TalkingPoint;
+                    keyFacts = parsed.KeyFacts;
+                    priority = NormalizePriority(parsed.Priority);
+                    llmProvider = "llm";
+                    llmModel = "configured";
+                }
+            }
+
+            if (priority is null)
+            {
+                // LLM missing or malformed → rule-based fallback, same
+                // contract as the keyword path. Priority from similarity.
+                summary = _promptBuilder.BuildContextualFallbackRecommendation(
+                    match.TriggerSpan, chunk);
+                llmProvider ??= "rule-based";
+                llmModel ??= "fallback";
+                priority = match.Similarity >= 0.9 ? "high" : match.Similarity >= 0.8 ? "medium" : "low";
+            }
+            else
+            {
+                summary = llmResponse!;
+            }
+
+            var references = new List<string>
+            {
+                chunk.Document?.FileName ?? $"chunk-{chunk.ChunkIndex}",
+            };
+
+            var title = $"Context Match — {chunk.SectionHeading ?? chunk.Document?.FileName ?? "knowledge base"}";
+            if (title.Length > 200) title = title[..200];
+
+            return new Recommendation(
+                meetingId,
+                "ContextualMatch",
+                title,
+                summary,
+                talkingPoint,
+                keyFacts,
+                priority,
+                match.Similarity,
+                references,
+                "ContextualMatch",
+                llmProvider,
+                llmModel,
+                match.TriggerSpan,
+                "contextual");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Contextual recommendation generation failed for chunk {ChunkId}", match.ChunkId);
             return null;
         }
     }

@@ -44,6 +44,9 @@ services:
       REDIS_URL: "${REDIS_URL:-redis://redis:6379}"
       TAVILY_API_KEY: "${TAVILY_API_KEY:-}"
       CALLPILOT_SERVER_URL: "http://server:5001"
+      # ── Contextual matching (semantic, non-keyword trigger layer) ──────
+      # Similarity floor for a buyer sentence vs a knowledge chunk. Default 0.72.
+      CONTEXTUAL_MATCH_THRESHOLD: "${CONTEXTUAL_MATCH_THRESHOLD:-0.72}"
       # ── LLM enrichment (Groq) ──────────────────────────────────────────
       # These MUST be passed in or the AI engine raises _MissingGroqKey and
       # the page-level fail-open wrapper returns products=[] for every page

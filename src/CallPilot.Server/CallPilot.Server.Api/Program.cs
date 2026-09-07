@@ -195,6 +195,14 @@ builder.Services.AddHttpClient<EventDetectionService>(client =>
     policy.WaitAndRetryAsync(3, retryAttempt =>
         TimeSpan.FromMilliseconds(Math.Pow(2, retryAttempt) * 100)));
 
+// No Polly retry here: the contextual match has a 300ms hard budget — a
+// single attempt or nothing (MatchAsync enforces the CTS itself).
+builder.Services.AddHttpClient<ContextualMatchService>(client =>
+{
+    client.BaseAddress = new Uri(aiEngineUrl);
+    client.Timeout = TimeSpan.FromMilliseconds(500);
+});
+
 builder.Services.AddHttpClient("LlmClient", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
@@ -1013,6 +1021,29 @@ app.MapGet("/internal/knowledge/entities", async (CallPilotDbContext db) =>
         .Select(e => new { entity_text = e.EntityText, entity_type = e.EntityType, document_id = e.DocumentId.ToString() })
         .ToListAsync();
     return Results.Ok(new { entities, count = entities.Count });
+});
+
+// ── Service-to-service chunk dump for the AI engine's contextual matcher ────
+//
+// GET /internal/chunks/{userId} returns every knowledge chunk + its stored
+// embedding CSV for one user, so the engine can run the semantic
+// (non-keyword) contextual match layer. Anonymous, same rationale as
+// /internal/knowledge/entities: the AI engine shares the docker network and
+// carries no user JWT. Consumed with a 2-minute TTL cache engine-side
+// (chunks change only on ingest).
+app.MapGet("/internal/chunks/{userId:guid}", async (Guid userId, CallPilotDbContext db) =>
+{
+    var chunks = await db.KnowledgeChunks
+        .Where(c => c.Document.UserId == userId)
+        .Select(c => new
+        {
+            chunk_id = c.Id,
+            embedding_csv = c.Embedding!.VectorData,
+            chunk_text = c.Text,
+            source = c.Source,
+        })
+        .ToListAsync();
+    return Results.Ok(chunks);
 });
 
 // ── Transcript search (replaces desktop SQLite api_search_transcripts).

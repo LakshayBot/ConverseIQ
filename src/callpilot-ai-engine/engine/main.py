@@ -42,6 +42,7 @@ logger = logging.getLogger("callpilot.ai")
 # download cost when a deployment only does STT.
 _event_detector: "EventDetector | None" = None
 _embedding_service: "EmbeddingService | None" = None
+_contextual_matcher: "ContextualMatcher | None" = None
 
 
 def _get_event_detector():
@@ -50,6 +51,25 @@ def _get_event_detector():
         from engine.event_engine.event_detector import EventDetector
         _event_detector = EventDetector()
     return _event_detector
+
+
+def _get_contextual_matcher():
+    """Lazy singleton for the contextual (non-keyword) match layer.
+
+    Embeds sentences with the SAME in-process EmbeddingService that produced
+    the stored chunk vectors at ingest, run in a thread so CPU inference
+    never blocks the event loop.
+    """
+    global _contextual_matcher
+    if _contextual_matcher is None:
+        from engine.services.contextual_matcher import ContextualMatcher
+
+        async def _embed(text: str) -> list[float]:
+            svc = _get_embedding_service()
+            return await asyncio.to_thread(svc.generate, text)
+
+        _contextual_matcher = ContextualMatcher(embed_fn=_embed)
+    return _contextual_matcher
 
 
 def _get_embedding_service():
@@ -488,6 +508,38 @@ async def generate_embedding(request: dict):
     svc = _get_embedding_service()
     embedding = svc.generate(text)
     return {"embedding": embedding, "model": svc.model_name, "dimensions": len(embedding)}
+
+
+@app.post("/api/v1/ai/contextual-match")
+async def contextual_match(request: dict):
+    """Semantic (non-keyword) battle-card trigger.
+
+    Consumed by the .NET ContextualMatchService on every finalised PROSPECT
+    turn. Embeds each sentence of the turn, compares against the user's
+    stored KnowledgeChunk vectors, and returns the best sentence/chunk pair
+    when it clears CONTEXTUAL_MATCH_THRESHOLD. 204 when there is no match.
+    """
+    from fastapi import Response
+
+    turn_text = request.get("turn_text", "")
+    user_id = request.get("user_id", "")
+    meeting_id = request.get("meeting_id", "")
+    if not turn_text:
+        raise HTTPException(status_code=400, detail="No turn_text provided")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="No user_id provided")
+
+    result = await _get_contextual_matcher().match(turn_text, meeting_id, user_id)
+    if result is None:
+        return Response(status_code=204)
+
+    return {
+        "chunk_id": result.chunk_id,
+        "chunk_text": result.chunk_text,
+        "similarity": result.similarity,
+        "trigger_span": result.trigger_span,
+        "knowledge_source": result.knowledge_source,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════

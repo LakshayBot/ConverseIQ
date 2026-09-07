@@ -285,6 +285,9 @@ public class CallPilotDbContext : DbContext
             entity.Property(r => r.TalkingPoint).HasColumnType("text");
             entity.Property(r => r.KeyFacts).HasColumnType("jsonb");
             entity.Property(r => r.Priority).HasMaxLength(10);
+            entity.Property(r => r.TriggerSpan).HasColumnType("text");
+            // "keyword" (event-detector default) | "contextual" (semantic match).
+            entity.Property(r => r.TriggerType).HasMaxLength(20).IsRequired().HasDefaultValue("keyword");
             entity.Property(r => r.References).HasColumnType("jsonb");
             entity.Property(r => r.TriggerEvent).HasMaxLength(100);
             entity.Property(r => r.Provider).HasMaxLength(50);

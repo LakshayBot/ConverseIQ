@@ -34,7 +34,15 @@ interface RecommendationPayload {
   confidence: number;
   references: string[];
   generatedAt: string;
+  /** Contextual matches: the exact buyer sentence that drove the card. */
+  triggerSpan?: string;
+  /** "keyword" (event-detector cards) | "contextual" (semantic match). */
+  triggerType?: 'keyword' | 'contextual';
+  /** Contextual matches: the full buyer turn (capped 1000 chars). */
+  supportingTranscript?: string;
 }
+
+export type { RecommendationPayload };
 
 /**
  * Dedupe window - within this many seconds, the same (eventType, entityName)
