@@ -49,8 +49,15 @@ export type { RecommendationPayload };
  * pair is treated as a single event.  Without dedupe the trie's substring
  * match can fire on every partial transcript update and flood the badge list
  * with copies of the same product.
+ *
+ * NEXT_PUBLIC_SIGNALR_DEDUPE_SECONDS allows tests to set it to 0 (disabling
+ * the dedupe so every event reaches assertions). Production default: 15.
  */
-const DEDUPE_WINDOW_MS = 15_000;
+const DEDUPE_WINDOW_MS = (() => {
+  const raw = Number(process.env.NEXT_PUBLIC_SIGNALR_DEDUPE_SECONDS);
+  const seconds = Number.isFinite(raw) && raw >= 0 ? raw : 15;
+  return seconds * 1000;
+})();
 
 function isDuplicate(
   existing: EventPayload[],

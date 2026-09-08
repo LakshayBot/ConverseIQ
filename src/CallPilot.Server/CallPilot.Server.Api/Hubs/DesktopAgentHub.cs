@@ -16,10 +16,18 @@ public class DesktopAgentHub : Hub
     // Backstop for the engine-side window — duplicates are suppressed here
     // even if the AI engine's debounce is bypassed or an older engine version
     // is in play.
+    //
+    // The window is configurable via DUPLICATE_EVENT_WINDOW_SECONDS (env /
+    // appsettings key DuplicateEventWindowSeconds, default 60) so the e2e
+    // feature suite can shrink it to ~2s. Production defaults are unchanged.
     private static readonly ConcurrentDictionary<Guid, ConcurrentDictionary<(string, string?), DateTime>>
         _recentEvents = new();
-    private static readonly TimeSpan EventDebounceWindow = TimeSpan.FromSeconds(60);
+    private static TimeSpan _eventDebounceWindow = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan DebouncePruneAge = TimeSpan.FromMinutes(2);
+
+    /// <summary>Exposes the window for tests/verification; set once from
+    /// configuration on hub construction (first hub instance wins).</summary>
+    public static TimeSpan EventDebounceWindow => _eventDebounceWindow;
 
     private static bool IsDuplicateEvent(Guid meetingId, string eventType, string? entityName)
     {
@@ -101,7 +109,8 @@ public class DesktopAgentHub : Hub
         ContextualMatchService contextualMatchService,
         MeetingDiagnosticsService diagnostics,
         CallPilot.Server.Infrastructure.Products.ProductIntelQueue productIntelQueue,
-        IServiceProvider serviceProvider)
+        IServiceProvider serviceProvider,
+        IConfiguration configuration)
     {
         _logger = logger;
         _aiCoordinator = aiCoordinator;
@@ -111,6 +120,14 @@ public class DesktopAgentHub : Hub
         _diagnostics = diagnostics;
         _productIntelQueue = productIntelQueue;
         _serviceProvider = serviceProvider;
+
+        // First hub instance applies the configured debounce window (static
+        // field, so all instances share it). Values <= 0 keep the default.
+        var configuredWindow = configuration.GetValue<double?>("DuplicateEventWindowSeconds");
+        if (configuredWindow is > 0)
+        {
+            _eventDebounceWindow = TimeSpan.FromSeconds(configuredWindow.Value);
+        }
     }
 
     public override async Task OnConnectedAsync()

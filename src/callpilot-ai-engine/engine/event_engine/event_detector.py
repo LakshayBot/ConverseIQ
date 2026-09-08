@@ -1,3 +1,4 @@
+import os
 import re
 import time
 from typing import Optional
@@ -6,7 +7,10 @@ from engine.services.trie_scanner import scan_text  # Aho-Corasick trie
 
 # Rolling debounce window: the same (eventType, entity) mentioned again for
 # the same meeting within this window is suppressed — no new event, no new card.
-DEBOUNCE_WINDOW_SECONDS = 60.0
+# DEBOUNCE_WINDOW_SECONDS is env-overridable (default 60) so the e2e feature
+# suite can shrink it to ~2s and observe sequential events without waiting a
+# minute in CI. Production behaviour is unchanged at the default.
+DEBOUNCE_WINDOW_SECONDS = float(os.getenv("DEBOUNCE_WINDOW_SECONDS", "60"))
 _debounce: dict[tuple, float] = {}
 
 PRICING_PATTERNS = [

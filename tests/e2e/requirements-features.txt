@@ -1,0 +1,8 @@
+# Deps for tests/e2e/test_features.py + frame_replay.py (feature suite).
+# Install into the AI engine venv:
+#   .venv/bin/pip install -r tests/e2e/requirements-features.txt
+#
+# The engine venv already provides numpy, soundfile, scipy, pytest,
+# pytest-asyncio - only the SignalR client and test timeouts are extra here.
+signalrcore>=0.9.0
+pytest-timeout>=2.3.0

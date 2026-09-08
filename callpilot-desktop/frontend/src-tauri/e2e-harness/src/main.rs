@@ -89,6 +89,21 @@ enum Commands {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Extracts ONLY the structured action items from a transcript via the
+    /// production extract_action_items_only path (local llama-helper) - the
+    /// e2e entry point for the Action Items feature.
+    ActionItems {
+        #[arg(long)]
+        transcript: PathBuf,
+        #[arg(long)]
+        gguf: PathBuf,
+        #[arg(long, default_value = "qwen3.5-2b-q4")]
+        model: String,
+        #[arg(long)]
+        helper: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
 }
 
 #[derive(Serialize, serde::Deserialize)]
@@ -144,6 +159,13 @@ async fn main() -> Result<()> {
             helper,
             out,
         } => run_summarize(transcript, gguf, &model, helper, out).await,
+        Commands::ActionItems {
+            transcript,
+            gguf,
+            model,
+            helper,
+            out,
+        } => run_action_items(transcript, gguf, &model, helper, out).await,
     }
 }
 
@@ -418,6 +440,56 @@ async fn run_summarize(
         let _ = guard.shutdown().await;
     }
     write_json(&value, &out)?;
+    Ok(())
+}
+
+
+/// The production action-item-only extraction (llama-helper +
+/// extract_action_items_only). Same shape as run_summarize but driven by
+/// ACTION_ITEMS_SCHEMA_PROMPT and returning a JSON array of structured items.
+async fn run_action_items(
+    transcript: PathBuf,
+    gguf: PathBuf,
+    model: &str,
+    helper: PathBuf,
+    out: PathBuf,
+) -> Result<()> {
+    let def = get_model_by_id(model).ok_or_else(|| anyhow!("unknown model: {model}"))?;
+    let text = std::fs::read_to_string(&transcript).context("read transcript")?;
+
+    let mut llm_helper = LlamaHelper::spawn_with_binary(helper)
+        .await
+        .map_err(|e| anyhow!("llama-helper spawn failed: {e}"))?;
+    let helper = Arc::new(tokio::sync::Mutex::new(llm_helper));
+    let helper_for_shutdown = helper.clone();
+    let sampling: SamplingParams = def.sampling.clone();
+    let template = def.template;
+    let context_size = def.context_size;
+    let path = gguf.clone();
+
+    let mut llm = move |user_prompt: String| {
+        let full = format_prompt(template, summary::ACTION_ITEMS_SCHEMA_PROMPT, &user_prompt);
+        let helper = helper.clone();
+        let path = path.clone();
+        let sampling = sampling.clone();
+        Box::pin(async move {
+            helper
+                .lock()
+                .await
+                .generate(&path, context_size, &full, &sampling)
+                .await
+        }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send>>
+    };
+
+    let emit = |_stage: String, percent: u8| log::info!("action-items progress: {percent}%");
+    let items = summary::extract_action_items_only(&text, &mut llm, emit)
+        .await
+        .map_err(|e| anyhow!("extract_action_items_only failed: {e}"))?;
+    {
+        let mut guard = helper_for_shutdown.lock().await;
+        let _ = guard.shutdown().await;
+    }
+    write_json(&items, &out)?;
     Ok(())
 }
 

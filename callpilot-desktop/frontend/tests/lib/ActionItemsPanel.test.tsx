@@ -112,6 +112,8 @@ describe('ActionItemsPanel', () => {
     expect(screen.getByTestId('extract-action-items').textContent).toBe('Extract Action Items');
     expect(screen.queryByTestId('re-extract-link')).toBeNull();
     expect(screen.getByText(/No action items detected\. Try extracting them manually\./)).toBeTruthy();
+    // Legacy trigger-sentence highlight is structured-only - never a <mark>.
+    expect(screen.queryByTestId('trigger-span-highlight')).toBeNull();
   });
 
   test('structured empty actionItems show Re-extract link, not the Extract button', () => {

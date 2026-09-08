@@ -260,6 +260,10 @@ def main():
     ap.add_argument("--with-summary", action="store_true", help="also run the real local summarization stage")
     ap.add_argument("--update-baseline", action="store_true",
                     help="update baseline.json from this run's output (intentional only)")
+    ap.add_argument("--features", action="store_true",
+                    help="after the baseline stages, run the feature suite "
+                         "(tests/e2e/test_features.py) with the test-overrides "
+                         "compose file (2s debounces, contextual knobs)")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -275,15 +279,43 @@ def main():
         sys.exit(f"sample audio not found: {SAMPLE_AUDIO}")
 
     # -- 0. Stack ---------------------------------------------------------
+    # --features merges the test-overrides file (2s debounces, Nemotron
+    # enabled for frame replay). Baseline behaviour is byte-identical
+    # without --features.
+    feature_compose = None
+    if args.features:
+        feature_compose = [
+            "docker", "compose", "-p", "callpilot-e2e",
+            "-f", str(E2E / "docker-compose.e2e.yml"),
+            "-f", str(E2E / "docker-compose.test-overrides.yml"),
+        ]
+        os.environ["CALLPILOT_FEATURE_STACK_EXTERNAL"] = "1"
+
     if args.no_stack:
         report.add("Isolated e2e stack available", True, "assumed running")
     else:
-        if args.build:
-            print("Rebuilding server image (server code changed)...")
-            subprocess.run(COMPOSE + ["build", "server"], check=True, capture_output=True)
-        stack_up()
+        if args.build or args.features:
+            # The hub debounce env lives in server code shipped in the image -
+            # --features implies a server rebuild for correctness.
+            print("Rebuilding server image (server code changed / feature run)...")
+            subprocess.run(
+                (feature_compose or COMPOSE) + ["build", "server", "ai-engine"],
+                check=True, capture_output=True)
+        stack = feature_compose or COMPOSE
+        r = subprocess.run(stack + ["up", "-d", "postgres", "redis", "ai-engine", "server"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            print(r.stdout[-2000:])
+            print(r.stderr[-2000:])
+            sys.exit(f"docker compose up failed: {r.returncode}")
+        if not wait_for(f"{ENGINE_URL}/health", 900, "ai-engine"):
+            sys.exit("ai-engine did not become healthy in 15 minutes (first start downloads models)")
+        if not wait_for(f"{SERVER_URL}/health", 180, "server"):
+            sys.exit("server did not become healthy in 3 minutes")
+        time.sleep(2)  # let migrations + startup settle
         report.add("Isolated e2e stack started", True,
-                   f"e2e DB :5433, server :5002, engine :8002")
+                   ("with feature-test overrides (2s debounces, Nemotron on)"
+                    if args.features else "e2e DB :5433, server :5002, engine :8002"))
 
     token = None
     meeting_id = None
@@ -604,7 +636,27 @@ def main():
         else:
             report.skip("Local summarization", "opt-in (--with-summary)")
 
-        # -- 11. Baseline -----------------------------------------------------
+        # -- 11. Feature tests (opt-in --features) ---------------------------
+        if args.features:
+            report.header("Feature tests (contextual / action items / debounce)")
+            venv_python = ROOT / "src" / "callpilot-ai-engine" / ".venv" / "bin" / "python"
+            pytest_bin = str(venv_python) if venv_python.exists() else sys.executable
+            try:
+                r = subprocess.run(
+                    [pytest_bin, "-m", "pytest", str(E2E / "test_features.py"),
+                     "-v", "--timeout=300"],
+                    cwd=str(ROOT), capture_output=True, text=True,
+                    env={**os.environ, "CALLPILOT_FEATURE_STACK_EXTERNAL": "1"},
+                    timeout=1800)
+                tail = "\n".join((r.stdout + r.stderr).splitlines()[-12:])
+                (artifacts / "feature-tests.log").write_text(
+                    (r.stdout or "") + "\n" + (r.stderr or ""))
+                report.add("Feature tests (pytest)", r.returncode == 0,
+                           f"exit={r.returncode}, log: artifacts/feature-tests.log\n{tail}")
+            except Exception as e:
+                report.add("Feature tests (pytest)", False, str(e)[:300])
+
+        # -- 12. Baseline -----------------------------------------------------
         if args.update_baseline:
             updated = {
                 "transcript": {
@@ -628,7 +680,7 @@ def main():
             report.add("Baseline maintained", True, "expectations file reviewed + kept")
 
     finally:
-        # -- 12. Cleanup (never leave test records behind) -------------------
+        # -- 13. Cleanup (never leave test records behind) -------------------
         if not args.keep:
             for mid in ([meeting_id] if meeting_id else []):
                 http("DELETE", f"/api/v1/meetings/{mid}", token=token)
@@ -637,7 +689,8 @@ def main():
             if kb_id:
                 http("DELETE", f"/api/v1/knowledge-bases/{kb_id}", token=token)
             if not args.no_stack:
-                stack_down()
+                subprocess.run((feature_compose or COMPOSE) + ["down"],
+                               capture_output=True, text=True)
             print("\nCleaned up test meeting/document/kb; e2e stack stopped.")
         else:
             print(f"\n--keep: test records retained (meeting={meeting_id}, kb={kb_id}); "

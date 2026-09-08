@@ -36,7 +36,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONTEXTUAL_MATCH_THRESHOLD = 0.72
 
 # Candidate chunk cache TTL (seconds). Chunks change only on ingest.
-_CHUNK_CACHE_TTL_SECONDS = 120.0
+# CONTEXTUAL_CACHE_TTL_SECONDS is env-overridable (default 120) - the e2e
+# feature suite sets it to 0 so every call re-reads freshly ingested chunks
+# instead of serving a stale in-process cache.
+_CHUNK_CACHE_TTL_SECONDS = float(os.getenv("CONTEXTUAL_CACHE_TTL_SECONDS", "120"))
 
 # Above this many chunks the in-Python cosine scan approaches the latency
 # budget - warn so the deployment knows to shard or prune.

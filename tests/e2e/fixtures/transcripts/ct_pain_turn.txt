@@ -1,0 +1,1 @@
+Yes thanks Raj, we're currently standardizing on Landis Plus Gyre meters for our urban rollout, but honestly we've been running into issues with their three-phase CT operated units, the accuracy drifts after about six months in the field, and the external CT installations are a nightmare for our field teams, I'm open to alternatives.

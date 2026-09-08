@@ -1,0 +1,41 @@
+# CallPilot e2e FEATURE-test overrides - merged ON TOP of
+# docker-compose.e2e.yml via a second -f flag:
+#
+#   docker compose -p callpilot-e2e \
+#     -f tests/e2e/docker-compose.e2e.yml \
+#     -f tests/e2e/docker-compose.test-overrides.yml up -d
+#
+# PURPOSE: make the three non-deterministic constants configurable so the
+# feature suite (tests/e2e/test_features.py) can observe sequential events
+# within seconds instead of minutes. Production defaults are NOT changed -
+# these values live ONLY in this file (and the CI env).
+#
+# Debounce = 2s: long enough to be a real debounce, short enough that two
+# sequential events from the same meeting are observable inside a 10s window.
+#
+# NOTE on NEMOTRON_ENABLED: the baseline e2e stack runs with STT disabled
+# (the harness does STT outside the engine). The feature suite replays real
+# audio frames THROUGH the hub, so the Nemotron path must be enabled on both
+# services. First start downloads the ~670MB model into the e2e cache volume.
+#
+# Compose merge semantics: environment maps merge key-wise; this file wins
+# for duplicated keys, all other service config (ports, volumes, builds,
+# healthchecks) is inherited from docker-compose.e2e.yml.
+
+services:
+  ai-engine:
+    environment:
+      NEMOTRON_ENABLED: "true"
+      # ── Debounce / cache knobs (the point of this file) ────────────────
+      DEBOUNCE_WINDOW_SECONDS: "2"
+      CONTEXTUAL_MATCH_THRESHOLD: "0.72"
+      CONTEXTUAL_CACHE_TTL_SECONDS: "0"
+      # ── STT timing kept at production values (documented, not tuned) ───
+      NEMOTRON_VAD_SILENCE_MS: "200"
+      NEMOTRON_MIN_CHUNK_MS: "320"
+      NEMOTRON_EMIT_INTERVAL_MS: "200"
+
+  server:
+    environment:
+      NEMOTRON_ENABLED: "true"
+      DUPLICATE_EVENT_WINDOW_SECONDS: "2"
