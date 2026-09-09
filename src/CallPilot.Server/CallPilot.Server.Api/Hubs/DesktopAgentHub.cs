@@ -99,6 +99,7 @@ public class DesktopAgentHub : Hub
     private readonly ContextualMatchService _contextualMatchService;
     private readonly MeetingDiagnosticsService _diagnostics;
     private readonly CallPilot.Server.Infrastructure.Products.ProductIntelQueue _productIntelQueue;
+    private readonly CallPilot.Server.Infrastructure.Integrations.ISlackQueue _slackQueue;
     private readonly IServiceProvider _serviceProvider;
 
     public DesktopAgentHub(
@@ -109,6 +110,7 @@ public class DesktopAgentHub : Hub
         ContextualMatchService contextualMatchService,
         MeetingDiagnosticsService diagnostics,
         CallPilot.Server.Infrastructure.Products.ProductIntelQueue productIntelQueue,
+        CallPilot.Server.Infrastructure.Integrations.ISlackQueue slackQueue,
         IServiceProvider serviceProvider,
         IConfiguration configuration)
     {
@@ -119,6 +121,7 @@ public class DesktopAgentHub : Hub
         _contextualMatchService = contextualMatchService;
         _diagnostics = diagnostics;
         _productIntelQueue = productIntelQueue;
+        _slackQueue = slackQueue;
         _serviceProvider = serviceProvider;
 
         // First hub instance applies the configured debounce window (static
@@ -328,6 +331,40 @@ public class DesktopAgentHub : Hub
 
                 await Clients.Caller.SendAsync("RecommendationGenerated", recPayload);
                 await Clients.Group($"meeting_{frame.MeetingId}").SendAsync("RecommendationGenerated", recPayload);
+
+                // ── Slack (fire-and-forget; never blocks the audio pipeline).
+                // Product identity: the entity for ProductMentioned cards,
+                // the title for everything else.
+                _slackQueue.Enqueue(new CallPilot.Server.Infrastructure.Integrations.BattleCardNotification
+                {
+                    UserId = userGuid,
+                    MeetingId = meetingId,
+                    RecommendationId = recommendation.Id,
+                    Product = recommendation.Type == "ProductMentioned"
+                        ? (conversationEvent.EntityName ?? recommendation.Title)
+                        : recommendation.Title,
+                    TalkingPoint = recommendation.TalkingPoint,
+                    TriggerType = recommendation.TriggerType,
+                    TriggerSpan = recommendation.TriggerSpan,
+                    Priority = recommendation.Priority,
+                    Confidence = recommendation.Confidence,
+                    References = recommendation.References,
+                });
+            }
+
+            // Live signals: only the deal-critical event types — pricing
+            // questions / technical questions already get battle cards.
+            if (evt.EventType is "Objection" or "CompetitorMentioned")
+            {
+                _slackQueue.Enqueue(new CallPilot.Server.Infrastructure.Integrations.LiveSignalNotification
+                {
+                    UserId = userGuid,
+                    MeetingId = meetingId,
+                    EventType = evt.EventType,
+                    EntityName = evt.EntityName,
+                    SupportingTranscript = conversationEvent.SupportingTranscript,
+                    Confidence = evt.Confidence,
+                });
             }
         }
     }
@@ -378,6 +415,24 @@ public class DesktopAgentHub : Hub
 
             dbContext.Recommendations.Add(recommendation);
             await dbContext.SaveChangesAsync();
+
+            // ── Slack (fire-and-forget; already off the hot path in this
+            // background task). BuyerCompany is resolved by the worker.
+            var slackQueue = scope.ServiceProvider
+                .GetRequiredService<CallPilot.Server.Infrastructure.Integrations.ISlackQueue>();
+            slackQueue.Enqueue(new CallPilot.Server.Infrastructure.Integrations.BattleCardNotification
+            {
+                UserId = userId,
+                MeetingId = meetingId,
+                RecommendationId = recommendation.Id,
+                Product = chunk.SectionHeading ?? chunk.Document?.FileName ?? "Context Match",
+                TalkingPoint = recommendation.TalkingPoint,
+                TriggerType = recommendation.TriggerType,
+                TriggerSpan = recommendation.TriggerSpan,
+                Priority = recommendation.Priority,
+                Confidence = recommendation.Confidence,
+                References = recommendation.References,
+            });
 
             var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<DesktopAgentHub>>();
             var groupName = $"meeting_{meetingId}";

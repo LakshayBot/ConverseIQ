@@ -69,6 +69,7 @@ export class StorageService {
     folderPath: string | null,
     meetingId?: string | null,
     speakers?: SpeakerSave[],
+    buyerCompany?: string | null,
   ): Promise<SaveMeetingResponse> {
     if (!meetingId) {
       throw new Error('saveMeeting requires meetingId - every meeting must be created via createMeeting() first');
@@ -94,6 +95,7 @@ export class StorageService {
         title: meetingTitle,
         folderPath,
         markEnded: true,
+        buyerCompany: buyerCompany || undefined,
         segments,
         speakers: speakers && speakers.length > 0 ? speakers : undefined,
       },

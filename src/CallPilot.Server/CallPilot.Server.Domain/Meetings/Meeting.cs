@@ -12,6 +12,12 @@ public class Meeting
     public string? Title { get; private set; }
     /// <summary>On-disk folder containing the recorded audio, set by the desktop client.</summary>
     public string? FolderPath { get; private set; }
+    /// <summary>
+    /// The buyer's company (e.g. "Tata Power") - optional, manually entered.
+    /// Used for Slack channel naming (#deal-{product}-{buyer-company});
+    /// null falls back to #deal-{product}-general.
+    /// </summary>
+    public string? BuyerCompany { get; private set; }
     /// <summary>JSON blob holding the AI summary state + body. Written by the desktop's
     /// client-side summary generator. Replaces the desktop SQLite
     /// summary_processes table.</summary>
@@ -49,6 +55,12 @@ public class Meeting
     public void SetFolderPath(string? folderPath)
     {
         FolderPath = folderPath;
+    }
+
+    /// <summary>Associates the meeting with a buyer company (Slack channel naming).</summary>
+    public void SetBuyerCompany(string? value)
+    {
+        BuyerCompany = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
     public void SetSummaryJson(string status, string? dataJson)

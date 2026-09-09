@@ -219,7 +219,8 @@ public class RecommendationEngine
                 llmProvider,
                 llmModel,
                 match.TriggerSpan,
-                "contextual");
+                "contextual",
+                match.ChunkId);
         }
         catch (Exception ex)
         {

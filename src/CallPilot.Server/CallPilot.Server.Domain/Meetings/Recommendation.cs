@@ -14,6 +14,13 @@ public class Recommendation
     /// <summary>Structured LLM output — "high" | "medium" | "low" (JSON "priority").</summary>
     public string? Priority { get; private set; }
     /// <summary>
+    /// For contextual matches: the matched knowledge chunk (the Python engine
+    /// already did the cosine work). Persisted so the Slack integration can
+    /// reconstruct the match context after the fact. Null for keyword cards.
+    /// Deviation from the spec's "int?" — KnowledgeChunk.Id is a Guid.
+    /// </summary>
+    public Guid? MatchedChunkId { get; private set; }
+    /// <summary>
     /// For contextual matches: the exact buyer sentence that drove the match.
     /// Null for keyword-triggered recommendations.
     /// </summary>
@@ -43,7 +50,8 @@ public class Recommendation
         string? provider,
         string? model,
         string? triggerSpan = null,
-        string triggerType = "keyword")
+        string triggerType = "keyword",
+        Guid? matchedChunkId = null)
     {
         Id = Guid.NewGuid();
         MeetingId = meetingId;
@@ -53,6 +61,7 @@ public class Recommendation
         TalkingPoint = talkingPoint;
         KeyFacts = keyFacts ?? [];
         Priority = priority;
+        MatchedChunkId = matchedChunkId;
         TriggerSpan = triggerSpan;
         TriggerType = string.IsNullOrWhiteSpace(triggerType) ? "keyword" : triggerType;
         Confidence = confidence;

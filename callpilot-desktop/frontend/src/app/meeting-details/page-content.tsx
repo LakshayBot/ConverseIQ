@@ -32,6 +32,7 @@ import { ActionItemsPanel } from '@/components/MeetingDetails/ActionItemsPanel';
 import { SpeakerIdentificationPanel } from '@/components/MeetingDetails/SpeakerIdentificationPanel';
 import { TranscriptSegmentData } from '@/types';
 import Analytics from '@/lib/analytics';
+import { authedApiCall } from '@/lib/auth';
 import {
   getEventsForMeeting,
   getRecommendationsForMeeting,
@@ -62,6 +63,47 @@ interface PageContentProps {
   onRetrySaveSummary?: () => void;
   [key: string]: any;
 }
+
+/** Optional buyer-company field (Slack channel naming). PATCHes on blur;
+ *  empty input clears the value. Rendering is quiet — an underlined
+ *  placeholder inline with the header utilities. */
+const BuyerCompanyInput: React.FC<{ meetingId: string | null; initial: string | null }> = ({
+  meetingId,
+  initial,
+}) => {
+  const [value, setValue] = useState(initial ?? '');
+  const [saving, setSaving] = useState(false);
+
+  const commit = async () => {
+    if (!meetingId) return;
+    const trimmed = value.trim();
+    if ((initial ?? '') === trimmed) return;
+    setSaving(true);
+    try {
+      await authedApiCall('PATCH', `/api/v1/meetings/${meetingId}`, { buyerCompany: trimmed });
+    } catch {
+      // Non-critical metadata — failures are silent (the field keeps the
+      // typed value and can be re-saved).
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <span className="flex items-center gap-2">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        placeholder="Buyer company (for Slack channel naming) — e.g. Tata Power"
+        aria-label="Buyer company (for Slack channel naming)"
+        className="w-56 rounded-md border border-[var(--opaline-outline-variant)] bg-[var(--opaline-surface-container-lowest)] px-2 py-1 text-[11px] text-[var(--opaline-on-surface)] placeholder:text-[var(--opaline-outline)] focus:outline-none focus:ring-1 focus:ring-[var(--opaline-primary)]"
+      />
+      {saving && <LoaderIcon className="h-3 w-3 animate-spin text-[var(--opaline-outline)]" aria-hidden />}
+    </span>
+  );
+};
 
 const PageContent: React.FC<PageContentProps> = ({
   meeting,
@@ -208,6 +250,7 @@ const PageContent: React.FC<PageContentProps> = ({
               {meeting.title || 'Untitled session'}
             </h1>
           </div>
+          <BuyerCompanyInput meetingId={meetingId ?? null} initial={(meeting as any).buyerCompany ?? null} />
 
           {/* Right side - segment count + a single icon button. Figma has
              a row of 4 icons; we keep the count + a single share-like

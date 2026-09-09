@@ -242,6 +242,28 @@ builder.Services.AddSingleton<CallPilot.Server.Infrastructure.Products.ProductIn
 builder.Services.AddScoped<CallPilot.Server.Infrastructure.Products.ProductIntelService>();
 builder.Services.AddHostedService<CallPilot.Server.Infrastructure.AI.ProductIntelWorker>();
 
+// ── Slack integration ───────────────────────────────────────────────────────
+// SlackQueue mirrors ProductIntelQueue (singleton channel + single
+// background worker). Token storage is scoped (DbContext-backed); the API
+// client is a typed HttpClient with a 10s budget.
+builder.Services.AddSingleton<CallPilot.Server.Infrastructure.Integrations.ISlackQueue,
+    CallPilot.Server.Infrastructure.Integrations.SlackQueue>();
+builder.Services.AddScoped<CallPilot.Server.Infrastructure.Integrations.SlackTokenService>();
+builder.Services.AddScoped<CallPilot.Server.Infrastructure.Integrations.ISlackMessageBuilderService,
+    CallPilot.Server.Infrastructure.Integrations.SlackMessageBuilderService>();
+builder.Services.AddScoped<CallPilot.Server.Infrastructure.Integrations.SlackApiClient>();
+builder.Services.AddHostedService<CallPilot.Server.Infrastructure.Integrations.SlackWorker>();
+builder.Services.AddHttpClient("SlackOAuth", client =>
+{
+    client.BaseAddress = new Uri("https://slack.com/api/");
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+builder.Services.AddHttpClient("SlackApi", client =>
+{
+    client.BaseAddress = new Uri("https://slack.com/api/");
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<CacheService>();
 builder.Services.AddSingleton<MeetingDiagnosticsService>();
@@ -404,6 +426,7 @@ app.MapGet("/api/v1/meetings/{id:guid}", async (Guid id, CallPilotDbContext db, 
             startedAt = m.StartedAt,
             endedAt = m.EndedAt,
             folderPath = m.FolderPath,
+            buyerCompany = m.BuyerCompany,
             transcriptCount = db.TranscriptSegments.Count(ts => ts.MeetingId == m.Id),
             eventCount = db.ConversationEvents.Count(e => e.MeetingId == m.Id),
             recommendationCount = db.Recommendations.Count(r => r.MeetingId == m.Id)
@@ -461,6 +484,7 @@ app.MapPut("/api/v1/meetings/{id:guid}/summary", async (
     Guid id,
     CallPilotDbContext db,
     ClaimsPrincipal user,
+    CallPilot.Server.Infrastructure.Integrations.ISlackQueue slackQueue,
     SummaryUpsertRequest body) =>
 {
     var userIdClaim = user.FindFirst("userId")?.Value;
@@ -470,8 +494,45 @@ app.MapPut("/api/v1/meetings/{id:guid}/summary", async (
         .FirstOrDefaultAsync(m => m.Id == id && m.UserId == Guid.Parse(userIdClaim));
     if (meeting is null) return Results.NotFound(new { error = "Meeting not found" });
 
-    meeting.SetSummaryJson(body.Status, body.Data is null ? null : System.Text.Json.JsonSerializer.Serialize(body.Data));
+    var summaryJson = body.Data is null
+        ? null
+        : System.Text.Json.JsonSerializer.Serialize(body.Data);
+    meeting.SetSummaryJson(body.Status, summaryJson);
     await db.SaveChangesAsync();
+
+    // ── Slack side effects (fire-and-forget, never blocking the save) ────
+    // The summary is generated on-device and saved here; this is the single
+    // server-side moment where "summary ready" is observable.
+    if (summaryJson is not null)
+    {
+        var parsed = CallPilot.Server.Infrastructure.Integrations.SlackMessageBuilder.ParseSummaryData(summaryJson);
+
+        // Structured action items saved → ActionItems push.
+        if (parsed?.ActionItems is { Count: > 0 })
+        {
+            slackQueue.Enqueue(new CallPilot.Server.Infrastructure.Integrations.ActionItemsNotification
+            {
+                UserId = Guid.Parse(userIdClaim),
+                MeetingId = id,
+                BuyerCompany = meeting.BuyerCompany,
+                ActionItems = parsed.ActionItems,
+            });
+        }
+
+        // Always push the summary itself (unless the blob has neither a
+        // summary paragraph nor action items — nothing meaningful to post).
+        if (!string.IsNullOrWhiteSpace(parsed?.Summary) || parsed?.ActionItems is { Count: > 0 })
+        {
+            slackQueue.Enqueue(new CallPilot.Server.Infrastructure.Integrations.SummaryNotification
+            {
+                UserId = Guid.Parse(userIdClaim),
+                MeetingId = id,
+                BuyerCompany = meeting.BuyerCompany,
+                SummaryJson = summaryJson,
+            });
+        }
+    }
+
     return Results.Ok(new { id, status = body.Status });
 }).RequireAuthorization();
 
@@ -510,9 +571,11 @@ app.MapPatch("/api/v1/meetings/{id:guid}", async (
     if (body.Title is not null) meeting.SetTitle(body.Title);
     if (body.FolderPath is not null) meeting.SetFolderPath(body.FolderPath);
     if (body.MarkEnded == true) meeting.End();
+    // BuyerCompany is optional; empty string clears it (SetBuyerCompany nulls).
+    if (body.BuyerCompany is not null) meeting.SetBuyerCompany(body.BuyerCompany);
 
     await db.SaveChangesAsync();
-    return Results.Ok(new { id, title = meeting.Title, folderPath = meeting.FolderPath });
+    return Results.Ok(new { id, title = meeting.Title, folderPath = meeting.FolderPath, buyerCompany = meeting.BuyerCompany });
 }).RequireAuthorization();
 
 // ── Bulk-save final transcript segments for a meeting. Replaces desktop
@@ -595,6 +658,9 @@ app.MapPost("/api/v1/meetings/{id:guid}/transcripts", async (
     if (body.Title is not null) meeting.SetTitle(body.Title);
     if (body.FolderPath is not null) meeting.SetFolderPath(body.FolderPath);
     if (body.MarkEnded == true) meeting.End();
+    // Optional buyer-company from the recording-stop flow (Slack channel
+    // naming). Same "empty string clears" semantics as the PATCH endpoint.
+    if (body.BuyerCompany is not null) meeting.SetBuyerCompany(body.BuyerCompany);
 
     await db.SaveChangesAsync();
     return Results.Ok(new { id, savedSegments = body.Segments?.Count ?? 0 });
@@ -852,6 +918,7 @@ app.MapPost("/api/v1/meetings/{id:guid}/process", async (
     MeetingDiagnosticsService diagnostics,
     IHubContext<DesktopAgentHub> hubContext,
     CallPilot.Server.Infrastructure.Products.ProductIntelQueue productIntelQueue,
+    CallPilot.Server.Infrastructure.Integrations.ISlackQueue slackQueue,
     ProcessTextRequest body) =>
 {
     var userIdClaim = user.FindFirst("userId")?.Value;
@@ -923,6 +990,40 @@ app.MapPost("/api/v1/meetings/{id:guid}/process", async (
                 rec.Confidence,
                 rec.References,
                 rec.GeneratedAt
+            });
+
+            // ── Slack (fire-and-forget; second generation site — the /process
+            //    endpoint is how the e2e harness and injected transcripts
+            //    drive the pipeline, so Slack must cover it too).
+            var meeting = await db.Meetings.FindAsync(id);
+            slackQueue.Enqueue(new CallPilot.Server.Infrastructure.Integrations.BattleCardNotification
+            {
+                UserId = Guid.Parse(userIdClaim),
+                MeetingId = id,
+                RecommendationId = rec.Id,
+                Product = rec.Type == "ProductMentioned" ? (conversationEvent.EntityName ?? rec.Title) : rec.Title,
+                BuyerCompany = meeting?.BuyerCompany,
+                TalkingPoint = rec.TalkingPoint,
+                TriggerType = rec.TriggerType,
+                TriggerSpan = rec.TriggerSpan,
+                Priority = rec.Priority,
+                Confidence = rec.Confidence,
+                References = rec.References,
+            });
+        }
+
+        // Live signals: only the deal-critical event types, not every
+        // TechnicalQuestion/PricingQuestion (those already get battle cards).
+        if (evt.EventType is "Objection" or "CompetitorMentioned")
+        {
+            slackQueue.Enqueue(new CallPilot.Server.Infrastructure.Integrations.LiveSignalNotification
+            {
+                UserId = Guid.Parse(userIdClaim),
+                MeetingId = id,
+                EventType = evt.EventType,
+                EntityName = evt.EntityName,
+                SupportingTranscript = conversationEvent.SupportingTranscript,
+                Confidence = evt.Confidence,
             });
         }
     }
@@ -1230,6 +1331,217 @@ app.MapDelete("/api/v1/providers/{id:guid}", async (
     return Results.Ok(new { id, deleted = true });
 }).RequireAuthorization();
 
+// ── Slack integration (OAuth v2 + settings) ─────────────────────────────────
+//
+// First OAuth flow in the codebase. Bot token storage mirrors the BYOK
+// provider pattern: AES-256 encrypted at rest (ApiKeyEncryptionService),
+// plaintext never leaves the server (reads return a SafeMask'd display only).
+//
+// The desktop opens the authorize URL returned by /connect in the system
+// browser; Slack redirects back to /callback (unauthenticated — Slack's
+// servers hit it), which exchanges the code and persists the token. The
+// desktop then discovers the completed install by polling GET .../slack.
+
+const string SlackScopes = "chat:write,chat:write.public,channels:manage,groups:write,channels:read,groups:read,im:write";
+
+app.MapGet("/api/v1/integrations/slack", async (
+    ClaimsPrincipal user,
+    CallPilot.Server.Infrastructure.Integrations.SlackTokenService slackTokens,
+    IApiKeyEncryptionService encryption) =>
+{
+    var userId = ClaimsHelpers.ClaimsUserId(user);
+    if (userId is null) return Results.Unauthorized();
+
+    var integration = await slackTokens.GetAsync(userId.Value);
+    if (integration is null)
+    {
+        return Results.Ok(new
+        {
+            connected = false,
+            teamName = (string?)null,
+            teamId = (string?)null,
+            maskedToken = (string?)null,
+            installedAt = (DateTime?)null,
+            defaultChannelId = (string?)null,
+            notifyBattleCards = true,
+            notifyLiveSignals = true,
+            notifySummary = true,
+            notifyActionItems = true,
+        });
+    }
+
+    // Bot token NEVER leaves the server in plaintext — decrypt server-side
+    // purely to derive the masked display (same pattern as BYOK providers).
+    string maskedToken;
+    try
+    {
+        maskedToken = CallPilot.Server.Infrastructure.AI.ProviderSvc.SafeMask(
+            encryption.Decrypt(integration.EncryptedBotToken));
+    }
+    catch
+    {
+        maskedToken = "****";
+    }
+
+    return Results.Ok(new
+    {
+        connected = integration.IsActive,
+        teamName = integration.TeamName,
+        teamId = integration.TeamId,
+        maskedToken,
+        installedAt = integration.InstalledAt,
+        defaultChannelId = integration.DefaultChannelId,
+        integration.NotifyBattleCards,
+        integration.NotifyLiveSignals,
+        integration.NotifySummary,
+        integration.NotifyActionItems,
+    });
+}).RequireAuthorization();
+
+app.MapDelete("/api/v1/integrations/slack", async (
+    ClaimsPrincipal user,
+    CallPilot.Server.Infrastructure.Integrations.SlackTokenService slackTokens,
+    CallPilotDbContext db) =>
+{
+    var userId = ClaimsHelpers.ClaimsUserId(user);
+    if (userId is null) return Results.Unauthorized();
+
+    var integration = await slackTokens.GetAsync(userId.Value);
+    if (integration is null) return Results.NotFound(new { error = "Slack integration not connected" });
+
+    // Revoke + delete the row (token stops working for us immediately).
+    integration.Revoke();
+    db.SlackIntegrations.Remove(integration);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { id = integration.Id, deleted = true });
+}).RequireAuthorization();
+
+app.MapPut("/api/v1/integrations/slack/settings", async (
+    ClaimsPrincipal user,
+    SlackSettingsRequest body,
+    CallPilotDbContext db) =>
+{
+    var userId = ClaimsHelpers.ClaimsUserId(user);
+    if (userId is null) return Results.Unauthorized();
+
+    var integration = await db.SlackIntegrations
+        .FirstOrDefaultAsync(s => s.UserId == userId.Value);
+    if (integration is null) return Results.NotFound(new { error = "Slack integration not connected" });
+
+    integration.SetToggles(body.NotifyBattleCards, body.NotifyLiveSignals,
+        body.NotifySummary, body.NotifyActionItems);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { id = integration.Id });
+}).RequireAuthorization();
+
+app.MapGet("/api/v1/integrations/slack/connect", (
+    ClaimsPrincipal user,
+    IConfiguration configuration,
+    IApiKeyEncryptionService encryption) =>
+{
+    var userId = ClaimsHelpers.ClaimsUserId(user);
+    if (userId is null) return Results.Unauthorized();
+
+    var clientId = configuration["Slack:ClientId"];
+    var redirectUri = configuration["Slack:RedirectUri"];
+    if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(redirectUri))
+    {
+        return Results.Json(new { url = (string?)null, error = "Slack OAuth is not configured on this server" },
+            statusCode: 503);
+    }
+
+    // CSRF-safe state: AES-encrypt userId + unix timestamp. The callback
+    // decrypts it and rejects anything that doesn't decrypt to a fresh,
+    // valid userId (see the /callback handler).
+    var state = encryption.Encrypt($"{userId}|{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}");
+    var url = "https://slack.com/oauth/v2/authorize"
+              + $"?client_id={Uri.EscapeDataString(clientId)}"
+              + $"&scope={Uri.EscapeDataString(SlackScopes)}"
+              + $"&redirect_uri={Uri.EscapeDataString(redirectUri)}"
+              + $"&state={Uri.EscapeDataString(state)}";
+    return Results.Ok(new { url });
+}).RequireAuthorization();
+
+app.MapGet("/api/v1/integrations/slack/callback", async (
+    string? code,
+    string? state,
+    IHttpClientFactory httpClientFactory,
+    IConfiguration configuration,
+    IApiKeyEncryptionService encryption,
+    CallPilotDbContext db,
+    CallPilot.Server.Infrastructure.Integrations.SlackTokenService slackTokens) =>
+{
+    // No [RequireAuthorization]: Slack's servers hit this unauthenticated.
+    // The encrypted state IS the proof of an initiated install.
+    var errorPage = (string message) => Results.Content(
+        $"<html><body style='font-family:sans-serif;padding:40px'><h2>Slack connection failed</h2><p>{System.Net.WebUtility.HtmlEncode(message)}</p><p>You can close this window and return to CallPilot.</p></body></html>",
+        "text/html");
+
+    var clientId = configuration["Slack:ClientId"];
+    var clientSecret = configuration["Slack:ClientSecret"];
+    var redirectUri = configuration["Slack:RedirectUri"];
+    if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret) ||
+        string.IsNullOrWhiteSpace(redirectUri))
+    {
+        return errorPage("Slack OAuth is not configured on this server.");
+    }
+
+    // ── State validation: must decrypt to a fresh, valid userId. ──────────
+    if (string.IsNullOrWhiteSpace(state)) return Results.BadRequest(new { error = "missing state" });
+    Guid userId;
+    try
+    {
+        var decrypted = encryption.Decrypt(state);
+        var parts = decrypted.Split('|');
+        if (parts.Length != 2 || !Guid.TryParse(parts[0], out userId)) return Results.BadRequest(new { error = "invalid state" });
+        var issuedAt = DateTimeOffset.FromUnixTimeSeconds(long.Parse(parts[1]));
+        if (DateTimeOffset.UtcNow - issuedAt > TimeSpan.FromMinutes(10))
+        {
+            return Results.BadRequest(new { error = "state expired — restart the Slack connection from CallPilot" });
+        }
+    }
+    catch
+    {
+        // Garbage/forged state — reject before touching Slack.
+        return Results.BadRequest(new { error = "invalid state" });
+    }
+
+    var userExists = await db.Users.AnyAsync(u => u.Id == userId);
+    if (!userExists) return Results.BadRequest(new { error = "invalid state" });
+
+    if (string.IsNullOrWhiteSpace(code)) return errorPage("Slack did not return an authorization code.");
+
+    // ── Exchange the code for a bot token. ────────────────────────────────
+    var client = httpClientFactory.CreateClient("SlackOAuth");
+    var exchange = await client.PostAsync("oauth.v2.access", new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+        ["client_id"] = clientId,
+        ["client_secret"] = clientSecret,
+        ["code"] = code,
+        ["redirect_uri"] = redirectUri,
+    }));
+    if (!exchange.IsSuccessStatusCode)
+    {
+        return errorPage($"Slack token exchange failed (HTTP {(int)exchange.StatusCode}).");
+    }
+
+    var payload = await exchange.Content.ReadFromJsonAsync<CallPilot.Server.Infrastructure.Integrations.SlackOAuthResponse>();
+    if (payload is not { Ok: true } || string.IsNullOrWhiteSpace(payload.AccessToken))
+    {
+        return errorPage($"Slack rejected the install: {payload?.Error ?? "unknown error"}");
+    }
+
+    await slackTokens.SaveTokenAsync(userId, payload);
+
+    return Results.Content(
+        "<html><body style='font-family:sans-serif;padding:40px;text-align:center'>"
+        + "<h2>✅ Slack connected</h2>"
+        + $"<p>{System.Net.WebUtility.HtmlEncode(payload.Team?.Name ?? "Your workspace")} will now receive Reppify deal signals.</p>"
+        + "<p>You can close this window and return to CallPilot — the settings screen updates automatically.</p>"
+        + "</body></html>",
+        "text/html");
+});
+
 // ── Internal LLM proxy (used by AI Engine for competitive intel) ────────────
 
 // ── BYOK AI provider management (user-api-key settings) ───────────────
@@ -1413,12 +1725,20 @@ public record ProcessTextRequest(string text);
 public record MeetingUpdateRequest(
     string? Title,
     string? FolderPath,
-    bool? MarkEnded);
+    bool? MarkEnded,
+    string? BuyerCompany);
+
+public record SlackSettingsRequest(
+    bool NotifyBattleCards,
+    bool NotifyLiveSignals,
+    bool NotifySummary,
+    bool NotifyActionItems);
 
 public record BulkTranscriptRequest(
     string? Title,
     string? FolderPath,
     bool? MarkEnded,
+    string? BuyerCompany,
     List<BulkTranscriptSegment>? Segments,
     List<BulkSpeaker>? Speakers);
 

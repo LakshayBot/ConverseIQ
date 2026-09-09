@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { ArrowLeft, Settings2, Mic, Database as DatabaseIcon, SparkleIcon, FlaskConical, Library, KeyRound } from 'lucide-react';
+import { ArrowLeft, Settings2, Mic, Database as DatabaseIcon, SparkleIcon, FlaskConical, Library, KeyRound, Plug } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
 import { motion } from 'framer-motion';
@@ -13,6 +13,7 @@ import { PreferenceSettings } from '@/components/PreferenceSettings';
 import { BetaSettings } from '@/components/BetaSettings';
 import { CallPilotServerSettings } from '@/components/CallPilotServerSettings';
 import { AiProviderSettings } from '@/components/AiProviderSettings';
+import { IntegrationSettings } from '@/components/IntegrationSettings';
 import { KnowledgeUpload } from '@/components/KnowledgeUpload';
 import { useConfig } from '@/contexts/ConfigContext';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -25,6 +26,7 @@ const TABS = [
   { value: 'Transcriptionmodels', label: 'Transcription', icon: DatabaseIcon },
   { value: 'knowledge', label: 'Knowledge', icon: Library },
   { value: 'ai', label: 'AI & Keys', icon: KeyRound },
+  { value: 'integrations', label: 'Integrations', icon: Plug },
   { value: 'beta', label: 'Beta', icon: FlaskConical }
 ] as const;
 
@@ -149,6 +151,9 @@ export default function SettingsPage() {
             </TabsContent>
             <TabsContent value="ai" className="mt-6">
               <AiProviderSettings />
+            </TabsContent>
+            <TabsContent value="integrations" className="mt-6">
+              <IntegrationSettings />
             </TabsContent>
             <TabsContent value="beta" className="mt-6">
               <BetaSettings />

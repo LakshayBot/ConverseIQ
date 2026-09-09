@@ -28,6 +28,7 @@ public class CallPilotDbContext : DbContext
     public DbSet<DocumentEntity> DocumentEntities => Set<DocumentEntity>();
     public DbSet<CallPilot.Server.Domain.Products.ProductIntelligence> ProductIntelligences => Set<CallPilot.Server.Domain.Products.ProductIntelligence>();
     public DbSet<CallPilot.Server.Domain.Products.ProductSource> ProductSources => Set<CallPilot.Server.Domain.Products.ProductSource>();
+    public DbSet<CallPilot.Server.Domain.Integrations.SlackIntegration> SlackIntegrations => Set<CallPilot.Server.Domain.Integrations.SlackIntegration>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -124,6 +125,8 @@ public class CallPilotDbContext : DbContext
             entity.Property(m => m.Status).HasMaxLength(50).IsRequired();
             entity.Property(m => m.Title).HasMaxLength(500);
             entity.Property(m => m.FolderPath).HasMaxLength(1000);
+            entity.Property(m => m.BuyerCompany).HasMaxLength(300);
+            entity.HasIndex(m => m.BuyerCompany);
             entity.Property(m => m.SummaryJson).HasColumnType("text");
         });
 
@@ -285,6 +288,7 @@ public class CallPilotDbContext : DbContext
             entity.Property(r => r.TalkingPoint).HasColumnType("text");
             entity.Property(r => r.KeyFacts).HasColumnType("jsonb");
             entity.Property(r => r.Priority).HasMaxLength(10);
+            // Contextual matches: the matched chunk (Guid, nullable).
             entity.Property(r => r.TriggerSpan).HasColumnType("text");
             // "keyword" (event-detector default) | "contextual" (semantic match).
             entity.Property(r => r.TriggerType).HasMaxLength(20).IsRequired().HasDefaultValue("keyword");
@@ -342,6 +346,22 @@ public class CallPilotDbContext : DbContext
             entity.HasOne(s => s.ProductIntelligence)
                   .WithMany(p => p.Sources)
                   .HasForeignKey(s => s.ProductIntelligenceId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CallPilot.Server.Domain.Integrations.SlackIntegration>(entity =>
+        {
+            entity.HasKey(s => s.Id);
+            // One connection per user (re-install upserts in place).
+            entity.HasIndex(s => s.UserId).IsUnique();
+            entity.Property(s => s.EncryptedBotToken).HasMaxLength(1000).IsRequired();
+            entity.Property(s => s.TeamId).HasMaxLength(64).IsRequired();
+            entity.Property(s => s.TeamName).HasMaxLength(300).IsRequired();
+            entity.Property(s => s.BotUserId).HasMaxLength(64).IsRequired();
+            entity.Property(s => s.DefaultChannelId).HasMaxLength(64);
+            entity.HasOne<CallPilot.Server.Domain.Users.User>()
+                  .WithMany()
+                  .HasForeignKey(s => s.UserId)
                   .OnDelete(DeleteBehavior.Cascade);
         });
     }
